@@ -19,6 +19,7 @@ from .models import (
     KPMRItem,
     ProfilRisikoKorporatSummary,
     ProfilRisikoKorporatItem,
+    ProfilRisikoKorporatPenyebab,  # 🔥 WAJIB TAMBAH
     ProfilRisikoKorporatSumber,
     SasaranKBUMN,
     TaksonomiT3,
@@ -769,27 +770,46 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
     )
 
 
-class ProfilRisikoKorporatSumberInline(admin.TabularInline):
-    model = ProfilRisikoKorporatSumber
-    extra = 0
-    ordering = ("no_penyebab_risiko",)
+class ProfilRisikoKorporatPenyebabInline(admin.StackedInline):
+    model = ProfilRisikoKorporatPenyebab
+    extra = 1
+    ordering = ("urutan",)
+
     fields = (
-        "reassessment_item",
+        "urutan",
         "no_penyebab_risiko",
         "kode_penyebab_risiko",
         "penyebab_risiko",
-        "keterangan",
+        "key_risk_indicators",
+        "unit_satuan_kri",
+        "threshold_aman",
+        "threshold_hati_hati",
+        "threshold_bahaya",
+        "jenis_existing_control",
+        "existing_control",
+        "penilaian_efektivitas_kontrol",
+        "kategori_dampak",
+        "deskripsi_dampak",
+        "perkiraan_waktu_terpapar",
     )
+
     readonly_fields = (
         "no_penyebab_risiko",
         "kode_penyebab_risiko",
-        "penyebab_risiko",
     )
-    autocomplete_fields = ("reassessment_item",)
+
+    autocomplete_fields = (
+        "jenis_existing_control",
+        "penilaian_efektivitas_kontrol",
+        "kategori_dampak",
+    )
+
 
 
 @admin.register(ProfilRisikoKorporatItem)
 class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
+    inlines = [ProfilRisikoKorporatPenyebabInline]
+
     list_display = (
         "summary",
         "no_item",
@@ -804,6 +824,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "pemilik_risiko",
         "status",
     )
+
     list_filter = (
         "summary__tahun",
         "summary",
@@ -813,6 +834,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "taksonomi_t3",
         "status",
     )
+
     search_fields = (
         "summary__judul",
         "bumn__nama",
@@ -820,8 +842,6 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "sasaran_korporat",
         "peristiwa_risiko",
         "deskripsi_peristiwa_risiko",
-        "penyebab_risiko",
-        "key_risk_indicators",
         "pemilik_risiko",
         "sasaran_kbumn__kode",
         "sasaran_kbumn__nama",
@@ -830,25 +850,24 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "taksonomi_t3__kode",
         "taksonomi_t3__nama",
     )
+
     ordering = ("summary", "no_item")
-    inlines = [ProfilRisikoKorporatSumberInline]
+
     autocomplete_fields = (
         "bumn",
         "summary",
         "sasaran_kbumn",
         "kategori_risiko",
         "taksonomi_t3",
-        "jenis_existing_control",
-        "penilaian_efektivitas_kontrol",
-        "kategori_dampak",
     )
+
     readonly_fields = (
         "no_risiko",
         "level_risiko",
     )
 
     fieldsets = (
-        ("Header Risiko Korporat", {
+        ("Header Risiko", {
             "fields": (
                 "summary",
                 "no_item",
@@ -856,7 +875,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
                 "bumn",
             )
         }),
-        ("Klasifikasi Risiko", {
+        ("Klasifikasi", {
             "fields": (
                 "sasaran_korporat",
                 "sasaran_kbumn",
@@ -870,31 +889,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
                 "deskripsi_peristiwa_risiko",
             )
         }),
-        ("Penyebab & Key Risk Indicator", {
-            "fields": (
-                "penyebab_risiko",
-                "key_risk_indicators",
-                "unit_satuan_kri",
-                "threshold_aman",
-                "threshold_hati_hati",
-                "threshold_bahaya",
-            )
-        }),
-        ("Existing Control", {
-            "fields": (
-                "jenis_existing_control",
-                "existing_control",
-                "penilaian_efektivitas_kontrol",
-            )
-        }),
-        ("Dampak Risiko", {
-            "fields": (
-                "kategori_dampak",
-                "deskripsi_dampak",
-                "perkiraan_waktu_terpapar",
-            )
-        }),
-        ("Penilaian Risiko", {
+        ("Info Tambahan", {
             "fields": (
                 "dampak",
                 "kemungkinan",
@@ -903,14 +898,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
                 "status",
             )
         }),
-        ("Perlakuan Risiko", {
-            "classes": ("collapse",),
-            "fields": (
-                "perlakuan_risiko",
-            )
-        }),
     )
-
 
 @admin.register(ProfilRisikoKorporatSumber)
 class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
@@ -971,7 +959,6 @@ risk_admin_site.register(KPMRSummary, KPMRSummaryAdmin)
 risk_admin_site.register(KPMRItem, KPMRItemAdmin)
 risk_admin_site.register(ProfilRisikoKorporatSummary, ProfilRisikoKorporatSummaryAdmin)
 risk_admin_site.register(ProfilRisikoKorporatItem, ProfilRisikoKorporatItemAdmin)
-risk_admin_site.register(ProfilRisikoKorporatSumber, ProfilRisikoKorporatSumberAdmin)
 risk_admin_site.register(TaksonomiT3, TaksonomiT3Admin)
 risk_admin_site.register(KategoriRisiko, KategoriRisikoAdmin)
 risk_admin_site.register(SasaranKBUMN, SasaranKBUMNAdmin)

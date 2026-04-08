@@ -1359,6 +1359,7 @@ class ProfilRisikoKorporatItem(models.Model):
     )
 
     sasaran_korporat = models.TextField(verbose_name="Sasaran BUMN")
+
     sasaran_kbumn = models.ForeignKey(
         "SasaranKBUMN",
         on_delete=models.PROTECT,
@@ -1374,6 +1375,7 @@ class ProfilRisikoKorporatItem(models.Model):
         null=True,
         verbose_name="Kategori Risiko BUMN",
     )
+
     taksonomi_t3 = models.ForeignKey(
         "TaksonomiT3",
         on_delete=models.PROTECT,
@@ -1383,102 +1385,30 @@ class ProfilRisikoKorporatItem(models.Model):
     )
 
     peristiwa_risiko = models.TextField(verbose_name="Peristiwa Risiko")
+
     deskripsi_peristiwa_risiko = models.TextField(
         blank=True,
         null=True,
         verbose_name="Deskripsi Peristiwa Risiko",
     )
 
-    # sesuai lampiran setelah deskripsi peristiwa risiko
-    penyebab_risiko = models.TextField(
-        blank=True,
-        null=True,
-        verbose_name="Penyebab Risiko",
-    )
-    key_risk_indicators = models.TextField(
-        blank=True,
-        null=True,
-        verbose_name="Key Risk Indicators",
-    )
-    unit_satuan_kri = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        verbose_name="Unit Satuan KRI",
-    )
-    threshold_aman = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        verbose_name="Threshold KRI - Aman",
-    )
-    threshold_hati_hati = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        verbose_name="Threshold KRI - Hati-Hati",
-    )
-    threshold_bahaya = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        verbose_name="Threshold KRI - Bahaya",
-    )
-
-    jenis_existing_control = models.ForeignKey(
-        "MasterJenisExistingControl",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        verbose_name="Jenis Existing Control",
-    )
-    existing_control = models.TextField(
-        blank=True,
-        null=True,
-        verbose_name="Existing Control",
-    )
-    penilaian_efektivitas_kontrol = models.ForeignKey(
-        "MasterEfektivitasKontrol",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        verbose_name="Penilaian Efektivitas Kontrol",
-    )
-
-    kategori_dampak = models.ForeignKey(
-        "MasterKategoriDampak",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        verbose_name="Kategori Dampak",
-    )
-    deskripsi_dampak = models.TextField(
-        blank=True,
-        null=True,
-        verbose_name="Deskripsi Dampak",
-    )
-    perkiraan_waktu_terpapar = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        verbose_name="Perkiraan Waktu Terpapar Risiko",
-    )
-
+    # ========================
+    # PENILAIAN RISIKO (TETAP)
+    # ========================
     dampak = models.IntegerField(blank=True, null=True, verbose_name="Dampak")
     kemungkinan = models.IntegerField(blank=True, null=True, verbose_name="Kemungkinan")
     level_risiko = models.IntegerField(blank=True, null=True, verbose_name="Level Risiko")
 
-    perlakuan_risiko = models.TextField(
-        blank=True,
-        null=True,
-        verbose_name="Perlakuan Risiko",
-    )
+    # ========================
+    # INFO TAMBAHAN
+    # ========================
     pemilik_risiko = models.CharField(
         max_length=255,
         blank=True,
         null=True,
         verbose_name="Pemilik Risiko",
     )
+
     status = models.CharField(
         max_length=100,
         blank=True,
@@ -1527,6 +1457,102 @@ class ProfilRisikoKorporatItem(models.Model):
 
     def __str__(self):
         return f"{self.summary} - {self.no_item}"
+
+
+class ProfilRisikoKorporatPenyebab(models.Model):
+    risiko_korporat = models.ForeignKey(
+        "ProfilRisikoKorporatItem",
+        on_delete=models.CASCADE,
+        related_name="daftar_penyebab",
+        verbose_name="Risiko Korporat",
+    )
+
+    urutan = models.PositiveIntegerField(default=1, verbose_name="Urutan")
+
+    no_penyebab_risiko = models.CharField(
+        max_length=5,
+        blank=True,
+        verbose_name="No Penyebab",
+    )
+
+    kode_penyebab_risiko = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="Kode Penyebab Risiko",
+    )
+
+    # ========================
+    # PENYEBAB & KRI
+    # ========================
+    penyebab_risiko = models.TextField(blank=True, null=True)
+    key_risk_indicators = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Key Risk Indicators",
+    )
+    unit_satuan_kri = models.CharField(max_length=50, blank=True, null=True)
+
+    threshold_aman = models.CharField(max_length=50, blank=True, null=True)
+    threshold_hati_hati = models.CharField(max_length=50, blank=True, null=True)
+    threshold_bahaya = models.CharField(max_length=50, blank=True, null=True)
+
+    # ========================
+    # CONTROL
+    # ========================
+    jenis_existing_control = models.ForeignKey(
+        "MasterJenisExistingControl",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+
+    existing_control = models.TextField(blank=True, null=True)
+
+    penilaian_efektivitas_kontrol = models.ForeignKey(
+        "MasterEfektivitasKontrol",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+
+    # ========================
+    # DAMPAK
+    # ========================
+    kategori_dampak = models.ForeignKey(
+        "MasterKategoriDampak",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+
+    deskripsi_dampak = models.TextField(blank=True, null=True)
+
+    perkiraan_waktu_terpapar = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+    )
+
+    class Meta:
+        ordering = ["risiko_korporat", "urutan"]
+        verbose_name = "Penyebab Risiko"
+        verbose_name_plural = "Penyebab Risiko (Multi Input)"
+
+    def save(self, *args, **kwargs):
+        # Auto A, B, C, D
+        if not self.no_penyebab_risiko:
+            self.no_penyebab_risiko = string.ascii_uppercase[self.urutan - 1]
+
+        # Auto kode: 1-UBBES-1
+        if not self.kode_penyebab_risiko and self.risiko_korporat_id:
+            no_risiko = self.risiko_korporat.no_risiko or 0
+            bumn = self.risiko_korporat.bumn.kode if self.risiko_korporat.bumn else "BUMN"
+            self.kode_penyebab_risiko = f"{no_risiko}-{bumn}-{self.urutan}"
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.risiko_korporat} - {self.no_penyebab_risiko}"
 
 class ProfilRisikoKorporatSumber(models.Model):
     risiko_korporat = models.ForeignKey(
