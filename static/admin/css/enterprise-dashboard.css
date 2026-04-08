@@ -1,0 +1,127 @@
+.dashboard-page {
+    padding: 8px 4px 24px;
+  }
+  
+  .hero {
+    background: linear-gradient(135deg, #114b5f, #1a759f);
+    color: #fff;
+    border-radius: 20px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.12);
+  }
+  
+  .hero h1 {
+    margin: 0 0 8px;
+    font-size: 32px;
+    color: #fff;
+  }
+  
+  .hero p {
+    margin: 0;
+    opacity: .92;
+    font-size: 15px;
+  }
+  
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  
+  .stat-card {
+    background: #fff;
+    border-radius: 18px;
+    padding: 20px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .08);
+    border: 1px solid #e5e7eb;
+  }
+  
+  .stat-label {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  
+  .stat-value {
+    font-size: 34px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  
+  .section-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+  }
+  
+  .section-card {
+    background: #fff;
+    border-radius: 20px;
+    padding: 18px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .08);
+    border-top: 6px solid #1d4ed8;
+  }
+  
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  
+  .section-head h2 {
+    margin: 0;
+    font-size: 20px;
+    color: #0f172a;
+  }
+  
+  .badge {
+    display: inline-block;
+    margin-top: 8px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  
+  .section-links {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .section-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-decoration: none !important;
+    color: #1e293b !important;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+  
+  .section-link:hover {
+    background: #eef6ff;
+    border-color: #bfdbfe;
+  }
+  
+  .arrow {
+    font-weight: 700;
+    color: #2563eb;
+  }
+  
+  .section-km { border-top-color: #0f766e; }
+  .section-rkm { border-top-color: #2563eb; }
+  .section-reassessment { border-top-color: #dc2626; }
+  .section-kpmr { border-top-color: #7c3aed; }
+  .section-corporate { border-top-color: #b45309; }
+  .section-master { border-top-color: #475569; }
+  .section-auth { border-top-color: #0891b2; }

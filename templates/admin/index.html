@@ -1,0 +1,65 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+<link rel="stylesheet" href="{% static 'admin/css/enterprise-dashboard.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-page">
+  <div class="hero">
+    <div>
+      <h1>Dashboard Manajemen Risiko</h1>
+      <p>Enterprise overview untuk KM, RKM, Re-Assessment, KPMR, dan Korporat.</p>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">KM</div>
+      <div class="stat-value">{{ dashboard_stats.km }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">RKM</div>
+      <div class="stat-value">{{ dashboard_stats.rkm }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Re-Assessment</div>
+      <div class="stat-value">{{ dashboard_stats.reassessment }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">KPMR</div>
+      <div class="stat-value">{{ dashboard_stats.kpmr }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Korporat</div>
+      <div class="stat-value">{{ dashboard_stats.corporate }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Users</div>
+      <div class="stat-value">{{ dashboard_stats.users }}</div>
+    </div>
+  </div>
+
+  <div class="section-grid">
+    {% for section in dashboard_sections %}
+      <div class="section-card section-{{ section.color }}">
+        <div class="section-head">
+          <div>
+            <h2>{{ section.title }}</h2>
+            <span class="badge">{{ section.count }}</span>
+          </div>
+        </div>
+        <div class="section-links">
+          {% for item in section.items %}
+            <a href="{{ item.url }}" class="section-link">
+              <span>{{ item.label }}</span>
+              <span class="arrow">→</span>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

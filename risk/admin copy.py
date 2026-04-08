@@ -1,0 +1,793 @@
+from django.contrib import admin, messages
+from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
+from django.contrib.auth.models import Group
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import path, reverse
+from django.utils.html import format_html
+
+from .models import (
+    KontrakManajemen,
+    BagianKontrakManajemen,
+    ItemKontrakManajemen,
+    RKMSummary,
+    RKMItem,
+    ReAssessmentSummary,
+    ReAssessmentItem,
+    KPMRSummary,
+    KPMRItem,
+    ProfilRisikoKorporatSummary,
+    ProfilRisikoKorporatItem,
+    ProfilRisikoKorporatSumber,
+    SasaranKBUMN,
+    TaksonomiT3,
+    KategoriRisiko,
+    MasterJenisExistingControl,
+    MasterEfektivitasKontrol,
+    MasterKategoriDampak,
+    MasterSkalaDampak,
+    MasterSkalaProbabilitas,
+    MasterOpsiPerlakuanRisiko,
+    MasterJenisRencanaPerlakuanRisiko,
+    MasterPosAnggaran,
+    MasterJenisProgramRKAP,
+    MasterLevelRisiko,
+    RiskMatrix,
+    RiskMatrixCell,
+)
+    
+
+admin.site.site_header = "Manajemen Risiko PLN Batam"
+admin.site.site_title = "Manajemen Risiko PLN Batam"
+admin.site.index_title = "Dashboard Manajemen Risiko"
+
+
+# =========================================================
+# AUTH / GROUP
+# =========================================================
+
+try:
+    admin.site.unregister(Group)
+except admin.sites.NotRegistered:
+    pass
+
+
+Group._meta.verbose_name = "Bidang / Unit Bisnis"
+Group._meta.verbose_name_plural = "Bidang / Unit Bisnis"
+
+
+# =========================================================
+# MASTER REFERENCE
+# =========================================================
+
+@admin.register(MasterKategoriDampak)
+class MasterKategoriDampakAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterSkalaDampak)
+class MasterSkalaDampakAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterSkalaProbabilitas)
+class MasterSkalaProbabilitasAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterOpsiPerlakuanRisiko)
+class MasterOpsiPerlakuanRisikoAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterJenisRencanaPerlakuanRisiko)
+class MasterJenisRencanaPerlakuanRisikoAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterPosAnggaran)
+class MasterPosAnggaranAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterJenisProgramRKAP)
+class MasterJenisProgramRKAPAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterJenisExistingControl)
+class MasterJenisExistingControlAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterEfektivitasKontrol)
+class MasterEfektivitasKontrolAdmin(admin.ModelAdmin):
+    list_display = ("nama", "aktif", "urutan")
+    list_editable = ("aktif", "urutan")
+    search_fields = ("nama",)
+
+
+@admin.register(MasterLevelRisiko)
+class MasterLevelRisikoAdmin(admin.ModelAdmin):
+    list_display = ("kode", "nama", "urutan", "aktif")
+    search_fields = ("kode", "nama")
+    list_filter = ("aktif",)
+
+
+class RiskMatrixCellInline(admin.TabularInline):
+    model = RiskMatrixCell
+    extra = 0
+
+
+@admin.register(RiskMatrix)
+class RiskMatrixAdmin(admin.ModelAdmin):
+    list_display = ("kode", "nama", "ukuran", "is_default", "aktif")
+    list_filter = ("aktif", "is_default")
+    search_fields = ("kode", "nama")
+    inlines = [RiskMatrixCellInline]
+
+
+# =========================================================
+# MASTER DATA
+# =========================================================
+
+@admin.register(TaksonomiT3)
+class TaksonomiT3Admin(admin.ModelAdmin):
+    list_display = ("kode", "nama", "aktif")
+    search_fields = ("kode", "nama")
+    list_filter = ("aktif",)
+
+
+@admin.register(KategoriRisiko)
+class KategoriRisikoAdmin(admin.ModelAdmin):
+    list_display = ("kode", "nama", "aktif")
+    search_fields = ("kode", "nama")
+    list_filter = ("aktif",)
+
+
+@admin.register(SasaranKBUMN)
+class SasaranKBUMNAdmin(admin.ModelAdmin):
+    list_display = ("kode", "nama", "aktif")
+    search_fields = ("kode", "nama")
+    list_filter = ("aktif",)
+
+
+# =========================================================
+# KONTRAK MANAJEMEN
+# =========================================================
+
+class BagianKontrakInline(admin.TabularInline):
+    model = BagianKontrakManajemen
+    extra = 0
+    fields = ("kode_bagian", "nama_bagian")
+    show_change_link = False
+    verbose_name = ""
+    verbose_name_plural = "Bagian Kontrak Manajemen"
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        formset.form.__str__ = lambda self: ""
+        return formset
+
+
+@admin.register(KontrakManajemen)
+class KontrakManajemenAdmin(admin.ModelAdmin):
+    list_display = ("judul", "tahun", "unit_bisnis", "status", "dibuat_pada")
+    list_filter = ("tahun", "status", "unit_bisnis")
+    search_fields = ("judul", "unit_bisnis__name")
+    inlines = [BagianKontrakInline]
+
+
+class ItemKontrakInline(admin.TabularInline):
+    model = ItemKontrakManajemen
+    extra = 0
+    fields = (
+        "no_urut",
+        "indikator_kinerja_kunci",
+        "formula",
+        "satuan",
+        "target",
+        "bobot",
+    )
+    ordering = ("no_urut",)
+
+
+@admin.register(BagianKontrakManajemen)
+class BagianKontrakManajemenAdmin(admin.ModelAdmin):
+    list_display = ("kontrak", "kode_bagian", "nama_bagian")
+    list_filter = ("kontrak__tahun", "kontrak__unit_bisnis")
+    search_fields = ("kode_bagian", "nama_bagian", "kontrak__judul")
+    inlines = [ItemKontrakInline]
+
+
+@admin.register(ItemKontrakManajemen)
+class ItemKontrakManajemenAdmin(admin.ModelAdmin):
+    list_display = (
+        "bagian",
+        "no_urut",
+        "indikator_kinerja_kunci",
+        "formula",
+        "satuan",
+        "bobot",
+        "target",
+    )
+    list_filter = (
+        "bagian__kontrak__tahun",
+        "bagian__kontrak__unit_bisnis",
+    )
+    search_fields = (
+        "indikator_kinerja_kunci",
+        "formula",
+        "satuan",
+        "target",
+        "bagian__nama_bagian",
+        "bagian__kontrak__judul",
+    )
+    fields = (
+        "bagian",
+        "no_urut",
+        "indikator_kinerja_kunci",
+        "formula",
+        "satuan",
+        "target",
+        "bobot",
+    )
+
+
+# =========================================================
+# RKM
+# =========================================================
+
+class RKMItemInline(admin.TabularInline):
+    model = RKMItem
+    extra = 0
+    fields = (
+        "no_item",
+        "km_item",
+        "sasaran",
+        "target_bulanan",
+        "realisasi",
+        "deviasi",
+        "keterangan",
+    )
+    ordering = ("no_item",)
+
+
+@admin.register(RKMSummary)
+class RKMSummaryAdmin(admin.ModelAdmin):
+    list_display = (
+        "judul",
+        "tahun",
+        "bulan",
+        "unit_bisnis",
+        "kontrak_manajemen",
+        "status",
+        "status_pengajuan",
+        "generate_button",
+    )
+    list_filter = ("tahun", "bulan", "status", "status_pengajuan", "unit_bisnis")
+    search_fields = ("judul", "unit_bisnis__name", "kontrak_manajemen__judul")
+    inlines = [RKMItemInline]
+
+    fieldsets = (
+        ("Informasi Utama", {
+            "fields": (
+                "judul",
+                "tahun",
+                "bulan",
+                "unit_bisnis",
+                "kontrak_manajemen",
+                "status",
+            )
+        }),
+        ("Periode", {
+            "fields": (
+                "tanggal_mulai",
+                "tanggal_selesai",
+            )
+        }),
+        ("Pengajuan", {
+            "fields": (
+                "pic",
+                "deadline_pengajuan",
+                "tanggal_pengajuan",
+                "status_pengajuan",
+            )
+        }),
+    )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:rkm_id>/generate-items/",
+                self.admin_site.admin_view(self.generate_items_view),
+                name="risk_rkmsummary_generate_items",
+            ),
+        ]
+        return custom_urls + urls
+
+    def generate_button(self, obj):
+        url = reverse("admin:risk_rkmsummary_generate_items", args=[obj.pk])
+        return format_html(
+            '<a class="button" href="{}">Generate RKM dari KM</a>',
+            url
+        )
+    generate_button.short_description = "Generate"
+
+    def generate_items_view(self, request, rkm_id, *args, **kwargs):
+        rkm = get_object_or_404(RKMSummary, pk=rkm_id)
+        created_count = rkm.generate_items_from_km()
+
+        self.message_user(
+            request,
+            f"Berhasil generate {created_count} item RKM dari KM.",
+            level=messages.SUCCESS,
+        )
+
+        change_url = reverse("admin:risk_rkmsummary_change", args=[rkm.pk])
+        return redirect(change_url)
+
+
+@admin.register(RKMItem)
+class RKMItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "summary",
+        "no_item",
+        "km_item",
+        "sasaran",
+        "target_bulanan",
+        "realisasi",
+        "deviasi",
+    )
+    list_filter = ("summary__tahun", "summary__bulan", "summary__unit_bisnis")
+    search_fields = (
+        "summary__judul",
+        "km_item__indikator_kinerja_kunci",
+        "sasaran",
+    )
+
+
+# =========================================================
+# RE-ASSESSMENT
+# =========================================================
+
+class ReAssessmentItemInline(admin.TabularInline):
+    model = ReAssessmentItem
+    extra = 0
+    ordering = ("no_item",)
+
+    fields = (
+        "no_item",
+        "taksonomi_t3",
+        "sasaran_kbumn",
+        "kategori_risiko",
+        "no_risiko",
+        "peristiwa_risiko",
+        "deskripsi_peristiwa_risiko",
+        "no_penyebab_risiko",
+        "kode_penyebab_risiko",
+        "penyebab_risiko",
+        "key_risk_indicators",
+        "unit_satuan_kri",
+        "threshold_aman",
+        "threshold_hati_hati",
+        "threshold_bahaya",
+        "jenis_existing_control",
+        "existing_control",
+        "penilaian_efektivitas_kontrol",
+        "kategori_dampak",
+        "deskripsi_dampak",
+        "perkiraan_waktu_terpapar_risiko",
+        "asumsi_perhitungan_dampak",
+        "nilai_dampak",
+        "nilai_dampak_q1",
+        "nilai_dampak_q2",
+        "nilai_dampak_q3",
+        "nilai_dampak_q4",
+        "skala_dampak_q1",
+        "skala_dampak_q2",
+        "skala_dampak_q3",
+        "skala_dampak_q4",
+        "nilai_probabilitas",
+        "nilai_probabilitas_q1",
+        "nilai_probabilitas_q2",
+        "nilai_probabilitas_q3",
+        "nilai_probabilitas_q4",
+        "skala_probabilitas",
+        "skala_probabilitas_q1",
+        "skala_probabilitas_q2",
+        "skala_probabilitas_q3",
+        "skala_probabilitas_q4",
+        "eksposur_risiko_q1",
+        "eksposur_risiko_q2",
+        "eksposur_risiko_q3",
+        "eksposur_risiko_q4",
+        "skala_risiko_q1",
+        "skala_risiko_q2",
+        "skala_risiko_q3",
+        "skala_risiko_q4",
+        "level_nilai_risiko_q1",
+        "level_nilai_risiko_q2",
+        "level_nilai_risiko_q3",
+        "level_nilai_risiko_q4",
+        "opsi_perlakuan_risiko",
+        "jenis_rencana_perlakuan_risiko",
+        "rencana_perlakuan_risiko",
+        "output_perlakuan_risiko",
+        "biaya_perlakuan_risiko",
+        "pos_anggaran",
+        "prk",
+        "jenis_program_dalam_rkap",
+        "pic",
+        "timeline_1",
+        "timeline_2",
+        "timeline_3",
+        "timeline_4",
+        "timeline_5",
+        "timeline_6",
+        "timeline_7",
+        "timeline_8",
+        "timeline_9",
+        "timeline_10",
+        "timeline_11",
+        "timeline_12",
+    )
+
+    readonly_fields = (
+        "kode_penyebab_risiko",
+        "nilai_dampak_q1",
+        "nilai_probabilitas_q1",
+        "nilai_probabilitas_q2",
+        "nilai_probabilitas_q3",
+        "nilai_probabilitas_q4",
+        "eksposur_risiko_q1",
+        "eksposur_risiko_q2",
+        "eksposur_risiko_q3",
+        "eksposur_risiko_q4",
+        "skala_risiko_q1",
+        "skala_risiko_q2",
+        "skala_risiko_q3",
+        "skala_risiko_q4",
+        "level_nilai_risiko_q1",
+        "level_nilai_risiko_q2",
+        "level_nilai_risiko_q3",
+        "level_nilai_risiko_q4",
+    )
+
+
+@admin.register(ReAssessmentSummary)
+class ReAssessmentSummaryAdmin(admin.ModelAdmin):
+    list_display = (
+        "judul",
+        "tahun",
+        "unit_bisnis",
+        "kontrak_manajemen",
+        "dibuat_pada",
+    )
+    list_filter = ("tahun", "unit_bisnis")
+    search_fields = ("judul", "unit_bisnis__name", "kontrak_manajemen__judul")
+    inlines = [ReAssessmentItemInline]
+
+
+@admin.register(ReAssessmentItem)
+class ReAssessmentItemAdmin(admin.ModelAdmin):
+    fields = (
+        "summary",
+        "no_item",
+        "unit_bisnis",
+        "km_item",
+        "taksonomi_t3",
+        "sasaran_kbumn",
+        "kategori_risiko",
+        "no_risiko",
+        "peristiwa_risiko",
+        "deskripsi_peristiwa_risiko",
+        "no_penyebab_risiko",
+        "kode_penyebab_risiko",
+        "penyebab_risiko",
+        "key_risk_indicators",
+        "unit_satuan_kri",
+        "threshold_aman",
+        "threshold_hati_hati",
+        "threshold_bahaya",
+        "jenis_existing_control",
+        "existing_control",
+        "penilaian_efektivitas_kontrol",
+        "kategori_dampak",
+        "deskripsi_dampak",
+        "perkiraan_waktu_terpapar_risiko",
+        "asumsi_perhitungan_dampak",
+        "nilai_dampak",
+        "nilai_dampak_q1",
+        "nilai_dampak_q2",
+        "nilai_dampak_q3",
+        "nilai_dampak_q4",
+        "skala_dampak_q1",
+        "skala_dampak_q2",
+        "skala_dampak_q3",
+        "skala_dampak_q4",
+        "nilai_probabilitas",
+        "nilai_probabilitas_q1",
+        "nilai_probabilitas_q2",
+        "nilai_probabilitas_q3",
+        "nilai_probabilitas_q4",
+        "skala_probabilitas",
+        "skala_probabilitas_q1",
+        "skala_probabilitas_q2",
+        "skala_probabilitas_q3",
+        "skala_probabilitas_q4",
+        "eksposur_risiko_q1",
+        "eksposur_risiko_q2",
+        "eksposur_risiko_q3",
+        "eksposur_risiko_q4",
+        "skala_risiko_q1",
+        "skala_risiko_q2",
+        "skala_risiko_q3",
+        "skala_risiko_q4",
+        "level_nilai_risiko_q1",
+        "level_nilai_risiko_q2",
+        "level_nilai_risiko_q3",
+        "level_nilai_risiko_q4",
+        "opsi_perlakuan_risiko",
+        "jenis_rencana_perlakuan_risiko",
+        "rencana_perlakuan_risiko",
+        "output_perlakuan_risiko",
+        "biaya_perlakuan_risiko",
+        "pos_anggaran",
+        "prk",
+        "jenis_program_dalam_rkap",
+        "pic",
+        "timeline_1",
+        "timeline_2",
+        "timeline_3",
+        "timeline_4",
+        "timeline_5",
+        "timeline_6",
+        "timeline_7",
+        "timeline_8",
+        "timeline_9",
+        "timeline_10",
+        "timeline_11",
+        "timeline_12",
+    )
+
+    readonly_fields = (
+        "kode_penyebab_risiko",
+        "nilai_dampak_q1",
+        "nilai_probabilitas_q1",
+        "nilai_probabilitas_q2",
+        "nilai_probabilitas_q3",
+        "nilai_probabilitas_q4",
+        "eksposur_risiko_q1",
+        "eksposur_risiko_q2",
+        "eksposur_risiko_q3",
+        "eksposur_risiko_q4",
+        "skala_risiko_q1",
+        "skala_risiko_q2",
+        "skala_risiko_q3",
+        "skala_risiko_q4",
+        "level_nilai_risiko_q1",
+        "level_nilai_risiko_q2",
+        "level_nilai_risiko_q3",
+        "level_nilai_risiko_q4",
+    )
+
+    list_display = (
+        "summary",
+        "no_item",
+        "unit_bisnis",
+        "km_item",
+        "sasaran_kbumn",
+        "taksonomi_t3",
+        "kategori_risiko",
+        "no_risiko",
+    )
+    list_filter = (
+        "summary__tahun",
+        "summary__unit_bisnis",
+        "sasaran_kbumn",
+        "taksonomi_t3",
+        "kategori_risiko",
+    )
+    search_fields = (
+        "peristiwa_risiko",
+        "deskripsi_peristiwa_risiko",
+        "km_item__indikator_kinerja_kunci",
+        "sasaran_kbumn__kode",
+        "sasaran_kbumn__nama",
+        "taksonomi_t3__kode",
+        "taksonomi_t3__nama",
+        "kategori_risiko__kode",
+        "kategori_risiko__nama",
+    )
+
+
+# =========================================================
+# KPMR
+# =========================================================
+
+class KPMRItemInline(admin.TabularInline):
+    model = KPMRItem
+    extra = 0
+    fields = (
+        "no_item",
+        "reassessment_item",
+        "perlakuan_risiko",
+        "bukti",
+        "nilai_kpmr",
+        "status_kpmr",
+        "catatan",
+    )
+    ordering = ("no_item",)
+
+
+@admin.register(KPMRSummary)
+class KPMRSummaryAdmin(admin.ModelAdmin):
+    list_display = (
+        "judul",
+        "tahun",
+        "unit_bisnis",
+        "reassessment",
+        "dibuat_pada",
+    )
+    list_filter = ("tahun", "unit_bisnis")
+    search_fields = ("judul", "unit_bisnis__name", "reassessment__judul")
+    inlines = [KPMRItemInline]
+
+
+@admin.register(KPMRItem)
+class KPMRItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "summary",
+        "no_item",
+        "reassessment_item",
+        "status_kpmr",
+        "nilai_kpmr",
+    )
+    list_filter = (
+        "summary__tahun",
+        "summary__unit_bisnis",
+        "status_kpmr",
+    )
+    search_fields = (
+        "reassessment_item__peristiwa_risiko",
+        "perlakuan_risiko",
+        "catatan",
+    )
+
+
+# =========================================================
+# PROFIL RISIKO KORPORAT
+# =========================================================
+
+class ProfilRisikoKorporatItemInline(admin.TabularInline):
+    model = ProfilRisikoKorporatItem
+    extra = 0
+    fields = (
+        "no_item",
+        "sasaran_korporat",
+        "kategori_risiko",
+        "taksonomi_t3",
+        "dampak",
+        "kemungkinan",
+        "level_risiko",
+        "pemilik_risiko",
+        "status",
+    )
+    ordering = ("no_item",)
+
+
+@admin.register(ProfilRisikoKorporatSummary)
+class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
+    list_display = ("judul", "tahun", "nama_perusahaan", "status", "dibuat_pada")
+    list_filter = ("tahun", "status")
+    search_fields = ("judul", "nama_perusahaan")
+    inlines = [ProfilRisikoKorporatItemInline]
+
+
+class ProfilRisikoKorporatSumberInline(admin.TabularInline):
+    model = ProfilRisikoKorporatSumber
+    extra = 0
+    fields = ("reassessment_item", "keterangan")
+
+
+@admin.register(ProfilRisikoKorporatItem)
+class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "summary",
+        "no_item",
+        "sasaran_korporat",
+        "kategori_risiko",
+        "taksonomi_t3",
+        "level_risiko",
+        "pemilik_risiko",
+        "status",
+    )
+    list_filter = (
+        "summary__tahun",
+        "kategori_risiko",
+        "taksonomi_t3",
+    )
+    search_fields = (
+        "sasaran_korporat",
+        "peristiwa_risiko",
+        "pemilik_risiko",
+    )
+    inlines = [ProfilRisikoKorporatSumberInline]
+
+
+@admin.register(Group)
+class CustomGroupAdmin(BaseGroupAdmin):
+    list_display = ("nama_bidang_unit",)
+    search_fields = ("name",)
+    ordering = ("name",)
+
+    @admin.display(ordering="name", description="BIDANG / UNIT BISNIS")
+    def nama_bidang_unit(self, obj):
+        return obj.name
+
+@admin.register(ProfilRisikoKorporatSumber)
+class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
+    list_display = ("risiko_korporat", "reassessment_item")
+    search_fields = (
+        "risiko_korporat__sasaran_korporat",
+        "reassessment_item__peristiwa_risiko",
+    )
+
+from riskproject.admin_site import risk_admin_site
+from django.contrib.auth.models import Group, User
+
+# register auth
+try:
+    risk_admin_site.register(User)
+except Exception:
+    pass
+
+try:
+    risk_admin_site.register(Group)
+except Exception:
+    pass
+
+# register semua model admin class Anda
+risk_admin_site.register(KontrakManajemen, KontrakManajemenAdmin)
+risk_admin_site.register(BagianKontrakManajemen, BagianKontrakManajemenAdmin)
+risk_admin_site.register(ItemKontrakManajemen, ItemKontrakManajemenAdmin)
+risk_admin_site.register(RKMSummary, RKMSummaryAdmin)
+risk_admin_site.register(RKMItem, RKMItemAdmin)
+risk_admin_site.register(ReAssessmentSummary, ReAssessmentSummaryAdmin)
+risk_admin_site.register(ReAssessmentItem, ReAssessmentItemAdmin)
+risk_admin_site.register(KPMRSummary, KPMRSummaryAdmin)
+risk_admin_site.register(KPMRItem, KPMRItemAdmin)
+risk_admin_site.register(ProfilRisikoKorporatSummary, ProfilRisikoKorporatSummaryAdmin)
+risk_admin_site.register(ProfilRisikoKorporatItem, ProfilRisikoKorporatItemAdmin)
+risk_admin_site.register(ProfilRisikoKorporatSumber, ProfilRisikoKorporatSumberAdmin)
+risk_admin_site.register(TaksonomiT3, TaksonomiT3Admin)
+risk_admin_site.register(KategoriRisiko, KategoriRisikoAdmin)
+risk_admin_site.register(SasaranKBUMN, SasaranKBUMNAdmin)
+risk_admin_site.register(MasterJenisExistingControl, MasterJenisExistingControlAdmin)
+risk_admin_site.register(MasterEfektivitasKontrol, MasterEfektivitasKontrolAdmin)
+risk_admin_site.register(MasterKategoriDampak, MasterKategoriDampakAdmin)
+risk_admin_site.register(MasterSkalaDampak, MasterSkalaDampakAdmin)
+risk_admin_site.register(MasterSkalaProbabilitas, MasterSkalaProbabilitasAdmin)
+risk_admin_site.register(MasterOpsiPerlakuanRisiko, MasterOpsiPerlakuanRisikoAdmin)
+risk_admin_site.register(MasterJenisRencanaPerlakuanRisiko, MasterJenisRencanaPerlakuanRisikoAdmin)
+risk_admin_site.register(MasterPosAnggaran, MasterPosAnggaranAdmin)
+risk_admin_site.register(MasterJenisProgramRKAP, MasterJenisProgramRKAPAdmin)
+risk_admin_site.register(MasterLevelRisiko, MasterLevelRisikoAdmin)
+risk_admin_site.register(RiskMatrix, RiskMatrixAdmin)
