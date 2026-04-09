@@ -7,6 +7,8 @@ from django.utils.html import format_html
 
 from masterdata.models import MasterBUMN
 
+from decimal import Decimal
+
 from .models import (
     KontrakManajemen,
     BagianKontrakManajemen,
@@ -37,6 +39,8 @@ from .models import (
     RiskMatrix,
     RiskMatrixCell,
     PenugasanUnitBisnis,
+    RisikoInherenKuantitatif,
+    RencanaPerlakuanRisikoKorporat,
 )
 from riskproject.admin_site import risk_admin_site
 
@@ -66,40 +70,6 @@ Group._meta.verbose_name_plural = "Bidang / Unit Bisnis"
 
 class PenugasanUnitBisnisUserInline(admin.TabularInline):
     model = PenugasanUnitBisnis
-    extra = 0
-    fk_name = "user"
-    fields = ("unit_bisnis", "peran", "aktif")
-    autocomplete_fields = ("unit_bisnis",)
-    verbose_name = "Penugasan Unit Bisnis"
-    verbose_name_plural = "Penugasan Unit Bisnis"
-
-
-class PenugasanUnitBisnisGroupInline(admin.TabularInline):
-    model = PenugasanUnitBisnis
-    extra = 0
-    fk_name = "unit_bisnis"
-    fields = ("user", "peran", "aktif")
-    autocomplete_fields = ("user",)
-    verbose_name = "Personel Unit Bisnis"
-    verbose_name_plural = "Personel Unit Bisnis"
-
-@admin.register(Group)
-class CustomGroupAdmin(BaseGroupAdmin):
-    inlines = [PenugasanUnitBisnisGroupInline]
-    list_display = ("name",)
-    search_fields = ("name",)
-    ordering = ("name",)
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).order_by("name")
-
-
-# =========================================================
-# MASTER REFERENCE
-# =========================================================
-
-class PenugasanUnitBisnisUserInline(admin.TabularInline):
-    model = PenugasanUnitBisnis
     fk_name = "user"
     extra = 0
     autocomplete_fields = ("unit_bisnis",)
@@ -116,6 +86,17 @@ class PenugasanUnitBisnisGroupInline(admin.TabularInline):
     ordering = ("peran", "user")
 
 
+@admin.register(Group)
+class CustomGroupAdmin(BaseGroupAdmin):
+    inlines = [PenugasanUnitBisnisGroupInline]
+    list_display = ("name",)
+    search_fields = ("name",)
+    ordering = ("name",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).order_by("name")
+
+
 @admin.register(User)
 class CustomUserAdmin(BaseUserAdmin):
     inlines = [PenugasanUnitBisnisUserInline]
@@ -126,9 +107,17 @@ class CustomUserAdmin(BaseUserAdmin):
 class PenugasanUnitBisnisAdmin(admin.ModelAdmin):
     list_display = ("user", "unit_bisnis", "peran", "aktif", "dibuat_pada")
     list_filter = ("peran", "aktif", "unit_bisnis")
-    search_fields = ("user__username", "user__first_name", "user__last_name", "user__email", "unit_bisnis__name")
+    search_fields = (
+        "user__username",
+        "user__first_name",
+        "user__last_name",
+        "user__email",
+        "unit_bisnis__name",
+    )
     autocomplete_fields = ("user", "unit_bisnis")
     ordering = ("unit_bisnis__name", "peran", "user__username")
+
+
 
 
 @admin.register(MasterKategoriDampak)
@@ -805,7 +794,6 @@ class ProfilRisikoKorporatItemInline(admin.TabularInline):
     )
     autocomplete_fields = ("bumn", "sasaran_kbumn", "kategori_risiko", "taksonomi_t3")
 
-
 @admin.register(ProfilRisikoKorporatSummary)
 class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
     list_display = (
@@ -872,10 +860,73 @@ class ProfilRisikoKorporatPenyebabInline(admin.StackedInline):
     )
 
 
+class RisikoInherenKuantitatifInline(admin.StackedInline):
+    model = RisikoInherenKuantitatif
+    extra = 0
+    max_num = 1
+
+    fields = (
+        "nilai_dampak",
+        "probabilitas",
+        "eksposur",
+        "keterangan",
+    )
+
+    readonly_fields = (
+        "eksposur",
+    )
+
+
+class RencanaPerlakuanRisikoKorporatInline(admin.StackedInline):
+    model = RencanaPerlakuanRisikoKorporat
+    extra = 1
+    ordering = ("urutan",)
+
+    fields = (
+        "urutan",
+        "opsi_perlakuan_risiko",
+        "jenis_rencana_perlakuan_risiko",
+        "rencana_perlakuan_risiko",
+        "output_perlakuan_risiko",
+        "biaya_perlakuan_risiko",
+        "pos_anggaran",
+        "prk",
+        "jenis_program_dalam_rkap",
+        "pic",
+        "timeline_1",
+        "timeline_2",
+        "timeline_3",
+        "timeline_4",
+        "timeline_5",
+        "timeline_6",
+        "timeline_7",
+        "timeline_8",
+        "timeline_9",
+        "timeline_10",
+        "timeline_11",
+        "timeline_12",
+        "status",
+        "keterangan",
+    )
+
+    autocomplete_fields = (
+        "opsi_perlakuan_risiko",
+        "pos_anggaran",
+        "jenis_program_dalam_rkap",
+    )
+
+    filter_horizontal = (
+        "jenis_rencana_perlakuan_risiko",
+    )
+
 
 @admin.register(ProfilRisikoKorporatItem)
 class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
-    inlines = [ProfilRisikoKorporatPenyebabInline]
+    inlines = [
+        RisikoInherenKuantitatifInline,
+        ProfilRisikoKorporatPenyebabInline,
+        RencanaPerlakuanRisikoKorporatInline,
+    ]
 
     list_display = (
         "summary",
@@ -959,11 +1010,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
                 "deskripsi_peristiwa_risiko",
             )
         }),
-<<<<<<< HEAD
-        ("Info Tambahan", {
-=======
         ("Penilaian Inheren", {
->>>>>>> a172475 (Fix LDAP)
             "fields": (
                 "dampak",
                 "kemungkinan",
@@ -986,11 +1033,9 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
             )
         }),
     )
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> a172475 (Fix LDAP)
+
+
 @admin.register(ProfilRisikoKorporatSumber)
 class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
     list_display = (

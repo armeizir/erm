@@ -1474,14 +1474,6 @@ class ProfilRisikoKorporatItem(models.Model):
         verbose_name="Deskripsi Peristiwa Risiko",
     )
 
-    # ========================
-    # PENILAIAN RISIKO (TETAP)
-    # ========================
-<<<<<<< HEAD
-    dampak = models.IntegerField(blank=True, null=True, verbose_name="Dampak")
-    kemungkinan = models.IntegerField(blank=True, null=True, verbose_name="Kemungkinan")
-    level_risiko = models.IntegerField(blank=True, null=True, verbose_name="Level Risiko")
-=======
     dampak = models.IntegerField(blank=True, null=True, verbose_name="Dampak Inheren")
     kemungkinan = models.IntegerField(blank=True, null=True, verbose_name="Kemungkinan Inheren")
     level_risiko = models.IntegerField(blank=True, null=True, verbose_name="Level Risiko Inheren")
@@ -1505,11 +1497,7 @@ class ProfilRisikoKorporatItem(models.Model):
         related_name="profil_risiko_korporat_residual",
         verbose_name="Sel Matriks Residual",
     )
->>>>>>> a172475 (Fix LDAP)
 
-    # ========================
-    # INFO TAMBAHAN
-    # ========================
     pemilik_risiko = models.CharField(
         max_length=255,
         blank=True,
@@ -1541,7 +1529,10 @@ class ProfilRisikoKorporatItem(models.Model):
 
     @staticmethod
     def _get_default_matrix():
-        return RiskMatrix.objects.filter(is_default=True, aktif=True).first() or RiskMatrix.objects.filter(aktif=True).first()
+        return (
+            RiskMatrix.objects.filter(is_default=True, aktif=True).first()
+            or RiskMatrix.objects.filter(aktif=True).first()
+        )
 
     @classmethod
     def _resolve_matrix_cell(cls, matrix, dampak, kemungkinan):
@@ -1573,15 +1564,31 @@ class ProfilRisikoKorporatItem(models.Model):
             self.no_risiko = last_no + 1
 
         matrix = self._get_default_matrix()
-        self._sync_matrix_values(matrix, self.dampak, self.kemungkinan, "matrix_cell_inheren", "level_risiko")
-        self._sync_matrix_values(matrix, self.residual_dampak, self.residual_kemungkinan, "matrix_cell_residual", "residual_level_risiko")
+        self._sync_matrix_values(
+            matrix, self.dampak, self.kemungkinan,
+            "matrix_cell_inheren", "level_risiko"
+        )
+        self._sync_matrix_values(
+            matrix, self.residual_dampak, self.residual_kemungkinan,
+            "matrix_cell_residual", "residual_level_risiko"
+        )
 
         super().save(*args, **kwargs)
 
     def get_mode_tuple(self, mode="inheren"):
         if mode == "residual":
-            return self.residual_dampak, self.residual_kemungkinan, self.residual_level_risiko, self.matrix_cell_residual
-        return self.dampak, self.kemungkinan, self.level_risiko, self.matrix_cell_inheren
+            return (
+                self.residual_dampak,
+                self.residual_kemungkinan,
+                self.residual_level_risiko,
+                self.matrix_cell_residual,
+            )
+        return (
+            self.dampak,
+            self.kemungkinan,
+            self.level_risiko,
+            self.matrix_cell_inheren,
+        )
 
     def get_level_name(self, mode="inheren"):
         cell = self.matrix_cell_residual if mode == "residual" else self.matrix_cell_inheren
@@ -1701,6 +1708,158 @@ class ProfilRisikoKorporatPenyebab(models.Model):
 
     def __str__(self):
         return f"{self.risiko_korporat} - {self.no_penyebab_risiko}"
+
+class RisikoInherenKuantitatif(models.Model):
+    risiko_korporat = models.OneToOneField(
+        "ProfilRisikoKorporatItem",
+        on_delete=models.CASCADE,
+        related_name="inheren_kuantitatif",
+        verbose_name="Risiko Korporat",
+    )
+
+    nilai_dampak = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Nilai Dampak",
+    )
+    probabilitas = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Probabilitas (%)",
+    )
+    eksposur = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Eksposur Risiko",
+    )
+    keterangan = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Keterangan",
+    )
+
+    class Meta:
+        verbose_name = "Risiko Inheren Kuantitatif"
+        verbose_name_plural = "KORPORAT — Risiko Inheren Kuantitatif"
+
+    def save(self, *args, **kwargs):
+        if self.nilai_dampak is not None and self.probabilitas is not None:
+            self.eksposur = (
+                self.nilai_dampak * (self.probabilitas / Decimal("100"))
+            ).quantize(Decimal("0.01"))
+        else:
+            self.eksposur = None
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Kuantitatif - {self.risiko_korporat}"
+
+
+class RencanaPerlakuanRisikoKorporat(models.Model):
+    risiko_korporat = models.ForeignKey(
+        "ProfilRisikoKorporatItem",
+        on_delete=models.CASCADE,
+        related_name="rencana_perlakuan_items",
+        verbose_name="Risiko Korporat",
+    )
+
+    urutan = models.PositiveIntegerField(default=1, verbose_name="Urutan")
+
+    opsi_perlakuan_risiko = models.ForeignKey(
+        "MasterOpsiPerlakuanRisiko",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Opsi Perlakuan Risiko",
+    )
+    jenis_rencana_perlakuan_risiko = models.ManyToManyField(
+        "MasterJenisRencanaPerlakuanRisiko",
+        blank=True,
+        verbose_name="Jenis Rencana Perlakuan Risiko",
+    )
+    rencana_perlakuan_risiko = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="Rencana Perlakuan Risiko",
+    )
+    output_perlakuan_risiko = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="Output Perlakuan Risiko",
+    )
+    biaya_perlakuan_risiko = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Biaya Perlakuan Risiko",
+    )
+    pos_anggaran = models.ForeignKey(
+        "MasterPosAnggaran",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Pos Anggaran",
+    )
+    prk = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name="PRK",
+    )
+    jenis_program_dalam_rkap = models.ForeignKey(
+        "MasterJenisProgramRKAP",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Jenis Program Dalam RKAP",
+    )
+    pic = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        verbose_name="PIC",
+    )
+
+    timeline_1 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 1")
+    timeline_2 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 2")
+    timeline_3 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 3")
+    timeline_4 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 4")
+    timeline_5 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 5")
+    timeline_6 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 6")
+    timeline_7 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 7")
+    timeline_8 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 8")
+    timeline_9 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 9")
+    timeline_10 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 10")
+    timeline_11 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 11")
+    timeline_12 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 12")
+
+    status = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name="Status",
+    )
+    keterangan = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="Keterangan",
+    )
+
+    class Meta:
+        verbose_name = "Rencana Perlakuan Risiko Korporat"
+        verbose_name_plural = "KORPORAT — Rencana Perlakuan Risiko"
+        ordering = ["risiko_korporat", "urutan"]
+
+    def __str__(self):
+        return f"Rencana Perlakuan - {self.risiko_korporat} - {self.urutan}"
+
 
 class ProfilRisikoKorporatSumber(models.Model):
     risiko_korporat = models.ForeignKey(
