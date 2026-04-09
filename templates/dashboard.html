@@ -1,18 +1,342 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-    <title>Dashboard Manajemen Risiko PLN Batam</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }}</title>
+    <style>
+        :root {
+            --bg: #f3f6fb;
+            --panel: #ffffff;
+            --text: #183153;
+            --muted: #6b7a90;
+            --border: #d9e1ec;
+            --shadow: 0 12px 30px rgba(24, 49, 83, 0.08);
+            --navy: #0d2e5e;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); }
+        .page { max-width: 1440px; margin: 0 auto; padding: 24px; }
+        .hero {
+            background: linear-gradient(135deg, #0d2e5e, #1d4e89);
+            color: #fff; border-radius: 20px; padding: 24px 28px; box-shadow: var(--shadow); margin-bottom: 20px;
+        }
+        .hero h1 { margin: 0 0 8px; font-size: 30px; }
+        .hero p { margin: 0; color: rgba(255,255,255,0.9); max-width: 1020px; line-height: 1.5; }
+        .filters, .stats, .content { display: grid; gap: 16px; }
+        .filters { grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 20px; }
+        .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
+        .filter-card, .matrix-card, .detail-card, .table-card { padding: 18px; }
+        .filter-card label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
+        .filter-card select, .button {
+            width: 100%; border-radius: 12px; border: 1px solid var(--border); padding: 12px 14px;
+            background: #fff; color: var(--text); font-size: 14px; text-decoration: none; display: inline-block;
+        }
+        .button { text-align: center; font-weight: 700; cursor: pointer; }
+        .button.primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+        .button.soft { background: #edf2f8; color: var(--text); }
+        .button-row { display: grid; gap: 10px; margin-top: 21px; }
+        .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 20px; }
+        .stat-card { padding: 18px; }
+        .stat-label { color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .stat-value { margin-top: 8px; font-size: 30px; font-weight: 800; }
+        .content { grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr); align-items: start; margin-bottom: 20px; }
+        .section-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }
+        .section-title h2 { margin: 0; font-size: 22px; }
+        .section-title span { color: var(--muted); font-size: 14px; }
+        .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+        .legend-item { display: inline-flex; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; background: #fff; }
+        .legend-swatch { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.08); }
+        .matrix-wrapper { overflow-x: auto; }
+        table.matrix-table { width: 100%; border-collapse: separate; border-spacing: 8px; min-width: 780px; }
+        .matrix-table th, .matrix-table td { text-align: center; vertical-align: top; }
+        .axis-title { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .impact-label, .likelihood-label { background: #eef3f8; border-radius: 14px; padding: 12px 10px; font-size: 12px; color: var(--text); min-width: 120px; }
+        .cell-button {
+            width: 100%; min-height: 120px; border: none; border-radius: 18px; padding: 12px; color: #18212f;
+            cursor: pointer; text-align: left; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06);
+        }
+        .cell-button:hover, .cell-button.active {
+            transform: translateY(-1px); box-shadow: 0 10px 24px rgba(0,0,0,0.08), inset 0 0 0 2px rgba(13,46,94,0.35);
+        }
+        .cell-score { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+        .cell-count { font-size: 32px; font-weight: 800; line-height: 1; }
+        .cell-level { margin-top: 8px; font-size: 13px; font-weight: 700; }
+        .detail-list { display: grid; gap: 12px; }
+        .risk-item { padding: 16px; border: 1px solid var(--border); border-radius: 16px; background: #fff; }
+        .risk-header { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 8px; }
+        .risk-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 700; color: #18212f; }
+        .risk-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+        .muted { color: var(--muted); }
+        .empty-state { padding: 18px; border: 1px dashed var(--border); border-radius: 16px; color: var(--muted); background: #fafcff; }
+        .table-responsive { overflow-x: auto; }
+        table.data-table { width: 100%; border-collapse: collapse; }
+        .data-table th, .data-table td { padding: 12px 10px; border-bottom: 1px solid var(--border); font-size: 14px; vertical-align: top; }
+        .data-table th { text-align: left; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .mode-chip { display: inline-block; background: #eaf1fb; color: var(--navy); font-weight: 700; border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+        @media (max-width: 1200px) {
+            .filters { grid-template-columns: 1fr 1fr 1fr; }
+            .stats { grid-template-columns: 1fr 1fr 1fr; }
+            .content { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 768px) {
+            .filters, .stats { grid-template-columns: 1fr; }
+            .page { padding: 16px; }
+            .hero h1 { font-size: 24px; }
+            .risk-meta { grid-template-columns: 1fr; }
+        }
+    </style>
 </head>
 <body>
+<div class="page">
+    <section class="hero">
+        <h1>Risk Control Center (RCC)</h1>
+        <p>
+            Monitoring heatmap 5x5 untuk Profil Risiko Korporat PLN Batam. Dashboard ini sudah mendukung mode
+            <strong>Inheren</strong> dan <strong>Residual</strong>, membaca level langsung dari <strong>RiskMatrixCell</strong>,
+            serta menyediakan drilldown dan export Excel untuk kebutuhan monitoring RCC.
+        </p>
+    </section>
 
-<h1>Dashboard Manajemen Risiko PLN Batam</h1>
+    <form method="get" class="filters">
+        <div class="panel filter-card">
+            <label for="mode">Mode Monitoring</label>
+            <select name="mode" id="mode">
+                {% for mode_value, mode_name in filters.modes %}
+                    <option value="{{ mode_value }}" {% if mode == mode_value %}selected{% endif %}>{{ mode_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="panel filter-card">
+            <label for="summary">Profil Risiko Korporat</label>
+            <select name="summary" id="summary">
+                <option value="">Semua Profil</option>
+                {% for summary in filters.summaries %}
+                    <option value="{{ summary.id }}" {% if request.GET.summary == summary.id|stringformat:"s" %}selected{% endif %}>{{ summary.judul }} ({{ summary.tahun }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="panel filter-card">
+            <label for="tahun">Tahun</label>
+            <select name="tahun" id="tahun">
+                <option value="">Semua Tahun</option>
+                {% for tahun in filters.years %}
+                    <option value="{{ tahun }}" {% if request.GET.tahun == tahun|stringformat:"s" %}selected{% endif %}>{{ tahun }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="panel filter-card">
+            <label for="status">Status Risiko</label>
+            <select name="status" id="status">
+                <option value="">Semua Status</option>
+                {% for status in filters.statuses %}
+                    <option value="{{ status }}" {% if request.GET.status == status %}selected{% endif %}>{{ status }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="panel filter-card">
+            <label for="pemilik">Pemilik Risiko</label>
+            <select name="pemilik" id="pemilik">
+                <option value="">Semua Pemilik</option>
+                {% for owner in filters.owners %}
+                    <option value="{{ owner }}" {% if request.GET.pemilik == owner %}selected{% endif %}>{{ owner }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="panel filter-card">
+            <label for="kategori">Kategori Risiko</label>
+            <select name="kategori" id="kategori">
+                <option value="">Semua Kategori</option>
+                {% for category_id, category_name in filters.categories %}
+                    <option value="{{ category_id }}" {% if request.GET.kategori == category_id|stringformat:"s" %}selected{% endif %}>{{ category_name }}</option>
+                {% endfor %}
+            </select>
+            <div class="button-row">
+                <button class="button primary" type="submit">Terapkan Filter</button>
+                <a class="button soft" href="?">Reset Filter</a>
+                <a class="button soft" href="{% url 'rcc_export_excel' %}?mode={{ mode }}{% if request.GET.summary %}&summary={{ request.GET.summary }}{% endif %}{% if request.GET.tahun %}&tahun={{ request.GET.tahun }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status|urlencode }}{% endif %}{% if request.GET.pemilik %}&pemilik={{ request.GET.pemilik|urlencode }}{% endif %}{% if request.GET.kategori %}&kategori={{ request.GET.kategori }}{% endif %}">Export Excel RCC</a>
+            </div>
+        </div>
+    </form>
 
-<ul>
-<li>Total Risiko</li>
-<li>Risiko Tinggi</li>
-<li>Risiko Sedang</li>
-<li>Risiko Rendah</li>
-</ul>
+    <section class="stats">
+        <div class="panel stat-card"><div class="stat-label">Mode</div><div class="stat-value" style="font-size:24px;">{{ mode_label }}</div></div>
+        <div class="panel stat-card"><div class="stat-label">Total Risiko</div><div class="stat-value">{{ total_risks }}</div></div>
+        <div class="panel stat-card"><div class="stat-label">High</div><div class="stat-value">{{ level_counts.high }}</div></div>
+        <div class="panel stat-card"><div class="stat-label">Moderate to High</div><div class="stat-value">{{ level_counts.moderate_to_high }}</div></div>
+        <div class="panel stat-card"><div class="stat-label">Moderate</div><div class="stat-value">{{ level_counts.moderate }}</div></div>
+        <div class="panel stat-card"><div class="stat-label">Low / Low to Moderate</div><div class="stat-value">{{ level_counts.low|add:level_counts.low_to_moderate }}</div></div>
+    </section>
 
+    <section class="content">
+        <div class="panel matrix-card">
+            <div class="section-title">
+                <h2>Heatmap Matriks Risiko 5x5</h2>
+                <span>
+                    <span class="mode-chip">{{ mode_label }}</span>
+                    {% if matrix %}
+                        &nbsp; Matriks aktif: <strong>{{ matrix.nama }}</strong>
+                    {% else %}
+                        &nbsp; Belum ada matriks default, sistem memakai fallback skor standar.
+                    {% endif %}
+                </span>
+            </div>
+
+            <div class="legend">
+                {% for item in legend %}
+                    <div class="legend-item">
+                        <span class="legend-swatch" style="background: {{ item.color }};"></span>
+                        <span>{{ item.name }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="matrix-wrapper">
+                <table class="matrix-table">
+                    <thead>
+                        <tr>
+                            <th class="axis-title">Kemungkinan \ Dampak</th>
+                            {% for impact in impact_axis %}
+                                <th class="impact-label">{{ impact.value }}<br>{{ impact.label }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in grid %}
+                            <tr>
+                                <th class="likelihood-label">{{ row.value }}<br>{{ row.label }}</th>
+                                {% for cell in row.cells %}
+                                    <td>
+                                        <button
+                                            type="button"
+                                            class="cell-button{% if forloop.parentloop.first and forloop.first %} active{% endif %}"
+                                            style="background: {{ cell.color }};"
+                                            data-impact="{{ cell.impact }}"
+                                            data-likelihood="{{ cell.likelihood }}"
+                                            data-level="{{ cell.level }}"
+                                            data-score="{{ cell.score }}"
+                                            data-count="{{ cell.count }}"
+                                            data-risks='[{% for risk in cell.risks %}{"no_risiko":"{{ risk.no_risiko|default_if_none:"-"|escapejs }}","peristiwa_risiko":"{{ risk.peristiwa_risiko|default_if_none:"-"|escapejs }}","kategori_risiko":"{{ risk.kategori_risiko|escapejs }}","pemilik_risiko":"{{ risk.pemilik_risiko|escapejs }}","status":"{{ risk.status|escapejs }}","level":"{{ risk.level|escapejs }}","score":"{{ risk.score }}","summary":"{{ risk.summary|escapejs }}","color":"{{ risk.color|escapejs }}"}{% if not forloop.last %},{% endif %}{% endfor %}]'>
+                                            <div class="cell-score">Skor {{ cell.score }}</div>
+                                            <div class="cell-count">{{ cell.count }}</div>
+                                            <div class="cell-level">{{ cell.level }}</div>
+                                        </button>
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <aside class="panel detail-card">
+            <div class="section-title">
+                <h2>Detail Sel Terpilih</h2>
+                <span id="detail-subtitle">Klik salah satu sel heatmap untuk melihat daftar risiko.</span>
+            </div>
+            <div id="detail-body" class="detail-list"></div>
+        </aside>
+    </section>
+
+    <section class="panel table-card">
+        <div class="section-title">
+            <h2>Drilldown Risiko</h2>
+            <span>Daftar seluruh risiko terfilter pada mode {{ mode_label }}.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>No Risiko</th>
+                        <th>Peristiwa Risiko</th>
+                        <th>Kategori</th>
+                        <th>Pemilik</th>
+                        <th>Status</th>
+                        <th>Dampak</th>
+                        <th>Kemungkinan</th>
+                        <th>Level</th>
+                        <th>Skor</th>
+                        <th>Summary</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for risk in drilldown_rows %}
+                        <tr>
+                            <td>{{ risk.no_risiko }}</td>
+                            <td>{{ risk.peristiwa_risiko }}</td>
+                            <td>{{ risk.kategori_risiko }}</td>
+                            <td>{{ risk.pemilik_risiko }}</td>
+                            <td>{{ risk.status }}</td>
+                            <td>{{ risk.dampak }}</td>
+                            <td>{{ risk.kemungkinan }}</td>
+                            <td><span class="risk-badge" style="background:{{ risk.color }};">{{ risk.level }}</span></td>
+                            <td>{{ risk.score }}</td>
+                            <td>{{ risk.summary }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="10"><div class="empty-state">Belum ada data risiko yang dapat ditampilkan untuk filter dan mode yang dipilih.</div></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<script>
+    const buttons = document.querySelectorAll('.cell-button');
+    const detailBody = document.getElementById('detail-body');
+    const detailSubtitle = document.getElementById('detail-subtitle');
+
+    function renderCell(button) {
+        buttons.forEach(btn => btn.classList.remove('active'));
+        button.classList.add('active');
+
+        const impact = button.dataset.impact;
+        const likelihood = button.dataset.likelihood;
+        const level = button.dataset.level;
+        const score = button.dataset.score;
+        const count = parseInt(button.dataset.count || '0', 10);
+        const risks = JSON.parse(button.dataset.risks || '[]');
+
+        detailSubtitle.textContent = `Dampak ${impact} × Kemungkinan ${likelihood} · ${level} · Skor ${score}`;
+
+        if (!count) {
+            detailBody.innerHTML = '<div class="empty-state">Belum ada risiko pada sel ini.</div>';
+            return;
+        }
+
+        detailBody.innerHTML = risks.map((risk) => `
+            <div class="risk-item">
+                <div class="risk-header">
+                    <strong>Risk #${risk.no_risiko} — ${risk.peristiwa_risiko}</strong>
+                    <span class="risk-badge" style="background:${risk.color};">${risk.level} · ${risk.score}</span>
+                </div>
+                <div class="muted">${risk.summary}</div>
+                <div class="risk-meta">
+                    <div><strong>Kategori:</strong> ${risk.kategori_risiko}</div>
+                    <div><strong>Pemilik:</strong> ${risk.pemilik_risiko}</div>
+                    <div><strong>Status:</strong> ${risk.status}</div>
+                    <div><strong>Matriks:</strong> Dampak ${impact} / Kemungkinan ${likelihood}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    document.querySelectorAll('.filters select').forEach((select) => {
+        select.addEventListener('change', () => {
+            select.form.submit();
+        });
+    });
+
+    if (buttons.length) {
+        renderCell(document.querySelector('.cell-button.active') || buttons[0]);
+        buttons.forEach(button => button.addEventListener('click', () => renderCell(button)));
+    } else {
+        detailBody.innerHTML = '<div class="empty-state">Belum ada data risiko yang bisa dipetakan ke heatmap.</div>';
+    }
+</script>
 </body>
 </html>

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import ldap
+import logging
 from django_auth_ldap.config import LDAPSearch
 from pathlib import Path
 
@@ -91,9 +92,9 @@ WSGI_APPLICATION = 'riskproject.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
 
@@ -136,36 +137,12 @@ STATIC_URL = 'static/'
 
 
 # LDAP
-
-
-AUTH_LDAP_SERVER_URI = "ldap://10.28.0.154"
-
-AUTH_LDAP_CONNECTION_OPTIONS = {
-    ldap.OPT_REFERRALS: 0,
-    ldap.OPT_PROTOCOL_VERSION: 3,
-}
-
-AUTH_LDAP_BIND_AS_AUTHENTICATING_USER = True
-
-# AUTH_LDAP_USER_SEARCH = LDAPSearch(
-#     "dc=plnbatam,dc=com",
-#     ldap.SCOPE_SUBTREE,
-#     "(sAMAccountName=%(user)s)",
-# )
-
-AUTH_LDAP_USER_DN_TEMPLATE = "PLNBATAM\\%(user)s"
-
-AUTH_LDAP_BIND_AS_AUTHENTICATING_USER = True
-
-AUTH_LDAP_USER_ATTR_MAP = {
-    "first_name": "givenName",
-    "last_name": "sn",
-    "email": "mail",
-}
-
-AUTH_LDAP_ALWAYS_UPDATE_USER = True
-
 AUTHENTICATION_BACKENDS = [
     "risk.backends.PLNLDAPBackend",
     "risk.backends.SuperuserOnlyModelBackend",
 ]
+
+# DEBUG LOG LDAP
+ldap_logger = logging.getLogger("django_auth_ldap")
+ldap_logger.addHandler(logging.StreamHandler())
+ldap_logger.setLevel(logging.DEBUG)

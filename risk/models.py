@@ -1,7 +1,7 @@
 from decimal import Decimal
 import string
 
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -273,6 +273,79 @@ class RiskMatrixCell(models.Model):
 
 
 # =========================================================
+# PENUGASAN USER UNIT BISNIS
+# =========================================================
+
+class PenugasanUnitBisnis(models.Model):
+    ROLE_PAIRING_OFFICER = "PAIRING_OFFICER"
+    ROLE_RISK_CHAMPION = "RISK_CHAMPION"
+    ROLE_RISK_OFFICER = "RISK_OFFICER"
+
+    ROLE_CHOICES = [
+        (ROLE_PAIRING_OFFICER, "Pairing Officer"),
+        (ROLE_RISK_CHAMPION, "Risk Champion"),
+        (ROLE_RISK_OFFICER, "Risk Officer"),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="penugasan_unit_bisnis",
+        verbose_name="User",
+    )
+    unit_bisnis = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="penugasan_pengguna",
+        verbose_name="Bidang / Unit Bisnis",
+    )
+    peran = models.CharField(
+        max_length=30,
+        choices=ROLE_CHOICES,
+        verbose_name="Peran",
+    )
+    aktif = models.BooleanField(default=True, verbose_name="Aktif")
+    catatan = models.CharField(max_length=255, blank=True, null=True, verbose_name="Catatan")
+    dibuat_pada = models.DateTimeField(auto_now_add=True, verbose_name="Dibuat Pada")
+
+    class Meta:
+        verbose_name = "Penugasan User Unit Bisnis"
+        verbose_name_plural = "MASTER — Penugasan User Unit Bisnis"
+        ordering = ["unit_bisnis__name", "peran", "user__username"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "unit_bisnis", "peran"],
+                name="unik_user_unit_bisnis_peran",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if not self.aktif:
+            return
+
+        if self.peran in {self.ROLE_PAIRING_OFFICER, self.ROLE_RISK_CHAMPION}:
+            existing = PenugasanUnitBisnis.objects.filter(
+                unit_bisnis=self.unit_bisnis,
+                peran=self.peran,
+                aktif=True,
+            ).exclude(pk=self.pk)
+            if existing.exists():
+                role_name = self.get_peran_display()
+                raise ValidationError({
+                    "peran": f"Unit bisnis ini sudah memiliki {role_name} aktif."
+                })
+
+    @property
+    def nama_peran(self):
+        return self.get_peran_display()
+
+    def __str__(self):
+        return f"{self.unit_bisnis.name} - {self.get_peran_display()} - {self.user.get_username()}"
+
+
+# =========================================================
 # KONTRAK MANAJEMEN UNIT / BIDANG
 # =========================================================
 
@@ -466,6 +539,15 @@ class RKMSummary(models.Model):
 
     def __str__(self):
         return f"{self.judul} ({self.bulan}/{self.tahun})"
+
+    @property
+    def pairing_officer(self):
+        return PenugasanUnitBisnis.objects.filter(
+            unit_bisnis=self.unit_bisnis,
+            peran=PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
+            aktif=True,
+        ).select_related("user").first()
+
 
     # =============================
     # VALIDASI
@@ -1395,9 +1477,35 @@ class ProfilRisikoKorporatItem(models.Model):
     # ========================
     # PENILAIAN RISIKO (TETAP)
     # ========================
+<<<<<<< HEAD
     dampak = models.IntegerField(blank=True, null=True, verbose_name="Dampak")
     kemungkinan = models.IntegerField(blank=True, null=True, verbose_name="Kemungkinan")
     level_risiko = models.IntegerField(blank=True, null=True, verbose_name="Level Risiko")
+=======
+    dampak = models.IntegerField(blank=True, null=True, verbose_name="Dampak Inheren")
+    kemungkinan = models.IntegerField(blank=True, null=True, verbose_name="Kemungkinan Inheren")
+    level_risiko = models.IntegerField(blank=True, null=True, verbose_name="Level Risiko Inheren")
+    matrix_cell_inheren = models.ForeignKey(
+        "RiskMatrixCell",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="profil_risiko_korporat_inheren",
+        verbose_name="Sel Matriks Inheren",
+    )
+
+    residual_dampak = models.IntegerField(blank=True, null=True, verbose_name="Dampak Residual")
+    residual_kemungkinan = models.IntegerField(blank=True, null=True, verbose_name="Kemungkinan Residual")
+    residual_level_risiko = models.IntegerField(blank=True, null=True, verbose_name="Level Risiko Residual")
+    matrix_cell_residual = models.ForeignKey(
+        "RiskMatrixCell",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="profil_risiko_korporat_residual",
+        verbose_name="Sel Matriks Residual",
+    )
+>>>>>>> a172475 (Fix LDAP)
 
     # ========================
     # INFO TAMBAHAN
@@ -1431,6 +1539,30 @@ class ProfilRisikoKorporatItem(models.Model):
             ),
         ]
 
+    @staticmethod
+    def _get_default_matrix():
+        return RiskMatrix.objects.filter(is_default=True, aktif=True).first() or RiskMatrix.objects.filter(aktif=True).first()
+
+    @classmethod
+    def _resolve_matrix_cell(cls, matrix, dampak, kemungkinan):
+        if not matrix or dampak is None or kemungkinan is None:
+            return None
+        return matrix.cells.select_related("level_risiko").filter(
+            skala_dampak__urutan=dampak,
+            skala_probabilitas__urutan=kemungkinan,
+            aktif=True,
+        ).first()
+
+    def _sync_matrix_values(self, matrix, dampak, kemungkinan, matrix_field_name, level_field_name):
+        cell = self._resolve_matrix_cell(matrix, dampak, kemungkinan)
+        setattr(self, matrix_field_name, cell)
+        if cell:
+            setattr(self, level_field_name, cell.skor)
+        elif dampak is not None and kemungkinan is not None:
+            setattr(self, level_field_name, dampak * kemungkinan)
+        else:
+            setattr(self, level_field_name, None)
+
     def save(self, *args, **kwargs):
         if self.no_risiko is None:
             last_no = ProfilRisikoKorporatItem.objects.filter(
@@ -1440,12 +1572,28 @@ class ProfilRisikoKorporatItem(models.Model):
             )["no_risiko__max"] or 0
             self.no_risiko = last_no + 1
 
-        if self.dampak is not None and self.kemungkinan is not None:
-            self.level_risiko = self.dampak * self.kemungkinan
-        else:
-            self.level_risiko = None
+        matrix = self._get_default_matrix()
+        self._sync_matrix_values(matrix, self.dampak, self.kemungkinan, "matrix_cell_inheren", "level_risiko")
+        self._sync_matrix_values(matrix, self.residual_dampak, self.residual_kemungkinan, "matrix_cell_residual", "residual_level_risiko")
 
         super().save(*args, **kwargs)
+
+    def get_mode_tuple(self, mode="inheren"):
+        if mode == "residual":
+            return self.residual_dampak, self.residual_kemungkinan, self.residual_level_risiko, self.matrix_cell_residual
+        return self.dampak, self.kemungkinan, self.level_risiko, self.matrix_cell_inheren
+
+    def get_level_name(self, mode="inheren"):
+        cell = self.matrix_cell_residual if mode == "residual" else self.matrix_cell_inheren
+        if cell and cell.level_risiko_id:
+            return cell.level_risiko.nama
+        return None
+
+    def get_level_color(self, mode="inheren"):
+        cell = self.matrix_cell_residual if mode == "residual" else self.matrix_cell_inheren
+        if cell:
+            return cell.warna_hex or getattr(cell.level_risiko, "warna_hex", None)
+        return None
 
     @property
     def nama_bumn(self):

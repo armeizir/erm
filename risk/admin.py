@@ -36,6 +36,7 @@ from .models import (
     MasterLevelRisiko,
     RiskMatrix,
     RiskMatrixCell,
+    PenugasanUnitBisnis,
 )
 from riskproject.admin_site import risk_admin_site
 
@@ -54,12 +55,37 @@ try:
 except admin.sites.NotRegistered:
     pass
 
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+
 Group._meta.verbose_name = "Bidang / Unit Bisnis"
 Group._meta.verbose_name_plural = "Bidang / Unit Bisnis"
 
 
+class PenugasanUnitBisnisUserInline(admin.TabularInline):
+    model = PenugasanUnitBisnis
+    extra = 0
+    fk_name = "user"
+    fields = ("unit_bisnis", "peran", "aktif")
+    autocomplete_fields = ("unit_bisnis",)
+    verbose_name = "Penugasan Unit Bisnis"
+    verbose_name_plural = "Penugasan Unit Bisnis"
+
+
+class PenugasanUnitBisnisGroupInline(admin.TabularInline):
+    model = PenugasanUnitBisnis
+    extra = 0
+    fk_name = "unit_bisnis"
+    fields = ("user", "peran", "aktif")
+    autocomplete_fields = ("user",)
+    verbose_name = "Personel Unit Bisnis"
+    verbose_name_plural = "Personel Unit Bisnis"
+
 @admin.register(Group)
 class CustomGroupAdmin(BaseGroupAdmin):
+    inlines = [PenugasanUnitBisnisGroupInline]
     list_display = ("name",)
     search_fields = ("name",)
     ordering = ("name",)
@@ -71,6 +97,39 @@ class CustomGroupAdmin(BaseGroupAdmin):
 # =========================================================
 # MASTER REFERENCE
 # =========================================================
+
+class PenugasanUnitBisnisUserInline(admin.TabularInline):
+    model = PenugasanUnitBisnis
+    fk_name = "user"
+    extra = 0
+    autocomplete_fields = ("unit_bisnis",)
+    fields = ("unit_bisnis", "peran", "aktif", "catatan")
+    ordering = ("unit_bisnis", "peran")
+
+
+class PenugasanUnitBisnisGroupInline(admin.TabularInline):
+    model = PenugasanUnitBisnis
+    fk_name = "unit_bisnis"
+    extra = 0
+    autocomplete_fields = ("user",)
+    fields = ("user", "peran", "aktif", "catatan")
+    ordering = ("peran", "user")
+
+
+@admin.register(User)
+class CustomUserAdmin(BaseUserAdmin):
+    inlines = [PenugasanUnitBisnisUserInline]
+    list_display = BaseUserAdmin.list_display + ("is_staff",)
+
+
+@admin.register(PenugasanUnitBisnis)
+class PenugasanUnitBisnisAdmin(admin.ModelAdmin):
+    list_display = ("user", "unit_bisnis", "peran", "aktif", "dibuat_pada")
+    list_filter = ("peran", "aktif", "unit_bisnis")
+    search_fields = ("user__username", "user__first_name", "user__last_name", "user__email", "unit_bisnis__name")
+    autocomplete_fields = ("user", "unit_bisnis")
+    ordering = ("unit_bisnis__name", "peran", "user__username")
+
 
 @admin.register(MasterKategoriDampak)
 class MasterKategoriDampakAdmin(admin.ModelAdmin):
@@ -729,12 +788,20 @@ class ProfilRisikoKorporatItemInline(admin.TabularInline):
         "dampak",
         "kemungkinan",
         "level_risiko",
+        "matrix_cell_inheren",
+        "residual_dampak",
+        "residual_kemungkinan",
+        "residual_level_risiko",
+        "matrix_cell_residual",
         "pemilik_risiko",
         "status",
     )
     readonly_fields = (
         "no_risiko",
         "level_risiko",
+        "matrix_cell_inheren",
+        "residual_level_risiko",
+        "matrix_cell_residual",
     )
     autocomplete_fields = ("bumn", "sasaran_kbumn", "kategori_risiko", "taksonomi_t3")
 
@@ -864,6 +931,9 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     readonly_fields = (
         "no_risiko",
         "level_risiko",
+        "matrix_cell_inheren",
+        "residual_level_risiko",
+        "matrix_cell_residual",
     )
 
     fieldsets = (
@@ -889,17 +959,38 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
                 "deskripsi_peristiwa_risiko",
             )
         }),
+<<<<<<< HEAD
         ("Info Tambahan", {
+=======
+        ("Penilaian Inheren", {
+>>>>>>> a172475 (Fix LDAP)
             "fields": (
                 "dampak",
                 "kemungkinan",
                 "level_risiko",
+                "matrix_cell_inheren",
+            )
+        }),
+        ("Penilaian Residual", {
+            "fields": (
+                "residual_dampak",
+                "residual_kemungkinan",
+                "residual_level_risiko",
+                "matrix_cell_residual",
+            )
+        }),
+        ("Info Tambahan", {
+            "fields": (
                 "pemilik_risiko",
                 "status",
             )
         }),
     )
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> a172475 (Fix LDAP)
 @admin.register(ProfilRisikoKorporatSumber)
 class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
     list_display = (
@@ -939,7 +1030,7 @@ class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
 # =========================================================
 
 try:
-    risk_admin_site.register(User, BaseUserAdmin)
+    risk_admin_site.register(User, CustomUserAdmin)
 except Exception:
     pass
 
