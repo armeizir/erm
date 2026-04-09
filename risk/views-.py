@@ -117,33 +117,29 @@ def _build_risk_entry(item, mode, matrix_lookup):
     dampak_field, kemungkinan_field, level_field, cell_field = _selected_risk_fields(mode)
     impact = getattr(item, dampak_field)
     likelihood = getattr(item, kemungkinan_field)
-    stored_score = getattr(item, level_field)
-    stored_cell = getattr(item, cell_field, None)
+    score = getattr(item, level_field)
+    cell = getattr(item, cell_field, None)
 
     if impact is None or likelihood is None:
         return None
 
-    score = stored_score
     level_name = None
     color = None
-    matrix_source = "fallback"
 
-    cell_meta = matrix_lookup.get((impact, likelihood))
-    if cell_meta:
-        score = cell_meta["score"]
-        level_name = cell_meta["level"]
-        color = cell_meta["color"]
-        matrix_source = "default_matrix"
-    elif stored_cell:
-        level_name = getattr(getattr(stored_cell, "level_risiko", None), "nama", None)
-        color = stored_cell.warna_hex or getattr(getattr(stored_cell, "level_risiko", None), "warna_hex", None)
-        score = stored_cell.skor or score
-        matrix_source = "stored_cell"
+    if cell:
+        level_name = getattr(getattr(cell, "level_risiko", None), "nama", None)
+        color = cell.warna_hex or getattr(getattr(cell, "level_risiko", None), "warna_hex", None)
+        score = cell.skor or score
+    else:
+        cell_meta = matrix_lookup.get((impact, likelihood))
+        if cell_meta:
+            score = cell_meta["score"]
+            level_name = cell_meta["level"]
+            color = cell_meta["color"]
 
     if not level_name:
         level_name, fallback_color = _fallback_level_from_score(score or (impact * likelihood))
         color = color or fallback_color
-        matrix_source = "fallback"
 
     return {
         "id": item.id,
@@ -160,7 +156,6 @@ def _build_risk_entry(item, mode, matrix_lookup):
         "score": score or (impact * likelihood),
         "color": color or "#d9d9d9",
         "mode": mode,
-        "matrix_source": matrix_source,
     }
 
 
@@ -293,7 +288,6 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
         },
         "mode": mode,
         "mode_label": _get_mode_label(mode),
-        "matrix_source_label": "RiskMatrixCell default" if matrix else "Fallback skor standar",
         "drilldown_rows": sorted(drilldown_items, key=lambda row: (row["score"] * -1, row["no_risiko"] or 0)),
         "filters": {
             "summaries": summaries,
@@ -321,7 +315,6 @@ def _export_workbook(context, params):
     sheet["A1"].font = Font(size=16, bold=True)
     sheet["A2"] = f"Mode Monitoring: {context['mode_label']}"
     sheet["A3"] = f"Matriks Aktif: {context['matrix'].nama if context['matrix'] else 'Fallback Standard'}"
-    sheet["A4"] = f"Sumber Perhitungan RCC: {context['matrix_source_label']}"
 
     filter_pairs = [
         ("Profil", params.get("summary") or "Semua"),
