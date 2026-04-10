@@ -41,6 +41,14 @@ from .models import (
     PenugasanUnitBisnis,
     RisikoInherenKuantitatif,
     RencanaPerlakuanRisikoKorporat,
+    KPMRPeriode,
+    KPMRIndikatorResmi,
+    KPMRSubIndikatorResmi,
+    KinerjaPeriode,
+    KinerjaIndikator,
+    KompositRisikoTriwulan,
+    RoadmapProgram,
+    RoadmapPenilaianSemester,
 )
 from riskproject.admin_site import risk_admin_site
 
@@ -455,8 +463,21 @@ class ReAssessmentItemInline(admin.TabularInline):
     model = ReAssessmentItem
     extra = 0
     ordering = ("no_item",)
+    autocomplete_fields = (
+        "km_item",
+        "taksonomi_t3",
+        "sasaran_kbumn",
+        "kategori_risiko",
+        "jenis_existing_control",
+        "penilaian_efektivitas_kontrol",
+        "kategori_dampak",
+        "opsi_perlakuan_risiko",
+        "pos_anggaran",
+        "jenis_program_dalam_rkap",
+    )
     fields = (
         "no_item",
+        "km_item",
         "taksonomi_t3",
         "sasaran_kbumn",
         "kategori_risiko",
@@ -552,7 +573,6 @@ class ReAssessmentItemInline(admin.TabularInline):
         "level_nilai_risiko_q4",
     )
 
-
 @admin.register(ReAssessmentSummary)
 class ReAssessmentSummaryAdmin(admin.ModelAdmin):
     list_display = (
@@ -573,7 +593,6 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     fields = (
         "summary",
         "no_item",
-        "unit_bisnis",
         "km_item",
         "taksonomi_t3",
         "sasaran_kbumn",
@@ -672,7 +691,7 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     list_display = (
         "summary",
         "no_item",
-        "unit_bisnis",
+        "unit_bisnis_summary",
         "km_item",
         "sasaran_kbumn",
         "taksonomi_t3",
@@ -696,9 +715,27 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
         "taksonomi_t3__nama",
         "kategori_risiko__kode",
         "kategori_risiko__nama",
+        "summary__judul",
+        "summary__unit_bisnis__name",
     )
     ordering = ("summary", "no_item")
+    autocomplete_fields = (
+        "summary",
+        "km_item",
+        "taksonomi_t3",
+        "sasaran_kbumn",
+        "kategori_risiko",
+        "jenis_existing_control",
+        "penilaian_efektivitas_kontrol",
+        "kategori_dampak",
+        "opsi_perlakuan_risiko",
+        "pos_anggaran",
+        "jenis_program_dalam_rkap",
+    )
 
+    def unit_bisnis_summary(self, obj):
+        return obj.summary.unit_bisnis if obj.summary_id else "-"
+    unit_bisnis_summary.short_description = "Bidang / Unit Bisnis"
 
 # =========================================================
 # KPMR
@@ -707,6 +744,8 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
 class KPMRItemInline(admin.TabularInline):
     model = KPMRItem
     extra = 0
+    can_delete = False
+
     fields = (
         "no_item",
         "reassessment_item",
@@ -716,8 +755,21 @@ class KPMRItemInline(admin.TabularInline):
         "status_kpmr",
         "catatan",
     )
+
+    readonly_fields = (
+        "no_item",
+        "reassessment_item",
+        "perlakuan_risiko",
+        "bukti",
+        "nilai_kpmr",
+        "status_kpmr",
+        "catatan",
+    )
+
     ordering = ("no_item",)
 
+    def has_add_permission(self, request, obj=None):
+        return False
 
 @admin.register(KPMRSummary)
 class KPMRSummaryAdmin(admin.ModelAdmin):
@@ -731,8 +783,35 @@ class KPMRSummaryAdmin(admin.ModelAdmin):
     list_filter = ("tahun", "unit_bisnis")
     search_fields = ("judul", "unit_bisnis__name", "reassessment__judul")
     ordering = ("-tahun", "judul")
+    readonly_fields = ("dibuat_pada",)
+
     inlines = [KPMRItemInline]
 
+    fieldsets = (
+        ("Informasi Utama", {
+            "fields": (
+                "judul",
+                "tahun",
+                "unit_bisnis",
+                "reassessment",
+                "dibuat_pada",
+            )
+        }),
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(super().get_readonly_fields(request, obj))
+        if obj and obj.reassessment_id:
+            readonly.extend(["unit_bisnis", "tahun"])
+        return readonly
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        self.message_user(
+            request,
+            "KPMR berhasil disimpan dan item dihitung otomatis dari Re-Assessment.",
+            level=messages.SUCCESS,
+        )
 
 @admin.register(KPMRItem)
 class KPMRItemAdmin(admin.ModelAdmin):
@@ -754,6 +833,178 @@ class KPMRItemAdmin(admin.ModelAdmin):
         "catatan",
     )
     ordering = ("summary", "no_item")
+    readonly_fields = (
+        "summary",
+        "no_item",
+        "reassessment_item",
+        "perlakuan_risiko",
+        "bukti",
+        "nilai_kpmr",
+        "status_kpmr",
+        "catatan",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+# =========================================================
+# KPMR PLN 2026 (RESMI)
+# =========================================================
+
+class KPMRSubIndikatorResmiInline(admin.TabularInline):
+    model = KPMRSubIndikatorResmi
+    extra = 0
+    fields = (
+        "kode",
+        "nama",
+        "bobot",
+        "jawaban",
+        "hasil",
+        "skor",
+        "keterangan",
+    )
+    ordering = ("kode",)
+
+
+class KPMRIndikatorResmiInline(admin.TabularInline):
+    model = KPMRIndikatorResmi
+    extra = 0
+    fields = (
+        "kode",
+        "nama",
+        "bobot",
+        "hasil",
+        "skor",
+        "dokumen_referensi",
+        "keterangan",
+    )
+    ordering = ("kode",)
+    show_change_link = True
+
+
+@admin.register(KPMRPeriode)
+class KPMRPeriodeAdmin(admin.ModelAdmin):
+    list_display = (
+        "tahun",
+        "triwulan",
+        "unit_bisnis",
+        "status",
+        "skor_total",
+        "rating",
+        "dibuat_pada",
+    )
+    list_filter = ("tahun", "triwulan", "status", "rating", "unit_bisnis")
+    search_fields = ("unit_bisnis__name", "catatan")
+    ordering = ("-tahun", "triwulan", "unit_bisnis__name")
+    inlines = [KPMRIndikatorResmiInline]
+
+
+@admin.register(KPMRIndikatorResmi)
+class KPMRIndikatorResmiAdmin(admin.ModelAdmin):
+    list_display = (
+        "periode",
+        "kode",
+        "nama",
+        "bobot",
+        "hasil",
+        "skor",
+    )
+    list_filter = ("kode", "periode__tahun", "periode__triwulan", "periode__unit_bisnis")
+    search_fields = ("nama", "periode__unit_bisnis__name")
+    ordering = ("periode", "kode")
+    inlines = [KPMRSubIndikatorResmiInline]
+
+
+@admin.register(KPMRSubIndikatorResmi)
+class KPMRSubIndikatorResmiAdmin(admin.ModelAdmin):
+    list_display = (
+        "indikator",
+        "kode",
+        "nama",
+        "bobot",
+        "hasil",
+        "skor",
+    )
+    list_filter = (
+        "kode",
+        "indikator__periode__tahun",
+        "indikator__periode__triwulan",
+        "indikator__periode__unit_bisnis",
+    )
+    search_fields = ("nama", "indikator__periode__unit_bisnis__name")
+    ordering = ("indikator", "kode")
+
+
+class KinerjaIndikatorInline(admin.TabularInline):
+    model = KinerjaIndikator
+    extra = 0
+    fields = ("nama", "bobot", "hasil", "skor", "keterangan")
+    ordering = ("nama",)
+
+
+@admin.register(KinerjaPeriode)
+class KinerjaPeriodeAdmin(admin.ModelAdmin):
+    list_display = (
+        "tahun",
+        "triwulan",
+        "unit_bisnis",
+        "skor_total",
+        "rating",
+    )
+    list_filter = ("tahun", "triwulan", "rating", "unit_bisnis")
+    search_fields = ("unit_bisnis__name", "catatan")
+    ordering = ("-tahun", "triwulan", "unit_bisnis__name")
+    inlines = [KinerjaIndikatorInline]
+
+
+@admin.register(KinerjaIndikator)
+class KinerjaIndikatorAdmin(admin.ModelAdmin):
+    list_display = ("periode", "nama", "bobot", "hasil", "skor")
+    list_filter = ("nama", "periode__tahun", "periode__triwulan", "periode__unit_bisnis")
+    search_fields = ("periode__unit_bisnis__name",)
+    ordering = ("periode", "nama")
+
+
+@admin.register(KompositRisikoTriwulan)
+class KompositRisikoTriwulanAdmin(admin.ModelAdmin):
+    list_display = (
+        "periode_kpmr",
+        "periode_kinerja",
+        "skor_kpmr",
+        "skor_kinerja",
+        "peringkat_komposit",
+    )
+    search_fields = (
+        "periode_kpmr__unit_bisnis__name",
+        "periode_kinerja__unit_bisnis__name",
+        "catatan_review_spi",
+    )
+    ordering = ("-periode_kpmr__tahun", "periode_kpmr__triwulan")
+
+
+@admin.register(RoadmapProgram)
+class RoadmapProgramAdmin(admin.ModelAdmin):
+    list_display = ("tahun", "nomor_urut", "nama_program", "aktif")
+    list_filter = ("tahun", "aktif")
+    search_fields = ("nama_program",)
+    ordering = ("tahun", "nomor_urut")
+
+
+@admin.register(RoadmapPenilaianSemester)
+class RoadmapPenilaianSemesterAdmin(admin.ModelAdmin):
+    list_display = (
+        "tahun",
+        "semester",
+        "unit_bisnis",
+        "program",
+        "nilai_kuantitas",
+        "nilai_kualitas",
+        "nilai_waktu",
+        "nilai_program",
+    )
+    list_filter = ("tahun", "semester", "unit_bisnis")
+    search_fields = ("unit_bisnis__name", "program__nama_program", "catatan")
+    ordering = ("-tahun", "semester", "unit_bisnis__name", "program__nomor_urut")
 
 
 # =========================================================
@@ -1092,7 +1343,6 @@ risk_admin_site.register(RKMItem, RKMItemAdmin)
 risk_admin_site.register(ReAssessmentSummary, ReAssessmentSummaryAdmin)
 risk_admin_site.register(ReAssessmentItem, ReAssessmentItemAdmin)
 risk_admin_site.register(KPMRSummary, KPMRSummaryAdmin)
-risk_admin_site.register(KPMRItem, KPMRItemAdmin)
 risk_admin_site.register(ProfilRisikoKorporatSummary, ProfilRisikoKorporatSummaryAdmin)
 risk_admin_site.register(ProfilRisikoKorporatItem, ProfilRisikoKorporatItemAdmin)
 risk_admin_site.register(TaksonomiT3, TaksonomiT3Admin)
@@ -1110,3 +1360,11 @@ risk_admin_site.register(MasterPosAnggaran, MasterPosAnggaranAdmin)
 risk_admin_site.register(MasterJenisProgramRKAP, MasterJenisProgramRKAPAdmin)
 risk_admin_site.register(MasterLevelRisiko, MasterLevelRisikoAdmin)
 risk_admin_site.register(RiskMatrix, RiskMatrixAdmin)
+risk_admin_site.register(KPMRPeriode, KPMRPeriodeAdmin)
+risk_admin_site.register(KPMRIndikatorResmi, KPMRIndikatorResmiAdmin)
+risk_admin_site.register(KPMRSubIndikatorResmi, KPMRSubIndikatorResmiAdmin)
+risk_admin_site.register(KinerjaPeriode, KinerjaPeriodeAdmin)
+risk_admin_site.register(KinerjaIndikator, KinerjaIndikatorAdmin)
+risk_admin_site.register(KompositRisikoTriwulan, KompositRisikoTriwulanAdmin)
+risk_admin_site.register(RoadmapProgram, RoadmapProgramAdmin)
+risk_admin_site.register(RoadmapPenilaianSemester, RoadmapPenilaianSemesterAdmin)

@@ -712,6 +712,7 @@ class ReAssessmentItem(models.Model):
         on_delete=models.PROTECT,
         related_name="reassessment_item",
         verbose_name="Bidang / Unit Bisnis",
+        editable=False,
     )
 
     km_item = models.ForeignKey(
@@ -1273,6 +1274,7 @@ class ReAssessmentItem(models.Model):
         return f"{self.summary} - {self.no_item}"
 
 
+
 # =========================================================
 # KPMR UNIT / BIDANG
 # =========================================================
@@ -1302,32 +1304,105 @@ class KPMRSummary(models.Model):
     def __str__(self):
         return self.judul
 
-    def generate_items_from_reassessment(self):
-        reassessment_items = self.reassessment.item.all().order_by("no_item")
-        created_count = 0
-
-        for reassessment_item in reassessment_items:
-            _, created = KPMRItem.objects.get_or_create(
-                summary=self,
-                reassessment_item=reassessment_item,
-                defaults={
-                    "no_item": reassessment_item.no_item,
-                    "perlakuan_risiko": "",
-                    "bukti": "",
-                    "nilai_kpmr": None,
-                    "status_kpmr": "Perlu Perbaikan",
-                    "catatan": "",
-                },
-            )
-            if created:
-                created_count += 1
-
-        return created_count
-    
     @property
     def rkm(self):
         return self.reassessment.rkm if self.reassessment else None
 
+    def _calculate_auto_score(self, reassessment_item):
+        score = 0
+
+        if reassessment_item.peristiwa_risiko:
+            score += 20
+        if reassessment_item.penyebab_risiko:
+            score += 20
+        if reassessment_item.skala_dampak_q1 and reassessment_item.skala_probabilitas_q1:
+            score += 20
+        if reassessment_item.rencana_perlakuan_risiko:
+            score += 20
+        if reassessment_item.output_perlakuan_risiko:
+            score += 20
+
+        return score
+
+    def _calculate_auto_status(self, reassessment_item):
+        score = self._calculate_auto_score(reassessment_item)
+        if score >= 90:
+            return "Sesuai"
+        if score >= 60:
+            return "Perlu Perbaikan"
+        return "Tidak Sesuai"
+
+    def _build_auto_note(self, reassessment_item):
+        notes = []
+
+        if not reassessment_item.peristiwa_risiko:
+            notes.append("Peristiwa risiko belum diisi")
+        if not reassessment_item.penyebab_risiko:
+            notes.append("Penyebab risiko belum diisi")
+        if not (reassessment_item.skala_dampak_q1 and reassessment_item.skala_probabilitas_q1):
+            notes.append("Penilaian dampak/probabilitas belum lengkap")
+        if not reassessment_item.rencana_perlakuan_risiko:
+            notes.append("Rencana perlakuan risiko belum diisi")
+        if not reassessment_item.output_perlakuan_risiko:
+            notes.append("Output perlakuan risiko belum diisi")
+
+        if not notes:
+            return "Dihitung otomatis dari Re-Assessment"
+
+        return "; ".join(notes)
+
+    def generate_items_from_reassessment(self):
+        reassessment_items = self.reassessment.item.all().order_by("no_item")
+        created_or_updated_count = 0
+
+        existing_ids = set(
+            self.item.values_list("reassessment_item_id", flat=True)
+        )
+        current_ids = set()
+
+        for reassessment_item in reassessment_items:
+            current_ids.add(reassessment_item.id)
+
+            defaults = {
+                "no_item": reassessment_item.no_item,
+                "perlakuan_risiko": reassessment_item.rencana_perlakuan_risiko or "",
+                "bukti": reassessment_item.output_perlakuan_risiko or "",
+                "nilai_kpmr": self._calculate_auto_score(reassessment_item),
+                "status_kpmr": self._calculate_auto_status(reassessment_item),
+                "catatan": self._build_auto_note(reassessment_item),
+            }
+
+            KPMRItem.objects.update_or_create(
+                summary=self,
+                reassessment_item=reassessment_item,
+                defaults=defaults,
+            )
+            created_or_updated_count += 1
+
+        # Hapus item yang sumber reassessment-nya sudah tidak ada
+        stale_ids = existing_ids - current_ids
+        if stale_ids:
+            self.item.filter(reassessment_item_id__in=stale_ids).delete()
+
+        return created_or_updated_count
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+
+        if self.reassessment_id:
+            self.unit_bisnis = self.reassessment.unit_bisnis
+
+            if not self.tahun:
+                self.tahun = self.reassessment.tahun
+
+            if not self.judul:
+                self.judul = f"KPMR {self.reassessment.unit_bisnis.name} {self.reassessment.tahun}"
+
+        super().save(*args, **kwargs)
+
+        # Auto-generate item setiap save
+        if self.reassessment_id:
+            self.generate_items_from_reassessment()
 
 class KPMRItem(models.Model):
     STATUS_CHOICES = [
@@ -1342,6 +1417,7 @@ class KPMRItem(models.Model):
         related_name="item",
         verbose_name="Summary KPMR",
     )
+
     no_item = models.PositiveIntegerField(verbose_name="No Item")
     reassessment_item = models.ForeignKey(
         ReAssessmentItem,
@@ -1923,3 +1999,398 @@ class ProfilRisikoKorporatSumber(models.Model):
 
     def __str__(self):
         return f"{self.risiko_korporat} <- {self.reassessment_item}"
+
+# =========================================================
+# KPMR PLN 2026 (RESMI)
+# =========================================================
+
+class KPMRPeriode(models.Model):
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("final", "Final"),
+    ]
+
+    TRIWULAN_CHOICES = [
+        (1, "TW1"),
+        (2, "TW2"),
+        (3, "TW3"),
+        (4, "TW4"),
+    ]
+
+    RATING_CHOICES = [
+        ("STRONG", "Strong"),
+        ("SATISFACTORY", "Satisfactory"),
+        ("FAIR", "Fair"),
+        ("MARGINAL", "Marginal"),
+        ("UNSATISFACTORY", "Unsatisfactory"),
+    ]
+
+    tahun = models.PositiveIntegerField(verbose_name="Tahun")
+    triwulan = models.PositiveSmallIntegerField(
+        choices=TRIWULAN_CHOICES,
+        verbose_name="Triwulan",
+    )
+    unit_bisnis = models.ForeignKey(
+        Group,
+        on_delete=models.PROTECT,
+        related_name="kpmr_periode",
+        verbose_name="Bidang / Unit Bisnis",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="draft",
+        verbose_name="Status",
+    )
+
+    skor_total = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        verbose_name="Skor Total KPMR",
+    )
+    rating = models.CharField(
+        max_length=20,
+        choices=RATING_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Rating KPMR",
+    )
+
+    catatan = models.TextField(blank=True, null=True, verbose_name="Catatan")
+    dibuat_pada = models.DateTimeField(auto_now_add=True, verbose_name="Dibuat Pada")
+    diubah_pada = models.DateTimeField(auto_now=True, verbose_name="Diubah Pada")
+
+    class Meta:
+        verbose_name = "KPMR PLN — Periode"
+        verbose_name_plural = "KPMR PLN — Periode"
+        ordering = ["-tahun", "triwulan", "unit_bisnis__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tahun", "triwulan", "unit_bisnis"],
+                name="unik_kpmr_periode_per_triwulan_unit",
+            )
+        ]
+
+    def __str__(self):
+        return f"KPMR {self.tahun} TW{self.triwulan} - {self.unit_bisnis.name}"
+
+
+class KPMRIndikatorResmi(models.Model):
+    KODE_CHOICES = [
+        ("I1", "I1 - Pencapaian Nilai Eksposur Risiko vs Target Residual"),
+        ("I2", "I2 - Pencapaian Output Perlakuan Risiko vs Target Output"),
+        ("I3", "I3 - Realisasi Biaya Perlakuan Risiko vs Anggaran"),
+        ("I4", "I4 - Ketepatan Penilaian Risiko"),
+    ]
+
+    periode = models.ForeignKey(
+        KPMRPeriode,
+        on_delete=models.CASCADE,
+        related_name="indikator_resmi",
+        verbose_name="Periode KPMR",
+    )
+    kode = models.CharField(max_length=5, choices=KODE_CHOICES, verbose_name="Kode")
+    nama = models.CharField(max_length=255, verbose_name="Nama Indikator")
+    bobot = models.DecimalField(max_digits=5, decimal_places=2, verbose_name="Bobot (%)")
+    hasil = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Hasil",
+    )
+    skor = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        verbose_name="Skor",
+    )
+    dokumen_referensi = models.TextField(blank=True, null=True, verbose_name="Dokumen Referensi")
+    keterangan = models.TextField(blank=True, null=True, verbose_name="Keterangan")
+
+    class Meta:
+        verbose_name = "KPMR PLN — Indikator"
+        verbose_name_plural = "KPMR PLN — Indikator"
+        ordering = ["periode", "kode"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["periode", "kode"],
+                name="unik_indikator_kpmr_resmi_per_periode",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.periode} - {self.kode}"
+
+
+class KPMRSubIndikatorResmi(models.Model):
+    KODE_CHOICES = [
+        ("IDENTIFIKASI", "Identifikasi Risiko"),
+        ("KUANTIFIKASI", "Kuantifikasi Risiko"),
+        ("RENCANA", "Rencana Perlakuan Risiko"),
+        ("PRIORITISASI", "Prioritisasi Risiko"),
+    ]
+
+    indikator = models.ForeignKey(
+        KPMRIndikatorResmi,
+        on_delete=models.CASCADE,
+        related_name="subindikator",
+        verbose_name="Indikator KPMR",
+    )
+    kode = models.CharField(max_length=30, choices=KODE_CHOICES, verbose_name="Kode")
+    nama = models.CharField(max_length=255, verbose_name="Nama Sub Indikator")
+    bobot = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=25,
+        verbose_name="Bobot (%)",
+    )
+    jawaban = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Jawaban / Opsi",
+    )
+    hasil = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Hasil",
+    )
+    skor = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        verbose_name="Skor",
+    )
+    keterangan = models.TextField(blank=True, null=True, verbose_name="Keterangan")
+
+    class Meta:
+        verbose_name = "KPMR PLN — Sub Indikator"
+        verbose_name_plural = "KPMR PLN — Sub Indikator"
+        ordering = ["indikator", "kode"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["indikator", "kode"],
+                name="unik_subindikator_kpmr_resmi_per_indikator",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.indikator} - {self.kode}"
+
+
+class KinerjaPeriode(models.Model):
+    RATING_CHOICES = [
+        ("SANGAT_BAIK", "Sangat Baik"),
+        ("BAIK", "Baik"),
+        ("CUKUP", "Cukup"),
+        ("KURANG", "Kurang"),
+        ("BURUK", "Buruk"),
+    ]
+
+    TRIWULAN_CHOICES = [
+        (1, "TW1"),
+        (2, "TW2"),
+        (3, "TW3"),
+        (4, "TW4"),
+    ]
+
+    tahun = models.PositiveIntegerField(verbose_name="Tahun")
+    triwulan = models.PositiveSmallIntegerField(
+        choices=TRIWULAN_CHOICES,
+        verbose_name="Triwulan",
+    )
+    unit_bisnis = models.ForeignKey(
+        Group,
+        on_delete=models.PROTECT,
+        related_name="kinerja_periode",
+        verbose_name="Bidang / Unit Bisnis",
+    )
+    skor_total = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        verbose_name="Skor Total Kinerja",
+    )
+    rating = models.CharField(
+        max_length=20,
+        choices=RATING_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Rating Kinerja",
+    )
+    catatan = models.TextField(blank=True, null=True, verbose_name="Catatan")
+
+    class Meta:
+        verbose_name = "Kinerja Triwulanan"
+        verbose_name_plural = "Kinerja Triwulanan"
+        ordering = ["-tahun", "triwulan", "unit_bisnis__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tahun", "triwulan", "unit_bisnis"],
+                name="unik_kinerja_periode_per_triwulan_unit",
+            )
+        ]
+
+    def __str__(self):
+        return f"Kinerja {self.tahun} TW{self.triwulan} - {self.unit_bisnis.name}"
+
+
+class KinerjaIndikator(models.Model):
+    NAMA_CHOICES = [
+        ("KPI_KOLEGIAL", "Capaian KPI Kolegial"),
+        ("KEUANGAN", "Capaian Kinerja Keuangan"),
+        ("OPERASI", "Capaian Kinerja Operasi/Produksi Utama"),
+    ]
+
+    periode = models.ForeignKey(
+        KinerjaPeriode,
+        on_delete=models.CASCADE,
+        related_name="indikator",
+        verbose_name="Periode Kinerja",
+    )
+    nama = models.CharField(max_length=30, choices=NAMA_CHOICES, verbose_name="Indikator")
+    bobot = models.DecimalField(max_digits=5, decimal_places=2, verbose_name="Bobot (%)")
+    hasil = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Hasil",
+    )
+    skor = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        verbose_name="Skor",
+    )
+    keterangan = models.TextField(blank=True, null=True, verbose_name="Keterangan")
+
+    class Meta:
+        verbose_name = "Kinerja — Indikator"
+        verbose_name_plural = "Kinerja — Indikator"
+        ordering = ["periode", "nama"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["periode", "nama"],
+                name="unik_indikator_kinerja_per_periode",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.periode} - {self.get_nama_display()}"
+
+
+class KompositRisikoTriwulan(models.Model):
+    periode_kpmr = models.OneToOneField(
+        KPMRPeriode,
+        on_delete=models.CASCADE,
+        related_name="komposit_risiko",
+        verbose_name="Periode KPMR",
+    )
+    periode_kinerja = models.OneToOneField(
+        KinerjaPeriode,
+        on_delete=models.CASCADE,
+        related_name="komposit_risiko",
+        verbose_name="Periode Kinerja",
+    )
+    skor_kpmr = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    skor_kinerja = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    peringkat_komposit = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Peringkat Komposit",
+    )
+    catatan_review_spi = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Catatan Review SPI",
+    )
+
+    class Meta:
+        verbose_name = "Komposit Risiko Triwulan"
+        verbose_name_plural = "Komposit Risiko Triwulan"
+        ordering = ["-periode_kpmr__tahun", "periode_kpmr__triwulan"]
+
+    def __str__(self):
+        return f"Komposit {self.periode_kpmr}"
+
+
+class RoadmapProgram(models.Model):
+    tahun = models.PositiveIntegerField(verbose_name="Tahun")
+    nomor_urut = models.PositiveSmallIntegerField(verbose_name="No")
+    nama_program = models.CharField(max_length=255, verbose_name="Program")
+    aktif = models.BooleanField(default=True, verbose_name="Aktif")
+
+    class Meta:
+        verbose_name = "Roadmap MR — Program"
+        verbose_name_plural = "Roadmap MR — Program"
+        ordering = ["tahun", "nomor_urut"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tahun", "nomor_urut"],
+                name="unik_nomor_roadmap_per_tahun",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.nomor_urut}. {self.nama_program}"
+
+
+class RoadmapPenilaianSemester(models.Model):
+    SEMESTER_CHOICES = [
+        (1, "Semester 1"),
+        (2, "Semester 2"),
+    ]
+
+    tahun = models.PositiveIntegerField(verbose_name="Tahun")
+    semester = models.PositiveSmallIntegerField(
+        choices=SEMESTER_CHOICES,
+        verbose_name="Semester",
+    )
+    unit_bisnis = models.ForeignKey(
+        Group,
+        on_delete=models.PROTECT,
+        related_name="roadmap_penilaian_semester",
+        verbose_name="Bidang / Unit Bisnis",
+    )
+    program = models.ForeignKey(
+        RoadmapProgram,
+        on_delete=models.CASCADE,
+        related_name="penilaian_semester",
+        verbose_name="Program Roadmap",
+    )
+
+    nilai_kuantitas = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    nilai_kualitas = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    nilai_waktu = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    nilai_program = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+
+    catatan = models.TextField(blank=True, null=True, verbose_name="Catatan")
+
+    class Meta:
+        verbose_name = "Roadmap MR — Penilaian Semester"
+        verbose_name_plural = "Roadmap MR — Penilaian Semester"
+        ordering = ["-tahun", "semester", "unit_bisnis__name", "program__nomor_urut"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tahun", "semester", "unit_bisnis", "program"],
+                name="unik_penilaian_roadmap_per_semester_unit_program",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.tahun} S{self.semester} - {self.unit_bisnis.name} - {self.program}"
+
+    def save(self, *args, **kwargs):
+        self.nilai_program = (
+            (self.nilai_kuantitas or Decimal("0")) +
+            (self.nilai_kualitas or Decimal("0")) +
+            (self.nilai_waktu or Decimal("0"))
+        ) / Decimal("3")
+        self.nilai_program = self.nilai_program.quantize(Decimal("0.01"))
+        super().save(*args, **kwargs)
