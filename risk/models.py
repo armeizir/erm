@@ -438,7 +438,80 @@ class ItemKontrakManajemen(models.Model):
 
     def __str__(self):
         return f"{self.bagian.kode_bagian}.{self.no_urut}"
-    
+
+# =========================================================
+# RKAP (SIMPLIFIED FOR RISK APP)
+# =========================================================
+
+class RKAPItem(models.Model):
+    tahun = models.PositiveIntegerField(verbose_name="Tahun")
+
+    kode = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Kode RKAP",
+    )
+
+    sasaran = models.CharField(
+        max_length=255,
+        verbose_name="Sasaran RKAP",
+    )
+
+    indikator = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Indikator",
+    )
+
+    target = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Target",
+    )
+
+    satuan = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Satuan",
+    )
+
+    asumsi = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Asumsi / Driver RKAP",
+    )
+
+    unit_penanggung_jawab = models.ForeignKey(
+        Group,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="rkap_items",
+        verbose_name="Unit Penanggung Jawab",
+    )
+
+    aktif = models.BooleanField(default=True, verbose_name="Aktif")
+
+    class Meta:
+        verbose_name = "RKAP — Item"
+        verbose_name_plural = "RKAP — Item"
+        ordering = ["-tahun", "kode", "sasaran"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tahun", "kode", "sasaran"],
+                name="unik_rkap_item_per_tahun_kode_sasaran",
+            )
+        ]
+
+    def __str__(self):
+        label = self.kode or "RKAP"
+        return f"{label} - {self.sasaran} ({self.tahun})"
+
 # ===== RKM (BARU) =====
 
 class RKMSummary(models.Model):
@@ -1514,6 +1587,15 @@ class ProfilRisikoKorporatItem(models.Model):
         on_delete=models.PROTECT,
         verbose_name="Nama BUMN",
         default=1,
+    )
+
+    rkap_item = models.ForeignKey(
+        "RKAPItem",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="risiko_korporat_items",
+        verbose_name="Sumber Target RKAP",
     )
 
     sasaran_korporat = models.TextField(verbose_name="Sasaran BUMN")

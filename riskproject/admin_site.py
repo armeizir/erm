@@ -5,6 +5,7 @@ from risk.models import (
     KontrakManajemen,
     BagianKontrakManajemen,
     ItemKontrakManajemen,
+    RKAPItem,
     RKMSummary,
     RKMItem,
     ReAssessmentSummary,
@@ -40,11 +41,12 @@ class RiskAdminSite(AdminSite):
         extra_context = extra_context or {}
 
         stats = {
+            "rkap": RKAPItem.objects.count(),
+            "corporate": ProfilRisikoKorporatSummary.objects.count(),
             "km": KontrakManajemen.objects.count(),
             "rkm": RKMSummary.objects.count(),
             "reassessment": ReAssessmentSummary.objects.count(),
             "kpmr": KPMRSummary.objects.count(),
-            "corporate": ProfilRisikoKorporatSummary.objects.count(),
             "users": User.objects.count(),
             "units": Group.objects.count(),
             "masters": (
@@ -66,6 +68,24 @@ class RiskAdminSite(AdminSite):
         }
 
         sections = [
+            {
+                "title": "RKAP",
+                "color": "teal",
+                "count": stats["rkap"],
+                "items": [
+                    {"label": "RKAP Item", "url": "/admin/risk/rkapitem/"},
+                ],
+            },
+            {
+                "title": "Profil Risiko Korporat",
+                "color": "corporate",
+                "count": stats["corporate"],
+                "items": [
+                    {"label": "Profil Risiko Korporat", "url": "/admin/risk/profilrisikokorporatsummary/"},
+                    {"label": "Item Risiko Korporat", "url": "/admin/risk/profilrisikokorporatitem/"},
+                    {"label": "Sumber Risiko Korporat", "url": "/admin/risk/profilrisikokorporatsumber/"},
+                ],
+            },
             {
                 "title": "Kontrak Manajemen (KM)",
                 "color": "km",
@@ -101,16 +121,6 @@ class RiskAdminSite(AdminSite):
                 "items": [
                     {"label": "KPMR Unit/Bidang", "url": "/admin/risk/kpmrsummary/"},
                     {"label": "Item KPMR", "url": "/admin/risk/kpmritem/"},
-                ],
-            },
-            {
-                "title": "Profil Risiko Korporate",
-                "color": "corporate",
-                "count": stats["corporate"],
-                "items": [
-                    {"label": "Profil Risiko Korporat", "url": "/admin/risk/profilrisikokorporatsummary/"},
-                    {"label": "Item Risiko Korporat", "url": "/admin/risk/profilrisikokorporatitem/"},
-                    {"label": "Sumber Risiko Korporat", "url": "/admin/risk/profilrisikokorporatsumber/"},
                 ],
             },
             {

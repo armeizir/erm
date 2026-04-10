@@ -49,6 +49,7 @@ from .models import (
     KompositRisikoTriwulan,
     RoadmapProgram,
     RoadmapPenilaianSemester,
+    RKAPItem,
 )
 from riskproject.admin_site import risk_admin_site
 
@@ -255,6 +256,52 @@ class MasterBUMNAdmin(admin.ModelAdmin):
     list_display = ("nama", "kode")
     search_fields = ("nama", "kode")
     ordering = ("nama",)
+
+
+# =========================================================
+# RKAP (SIMPLIFIED)
+# =========================================================
+
+@admin.register(RKAPItem)
+class RKAPItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "tahun",
+        "kode",
+        "sasaran",
+        "indikator",
+        "target",
+        "satuan",
+        "unit_penanggung_jawab",
+        "aktif",
+    )
+    list_filter = ("tahun", "aktif", "unit_penanggung_jawab")
+    search_fields = ("kode", "sasaran", "indikator", "asumsi")
+    ordering = ("-tahun", "kode", "sasaran")
+    autocomplete_fields = ("unit_penanggung_jawab",)
+
+    fieldsets = (
+        ("Informasi Utama", {
+            "fields": (
+                "tahun",
+                "kode",
+                "sasaran",
+                "indikator",
+            )
+        }),
+        ("Target", {
+            "fields": (
+                "target",
+                "satuan",
+            )
+        }),
+        ("Konteks", {
+            "fields": (
+                "asumsi",
+                "unit_penanggung_jawab",
+                "aktif",
+            )
+        }),
+    )
 
 
 # =========================================================
@@ -588,6 +635,27 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
     inlines = [ReAssessmentItemInline]
 
 
+class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
+    model = ProfilRisikoKorporatSumber
+    fk_name = "reassessment_item"
+    extra = 0
+    autocomplete_fields = ("risiko_korporat",)
+    fields = (
+        "risiko_korporat",
+        "no_penyebab_risiko",
+        "kode_penyebab_risiko",
+        "penyebab_risiko",
+        "keterangan",
+    )
+    readonly_fields = (
+        "no_penyebab_risiko",
+        "kode_penyebab_risiko",
+        "penyebab_risiko",
+    )
+    verbose_name = "Relasi ke Profil Risiko Korporat"
+    verbose_name_plural = "Relasi ke Profil Risiko Korporat"
+
+
 @admin.register(ReAssessmentItem)
 class ReAssessmentItemAdmin(admin.ModelAdmin):
     fields = (
@@ -697,6 +765,7 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
         "taksonomi_t3",
         "kategori_risiko",
         "no_risiko",
+        "jumlah_relasi_korporat",
     )
     list_filter = (
         "summary__tahun",
@@ -717,6 +786,8 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
         "kategori_risiko__nama",
         "summary__judul",
         "summary__unit_bisnis__name",
+        "mendukung_risiko_korporat__risiko_korporat__peristiwa_risiko",
+        "mendukung_risiko_korporat__risiko_korporat__summary__judul",
     )
     ordering = ("summary", "no_item")
     autocomplete_fields = (
@@ -732,10 +803,16 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
         "pos_anggaran",
         "jenis_program_dalam_rkap",
     )
+    inlines = [ProfilRisikoKorporatSumberByReassessmentInline]
 
     def unit_bisnis_summary(self, obj):
         return obj.summary.unit_bisnis if obj.summary_id else "-"
     unit_bisnis_summary.short_description = "Bidang / Unit Bisnis"
+
+    def jumlah_relasi_korporat(self, obj):
+        return obj.mendukung_risiko_korporat.count()
+    jumlah_relasi_korporat.short_description = "Relasi Korporat"
+
 
 # =========================================================
 # KPMR
@@ -1019,6 +1096,7 @@ class ProfilRisikoKorporatItemInline(admin.TabularInline):
         "no_item",
         "no_risiko",
         "bumn",
+        "rkap_item",
         "sasaran_korporat",
         "sasaran_kbumn",
         "kategori_risiko",
@@ -1043,7 +1121,7 @@ class ProfilRisikoKorporatItemInline(admin.TabularInline):
         "residual_level_risiko",
         "matrix_cell_residual",
     )
-    autocomplete_fields = ("bumn", "sasaran_kbumn", "kategori_risiko", "taksonomi_t3")
+    autocomplete_fields = ("bumn", "rkap_item", "sasaran_kbumn", "kategori_risiko", "taksonomi_t3")
 
 @admin.register(ProfilRisikoKorporatSummary)
 class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
@@ -1184,6 +1262,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "no_item",
         "no_risiko",
         "bumn",
+        "rkap_item",
         "kode_bumn",
         "sasaran_korporat",
         "sasaran_kbumn",
@@ -1208,6 +1287,9 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "summary__judul",
         "bumn__nama",
         "bumn__kode",
+        "rkap_item__kode",
+        "rkap_item__sasaran",
+        "rkap_item__indikator",
         "sasaran_korporat",
         "peristiwa_risiko",
         "deskripsi_peristiwa_risiko",
@@ -1225,6 +1307,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     autocomplete_fields = (
         "bumn",
         "summary",
+        "rkap_item",
         "sasaran_kbumn",
         "kategori_risiko",
         "taksonomi_t3",
@@ -1245,6 +1328,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
                 "no_item",
                 "no_risiko",
                 "bumn",
+                "rkap_item",
             )
         }),
         ("Klasifikasi", {
@@ -1286,12 +1370,12 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     )
 
 
-
 @admin.register(ProfilRisikoKorporatSumber)
 class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
     list_display = (
         "risiko_korporat",
         "reassessment_item",
+        "unit_bisnis_reassessment",
         "no_penyebab_risiko",
         "kode_penyebab_risiko",
     )
@@ -1301,10 +1385,12 @@ class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
         "reassessment_item__peristiwa_risiko",
         "reassessment_item__penyebab_risiko",
         "kode_penyebab_risiko",
+        "reassessment_item__summary__unit_bisnis__name",
     )
     list_filter = (
         "risiko_korporat__summary__tahun",
         "risiko_korporat__summary",
+        "reassessment_item__summary__unit_bisnis",
     )
     ordering = (
         "risiko_korporat",
@@ -1319,6 +1405,12 @@ class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
         "risiko_korporat",
         "reassessment_item",
     )
+
+    def unit_bisnis_reassessment(self, obj):
+        if obj.reassessment_item_id and obj.reassessment_item.summary_id:
+            return obj.reassessment_item.summary.unit_bisnis
+        return "-"
+    unit_bisnis_reassessment.short_description = "Unit/Bidang"
 
 
 # =========================================================
@@ -1368,3 +1460,4 @@ risk_admin_site.register(KinerjaIndikator, KinerjaIndikatorAdmin)
 risk_admin_site.register(KompositRisikoTriwulan, KompositRisikoTriwulanAdmin)
 risk_admin_site.register(RoadmapProgram, RoadmapProgramAdmin)
 risk_admin_site.register(RoadmapPenilaianSemester, RoadmapPenilaianSemesterAdmin)
+risk_admin_site.register(RKAPItem, RKAPItemAdmin)

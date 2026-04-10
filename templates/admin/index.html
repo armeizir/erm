@@ -3,6 +3,30 @@
 
 {% block extrastyle %}
 <link rel="stylesheet" href="{% static 'admin/css/enterprise-dashboard.css' %}">
+<style>
+  .dashboard-level {
+    margin: 28px 0 12px;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #5b6b82;
+  }
+
+  .dashboard-level:first-of-type {
+    margin-top: 20px;
+  }
+
+  .hero-subflow {
+    margin-top: 10px;
+    font-size: 14px;
+    color: rgba(255,255,255,.92);
+  }
+
+  .hero-subflow strong {
+    color: #fff;
+  }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -10,55 +34,158 @@
   <div class="hero">
     <div>
       <h1>Dashboard Manajemen Risiko</h1>
-      <p>Enterprise overview untuk KM, RKM, Re-Assessment, KPMR, dan Korporat.</p>
+      <p>Enterprise overview untuk RKAP, Profil Risiko Korporat, KM, RKM, Re-Assessment, dan KPMR.</p>
+      <div class="hero-subflow">
+        <strong>Alur proses:</strong>
+        RKAP → Profil Risiko Korporat → KM → RKM → Profil Risiko Unit/Bidang → KPMR
+      </div>
     </div>
   </div>
 
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-label">KM</div>
-      <div class="stat-value">{{ dashboard_stats.km }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">RKM</div>
-      <div class="stat-value">{{ dashboard_stats.rkm }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Re-Assessment</div>
-      <div class="stat-value">{{ dashboard_stats.reassessment }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">KPMR</div>
-      <div class="stat-value">{{ dashboard_stats.kpmr }}</div>
+      <div class="stat-label">RKAP</div>
+      <div class="stat-value">{{ dashboard_stats.rkap|default:0 }}</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Korporat</div>
-      <div class="stat-value">{{ dashboard_stats.corporate }}</div>
+      <div class="stat-value">{{ dashboard_stats.corporate|default:0 }}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Users</div>
-      <div class="stat-value">{{ dashboard_stats.users }}</div>
+      <div class="stat-label">KM</div>
+      <div class="stat-value">{{ dashboard_stats.km|default:0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">RKM</div>
+      <div class="stat-value">{{ dashboard_stats.rkm|default:0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Re-Assessment</div>
+      <div class="stat-value">{{ dashboard_stats.reassessment|default:0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">KPMR</div>
+      <div class="stat-value">{{ dashboard_stats.kpmr|default:0 }}</div>
     </div>
   </div>
 
+  <div class="dashboard-level">Strategic Level</div>
   <div class="section-grid">
     {% for section in dashboard_sections %}
-      <div class="section-card section-{{ section.color }}">
-        <div class="section-head">
-          <div>
-            <h2>{{ section.title }}</h2>
-            <span class="badge">{{ section.count }}</span>
+      {% if forloop.counter <= 2 %}
+        <div class="section-card section-{{ section.color }}">
+          <div class="section-head">
+            <div>
+              <h2>{{ section.title }}</h2>
+              <span class="badge">{{ section.count }}</span>
+            </div>
+          </div>
+          <div class="section-links">
+            {% for item in section.items %}
+              <a href="{{ item.url }}" class="section-link">
+                <span>{{ item.label }}</span>
+                <span class="arrow">→</span>
+              </a>
+            {% endfor %}
           </div>
         </div>
-        <div class="section-links">
-          {% for item in section.items %}
-            <a href="{{ item.url }}" class="section-link">
-              <span>{{ item.label }}</span>
-              <span class="arrow">→</span>
-            </a>
-          {% endfor %}
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="dashboard-level">Management Level</div>
+  <div class="section-grid">
+    {% for section in dashboard_sections %}
+      {% if forloop.counter > 2 and forloop.counter <= 4 %}
+        <div class="section-card section-{{ section.color }}">
+          <div class="section-head">
+            <div>
+              <h2>{{ section.title }}</h2>
+              <span class="badge">{{ section.count }}</span>
+            </div>
+          </div>
+          <div class="section-links">
+            {% for item in section.items %}
+              <a href="{{ item.url }}" class="section-link">
+                <span>{{ item.label }}</span>
+                <span class="arrow">→</span>
+              </a>
+            {% endfor %}
+          </div>
         </div>
-      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="dashboard-level">Operational Level</div>
+  <div class="section-grid">
+    {% for section in dashboard_sections %}
+      {% if forloop.counter > 4 and forloop.counter <= 5 %}
+        <div class="section-card section-{{ section.color }}">
+          <div class="section-head">
+            <div>
+              <h2>{{ section.title }}</h2>
+              <span class="badge">{{ section.count }}</span>
+            </div>
+          </div>
+          <div class="section-links">
+            {% for item in section.items %}
+              <a href="{{ item.url }}" class="section-link">
+                <span>{{ item.label }}</span>
+                <span class="arrow">→</span>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="dashboard-level">Evaluation Level</div>
+  <div class="section-grid">
+    {% for section in dashboard_sections %}
+      {% if forloop.counter > 5 and forloop.counter <= 6 %}
+        <div class="section-card section-{{ section.color }}">
+          <div class="section-head">
+            <div>
+              <h2>{{ section.title }}</h2>
+              <span class="badge">{{ section.count }}</span>
+            </div>
+          </div>
+          <div class="section-links">
+            {% for item in section.items %}
+              <a href="{{ item.url }}" class="section-link">
+                <span>{{ item.label }}</span>
+                <span class="arrow">→</span>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="dashboard-level">Support Modules</div>
+  <div class="section-grid">
+    {% for section in dashboard_sections %}
+      {% if forloop.counter > 6 %}
+        <div class="section-card section-{{ section.color }}">
+          <div class="section-head">
+            <div>
+              <h2>{{ section.title }}</h2>
+              <span class="badge">{{ section.count }}</span>
+            </div>
+          </div>
+          <div class="section-links">
+            {% for item in section.items %}
+              <a href="{{ item.url }}" class="section-link">
+                <span>{{ item.label }}</span>
+                <span class="arrow">→</span>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
     {% endfor %}
   </div>
 </div>
