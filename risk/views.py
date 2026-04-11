@@ -58,16 +58,17 @@ def _resolve_level_bucket(level_name):
 
 
 def _fallback_level_from_score(score):
-    if score >= 20:
-        return "High", "#d50f0f"
-    if score >= 16:
-        return "Moderate to High", "#f2b01e"
-    if score >= 10:
-        return "Moderate", "#f3ef19"
-    if score >= 5:
-        return "Low to Moderate", "#b8d4a2"
-    return "Low", "#5b8f3a"
-
+    if score >= 15:
+        return "High", "#d00000"  # merah
+    elif score >= 12:
+        return "Moderate to High", "#f4a300"  # orange
+    elif score >= 8:
+        return "Moderate", "#fff200"  # kuning
+    elif score >= 5:
+        return "Low to Moderate", "#a9c98f"  # hijau muda
+    else:
+        return "Low", "#5a8f3a"  # hijau tua
+    
 
 def _default_matrix():
     return RiskMatrix.objects.filter(is_default=True, aktif=True).prefetch_related(
@@ -231,13 +232,8 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
                 cell_items.get((impact, likelihood), []),
                 key=lambda risk: (risk["no_risiko"] or 0, risk["peristiwa_risiko"]),
             )
-            if cell_meta:
-                score = cell_meta["score"]
-                level_name = cell_meta["level"] or "Tidak Terkategori"
-                color = cell_meta["color"] or "#d9d9d9"
-            else:
-                score = impact * likelihood
-                level_name, color = _fallback_level_from_score(score)
+            score = impact * likelihood
+            level_name, color = _fallback_level_from_score(score)
 
             row["cells"].append(
                 {
@@ -274,8 +270,11 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
     total_risks = len(drilldown_items)
     defaults = {bucket["name"]: bucket["default_color"] for bucket in LEVEL_FALLBACKS}
     legend = [
-        {"name": bucket, "color": legend_map.get(bucket) or defaults.get(bucket, "#d9d9d9")}
-        for bucket in ["Low", "Low to Moderate", "Moderate", "Moderate to High", "High"]
+        {"name": "Low", "color": "#5a8f3a"},
+        {"name": "Low to Moderate", "color": "#a9c98f"},
+        {"name": "Moderate", "color": "#fff200"},
+        {"name": "Moderate to High", "color": "#f4a300"},
+        {"name": "High", "color": "#d00000"},
     ]
 
     return {

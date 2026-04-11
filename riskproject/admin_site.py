@@ -1,5 +1,7 @@
 from django.contrib.admin import AdminSite
 from django.contrib.auth.models import Group, User
+from django.urls import reverse
+from monthly_report.models import MonthlyRiskReport
 
 from risk.models import (
     KontrakManajemen,
@@ -47,6 +49,7 @@ class RiskAdminSite(AdminSite):
             "rkm": RKMSummary.objects.count(),
             "reassessment": ReAssessmentSummary.objects.count(),
             "kpmr": KPMRSummary.objects.count(),
+            "monthly_report": MonthlyRiskReport.objects.count(),
             "users": User.objects.count(),
             "units": Group.objects.count(),
             "masters": (
@@ -112,6 +115,25 @@ class RiskAdminSite(AdminSite):
                 "items": [
                     {"label": "Profil Risiko Unit/Bidang", "url": "/admin/risk/reassessmentsummary/"},
                     {"label": "Item Risiko Unit/Bidang", "url": "/admin/risk/reassessmentitem/"},
+                ],
+            },
+            {
+                "title": "Laporan Risiko Bulanan",
+                "color": "orange",
+                "count": stats["monthly_report"],
+                "items": [
+                    {
+                        "label": "Laporan Risiko Bulanan",
+                        "url": reverse("risk_admin:monthly_report_monthlyriskreport_changelist"),
+                    },
+                    {
+                        "label": "Item Laporan Risiko",
+                        "url": reverse("risk_admin:monthly_report_monthlyriskreportitem_changelist"),
+                    },
+                    {
+                        "label": "Kesesuaian KM",
+                        "url": reverse("risk_admin:monthly_report_monthlyriskreportkmalignment_changelist"),
+                    },
                 ],
             },
             {
