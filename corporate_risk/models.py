@@ -85,8 +85,19 @@ class MonteCarloKorporatResult(TimeStampedModel):
     metric_name = models.CharField(max_length=100)
 
     mean_value = models.DecimalField(max_digits=18, decimal_places=4, null=True)
+    p50_value = models.DecimalField(max_digits=18, decimal_places=4, null=True)
     p80_value = models.DecimalField(max_digits=18, decimal_places=4, null=True)
+    p90_value = models.DecimalField(max_digits=18, decimal_places=4, null=True)
+    min_value = models.DecimalField(max_digits=18, decimal_places=4, null=True)
+    max_value = models.DecimalField(max_digits=18, decimal_places=4, null=True)
+
     probability_meet_target = models.DecimalField(max_digits=6, decimal_places=2, null=True)
+
+    target_value = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
+    status_hasil = models.CharField(max_length=20, null=True, blank=True)
+
+    history_snapshot = models.JSONField(default=list, blank=True)
+    simulation_snapshot = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = "cr_mc_result"

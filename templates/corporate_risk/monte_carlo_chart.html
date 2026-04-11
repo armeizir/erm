@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Monte Carlo Risiko Korporat</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      background: #f7f8fa;
+      color: #1f2937;
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #6b7280;
+      margin-bottom: 24px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: white;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.06);
+    }
+    .card-label {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .card-value {
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .status-AMAN { color: #15803d; }
+    .status-WASPADA { color: #d97706; }
+    .status-KRITIS { color: #b91c1c; }
+    .panel {
+      background: white;
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.06);
+    }
+    .panel h3 {
+      margin-top: 0;
+      margin-bottom: 14px;
+      font-size: 18px;
+    }
+    canvas {
+      max-height: 360px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">Visual Monte Carlo Risiko Korporat</div>
+    <div class="subtitle">
+      {{ result.corporate_risk_item.peristiwa_risiko }} • Forecast {{ result.forecast_periode.nama_periode }}
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-label">Mean</div>
+        <div class="card-value">{{ result.mean_value }}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">P50</div>
+        <div class="card-value">{{ result.p50_value }}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">P80</div>
+        <div class="card-value">{{ result.p80_value }}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Probabilitas</div>
+        <div class="card-value">{{ result.probability_meet_target }}%</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Status</div>
+        <div class="card-value status-{{ result.status_hasil }}">{{ result.status_hasil }}</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Histori Aktual</h3>
+      <canvas id="historyChart"></canvas>
+    </div>
+
+    <div class="panel">
+      <h3>Distribusi Monte Carlo</h3>
+      <canvas id="mcChart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const historyLabels = {{ history_labels_json|safe }};
+    const historyValues = {{ history_values_json|safe }};
+    const simulationValues = {{ simulation_values_json|safe }};
+    const targetValue = {{ result.target_value|default:"null" }};
+
+    new Chart(document.getElementById('historyChart'), {
+      type: 'line',
+      data: {
+        labels: historyLabels,
+        datasets: [
+          {
+            label: 'Aktual',
+            data: historyValues,
+            borderWidth: 2,
+            tension: 0.25
+          },
+          {
+            label: 'Target',
+            data: historyLabels.map(() => targetValue),
+            borderDash: [6, 6],
+            borderWidth: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' }
+        }
+      }
+    });
+
+    const bins = 12;
+    const min = Math.min(...simulationValues);
+    const max = Math.max(...simulationValues);
+    const step = (max - min) / bins || 1;
+    const labels = [];
+    const counts = new Array(bins).fill(0);
+
+    for (let i = 0; i < bins; i++) {
+      const start = min + i * step;
+      const end = start + step;
+      labels.push(start.toFixed(1) + " - " + end.toFixed(1));
+    }
+
+    simulationValues.forEach(v => {
+      let idx = Math.floor((v - min) / step);
+      if (idx >= bins) idx = bins - 1;
+      if (idx < 0) idx = 0;
+      counts[idx]++;
+    });
+
+    new Chart(document.getElementById('mcChart'), {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Distribusi Simulasi',
+            data: counts,
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' }
+        }
+      }
+    });
+  </script>
+</body>
+</html>
