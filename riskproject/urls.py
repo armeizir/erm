@@ -16,4 +16,6 @@ urlpatterns = [
 
     # ✅ PENTING: kasih prefix
     path("montecarlo/", include("corporate_risk.urls")),
+
+    path("reassessment/", include("reassessment.urls")),
 ]
