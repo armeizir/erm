@@ -104,3 +104,28 @@ class MonteCarloKorporatResult(TimeStampedModel):
 
     def __str__(self):
         return f"{self.corporate_risk_item} - Forecast"
+
+class AIInsightKorporat(TimeStampedModel):
+    corporate_risk_item = models.ForeignKey(
+        ProfilRisikoKorporatItem,
+        on_delete=models.CASCADE,
+        related_name="ai_insights",
+    )
+    monte_carlo_result = models.ForeignKey(
+        "corporate_risk.MonteCarloKorporatResult",
+        on_delete=models.CASCADE,
+        related_name="ai_insights",
+        null=True,
+        blank=True,
+    )
+
+    executive_summary = models.TextField(null=True, blank=True)
+    key_drivers = models.JSONField(default=list, blank=True)
+    recommended_actions = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "cr_ai_insight_korporat"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"AI Insight - {self.corporate_risk_item}"
