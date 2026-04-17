@@ -1248,7 +1248,6 @@ class RencanaPerlakuanRisikoKorporatInline(admin.StackedInline):
         "jenis_rencana_perlakuan_risiko",
     )
 
-
 @admin.register(ProfilRisikoKorporatItem)
 class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     inlines = [
@@ -1259,11 +1258,10 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
 
     list_display = (
         "summary",
-        "no_item",
-        "no_risiko",
+        "no_display",
+        "no_risiko_display",
         "bumn",
         "rkap_item",
-        "kode_bumn",
         "sasaran_korporat",
         "sasaran_kbumn",
         "kategori_risiko",
@@ -1272,6 +1270,18 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "pemilik_risiko",
         "status",
     )
+
+    def no_display(self, obj):
+        return obj.no_risiko
+    no_display.short_description = "No"
+    no_display.admin_order_field = "no_risiko"
+
+    def no_risiko_display(self, obj):
+        return obj.no_item
+    no_risiko_display.short_description = "No Risiko"
+    no_risiko_display.admin_order_field = "no_item"
+
+    
 
     list_filter = (
         "summary__tahun",
@@ -1314,7 +1324,7 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     )
 
     readonly_fields = (
-        "no_risiko",
+        "no",
         "level_risiko",
         "matrix_cell_inheren",
         "residual_level_risiko",
@@ -1325,8 +1335,8 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         ("Header Risiko", {
             "fields": (
                 "summary",
-                "no_item",
-                "no_risiko",
+                "no",        # 🔥 pindah ke atas
+                "no_item",   # 🔥 jadi setelahnya
                 "bumn",
                 "rkap_item",
             )
@@ -1368,6 +1378,16 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
             )
         }),
     )
+
+    def formfield_for_dbfield(self, db_field, **kwargs):
+        field = super().formfield_for_dbfield(db_field, **kwargs)
+        if db_field.name == "no_item":
+            field.label = "No Risiko"
+        return field
+
+    def no(self, obj):
+        return obj.no_risiko
+    no.short_description = "No"
 
 
 @admin.register(ProfilRisikoKorporatSumber)
