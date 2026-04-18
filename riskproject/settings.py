@@ -89,6 +89,7 @@ STATICFILES_DIRS = [
 WSGI_APPLICATION = 'riskproject.wsgi.application'
 
 
+
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
