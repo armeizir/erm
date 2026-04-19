@@ -34,6 +34,9 @@ class TahunBuku(TimeStampedModel):
         db_table = "md_tahun_buku"
         ordering = ["-tahun"]
 
+    def __str__(self):
+        return str(self.tahun)
+
 
 class PeriodeLaporan(TimeStampedModel):
     JENIS_CHOICES = [
@@ -55,6 +58,10 @@ class PeriodeLaporan(TimeStampedModel):
         unique_together = [("tahun_buku", "kode_periode")]
         ordering = ["tahun_buku__tahun", "tanggal_mulai"]
 
+    def __str__(self):
+        return self.nama_periode
+
+    
 
 class SasaranBUMN(models.Model):
     kode = models.CharField(max_length=50, unique=True)
@@ -84,6 +91,9 @@ class KategoriRisiko(models.Model):
 
     class Meta:
         db_table = "md_kategori_risiko"
+
+    def __str__(self):
+        return self.nama
 
 
 class KategoriDampak(models.Model):
