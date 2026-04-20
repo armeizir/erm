@@ -1,97 +1,57 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from statistics import mean
+from typing import Any
 import math
 import random
-from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
 
 from .models import (
+    MonteCarloKorporatConfig,
     MonteCarloKorporatHistory,
     MonteCarloKorporatResult,
+    AIInsightKorporat,
 )
 
 
-def _to_decimal(value):
-    if value is None:
-        return None
-    return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+@dataclass
+class MonteCarloComputation:
+    mean_value: float
+    p50_value: float
+    p80_value: float
+    p90_value: float
+    min_value: float
+    max_value: float
+    probability_meet_target: float | None
+    status_hasil: str
+    history_snapshot: list[dict[str, Any]]
+    simulation_snapshot: dict[str, Any]
 
 
-def _mean(values):
-    return sum(values) / len(values) if values else 0.0
-
-
-def _percentile(values, p):
+def percentile(values: list[float], q: float) -> float:
     if not values:
         return 0.0
-    values = sorted(values)
-    k = (len(values) - 1) * (p / 100)
+    if len(values) == 1:
+        return float(values[0])
+
+    values = sorted(float(v) for v in values)
+    k = (len(values) - 1) * q
     f = math.floor(k)
     c = math.ceil(k)
+
     if f == c:
         return values[int(k)]
+
     d0 = values[f] * (c - k)
     d1 = values[c] * (k - f)
     return d0 + d1
 
 
-def _std(values):
-    if len(values) <= 1:
-        return 0.0
-    avg = _mean(values)
-    return math.sqrt(sum((x - avg) ** 2 for x in values) / (len(values) - 1))
-
-
-def _safe_growth(prev_value, current_value):
-    if prev_value in (0, None):
-        return 0.0
-    return (current_value - prev_value) / prev_value
-
-
-def _month_label(dt):
-    return dt.strftime("%b-%y")
-
-
-def _next_month(dt):
-    if dt.month == 12:
-        return date(dt.year + 1, 1, 1)
-    return date(dt.year, dt.month + 1, 1)
-
-
-def _build_growth_series(values):
-    growths = []
-    for i in range(1, len(values)):
-        growths.append(_safe_growth(values[i - 1], values[i]))
-    return growths
-
-
-def _simulate_future_paths(last_actual, growth_mean, growth_std, months_ahead, n_simulations):
-    all_paths = []
-
-    for _ in range(n_simulations):
-        current = last_actual
-        path = []
-
-        for _m in range(months_ahead):
-            sampled_growth = random.gauss(growth_mean, growth_std) if growth_std > 0 else growth_mean
-            next_value = current * (1 + sampled_growth)
-
-            # proteksi agar tidak negatif
-            if next_value < 0:
-                next_value = 0
-
-            path.append(next_value)
-            current = next_value
-
-        all_paths.append(path)
-
-    return all_paths
-
-
-def _derive_probability_band(realization_percent):
+def _build_status_hasil(realization_percent: float | None) -> str:
     if realization_percent is None:
-        return None
-
+        return "-"
     if realization_percent <= 20:
         return "0-20%"
     if realization_percent <= 40:
@@ -103,137 +63,234 @@ def _derive_probability_band(realization_percent):
     return "80-100%"
 
 
-@transaction.atomic
-def run_monte_carlo_for_korporat_item(item, forecast_periode, months_ahead=9):
-    config = item.monte_carlo_config
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
-    histories = MonteCarloKorporatHistory.objects.filter(
-        corporate_risk_item=item,
-        metric_name=config.metric_name,
-    ).order_by("tanggal_data")
 
-    history_values = [float(h.metric_value) for h in histories]
-
-    if len(history_values) < max(config.minimum_history_points, 3):
-        raise ValueError("Data histori belum cukup untuk simulasi time series bulanan.")
-
-    growths = _build_growth_series(history_values)
-
-    growth_mean = _mean(growths)
-    growth_std = _std(growths)
-
-    last_history = histories.last()
-    last_actual_value = float(last_history.metric_value)
-
-    simulated_paths = _simulate_future_paths(
-        last_actual=last_actual_value,
-        growth_mean=growth_mean,
-        growth_std=growth_std,
-        months_ahead=months_ahead,
-        n_simulations=config.n_simulations,
+def _history_queryset(item, metric_name: str):
+    return (
+        MonteCarloKorporatHistory.objects
+        .filter(
+            corporate_risk_item=item,
+            metric_name=metric_name,
+        )
+        .select_related("periode")
+        .order_by("tanggal_data", "id")
     )
 
-    # total forecast per simulasi (Apr–Dec 2026)
-    total_forecasts = [sum(path) for path in simulated_paths]
 
-    mean_total = _mean(total_forecasts)
-    p20_total = _percentile(total_forecasts, 20)
-    p40_total = _percentile(total_forecasts, 40)
-    p60_total = _percentile(total_forecasts, 60)
-    p80_total = _percentile(total_forecasts, 80)
+def _build_history_snapshot(histories) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for h in histories:
+        rows.append({
+            "periode": str(h.periode) if h.periode else "-",
+            "tanggal": h.tanggal_data.isoformat() if h.tanggal_data else None,
+            "value": _safe_float(h.metric_value),
+            "target": _safe_float(h.target_value) if h.target_value is not None else None,
+        })
+    return rows
 
-    p50_total = _percentile(total_forecasts, 50)
-    p90_total = _percentile(total_forecasts, 90)
-    min_total = min(total_forecasts)
-    max_total = max(total_forecasts)
 
-    # proyeksi per bulan dari percentile
-    projection_rows = []
-    start_date = _next_month(last_history.tanggal_data)
+def _monthly_growth_rates(values: list[float]) -> list[float]:
+    growth_rates: list[float] = []
+    for i in range(1, len(values)):
+        prev_val = float(values[i - 1])
+        curr_val = float(values[i])
 
-    for month_idx in range(months_ahead):
-        month_values = [path[month_idx] for path in simulated_paths]
-        current_month = date(start_date.year, start_date.month, 1)
+        if prev_val <= 0:
+            continue
+
+        growth = (curr_val - prev_val) / prev_val
+        if math.isfinite(growth):
+            growth_rates.append(growth)
+    return growth_rates
+
+
+def _simulate_projection(
+    actual_values: list[float],
+    months_ahead: int,
+    n_simulations: int,
+) -> dict[str, Any]:
+    if len(actual_values) < 3:
+        raise ValueError("Data histori belum cukup untuk simulasi time series bulanan.")
+
+    growth_rates = _monthly_growth_rates(actual_values)
+    if len(growth_rates) < 2:
+        raise ValueError("Data histori belum cukup untuk menghitung pola pertumbuhan bulanan.")
+
+    avg_growth = mean(growth_rates)
+    std_growth = 0.0
+    if len(growth_rates) > 1:
+        variance = mean([(g - avg_growth) ** 2 for g in growth_rates])
+        std_growth = math.sqrt(variance)
+
+    current = float(actual_values[-1])
+    monthly_results: list[list[float]] = [[] for _ in range(months_ahead)]
+
+    for _ in range(n_simulations):
+        simulated = current
+        for month_idx in range(months_ahead):
+            sampled_growth = random.gauss(avg_growth, std_growth)
+
+            # guard rail agar proyeksi tidak terlalu liar
+            sampled_growth = max(min(sampled_growth, 3.0), -0.95)
+
+            simulated = simulated * (1 + sampled_growth)
+            simulated = max(simulated, 0.0)
+
+            monthly_results[month_idx].append(simulated)
+
+    projection_rows: list[dict[str, float]] = []
+    future_mean_total = 0.0
+    p20_total = 0.0
+    p40_total = 0.0
+    p60_total = 0.0
+    p80_total = 0.0
+
+    for idx, values in enumerate(monthly_results):
+        mean_val = mean(values) if values else 0.0
+        p20 = percentile(values, 0.20)
+        p40 = percentile(values, 0.40)
+        p60 = percentile(values, 0.60)
+        p80 = percentile(values, 0.80)
 
         projection_rows.append({
-            "bulan": _month_label(current_month),
-            "mean": round(_mean(month_values), 3),
-            "p20": round(_percentile(month_values, 20), 3),
-            "p40": round(_percentile(month_values, 40), 3),
-            "p60": round(_percentile(month_values, 60), 3),
-            "p80": round(_percentile(month_values, 80), 3),
+            "bulan_index": idx + 1,
+            "mean": mean_val,
+            "p20": p20,
+            "p40": p40,
+            "p60": p60,
+            "p80": p80,
         })
 
-        start_date = _next_month(start_date)
+        future_mean_total += mean_val
+        p20_total += p20
+        p40_total += p40
+        p60_total += p60
+        p80_total += p80
 
-    # hitung realisasi tahun berjalan dari data actual Jan–Mar 2026
-    actual_year = forecast_periode.tahun if hasattr(forecast_periode, "tahun") else last_history.tanggal_data.year
-    actual_ytd = [
-        float(h.metric_value)
+    return {
+        "growth_mean": avg_growth,
+        "growth_std": std_growth,
+        "projection_rows": projection_rows,
+        "summary": {
+            "actual_ytd_total": sum(actual_values),
+            "future_mean_total": future_mean_total,
+            "full_year_expected": sum(actual_values) + future_mean_total,
+            "p20_total": p20_total,
+            "p40_total": p40_total,
+            "p60_total": p60_total,
+            "p80_total": p80_total,
+        },
+    }
+
+
+@transaction.atomic
+def run_monte_carlo_for_korporat_item(item, forecast_periode, months_ahead: int = 9):
+    config = (
+        MonteCarloKorporatConfig.objects
+        .select_related("corporate_risk_item")
+        .get(corporate_risk_item=item, is_active=True)
+    )
+
+    histories = list(_history_queryset(item, config.metric_name))
+    if len(histories) < max(3, int(config.minimum_history_points or 0)):
+        raise ValueError("Data histori belum cukup untuk simulasi time series bulanan.")
+
+    history_values = [_safe_float(h.metric_value) for h in histories]
+    history_snapshot = _build_history_snapshot(histories)
+
+    simulation_snapshot = _simulate_projection(
+        actual_values=history_values,
+        months_ahead=months_ahead,
+        n_simulations=int(config.n_simulations or 1000),
+    )
+
+    summary = simulation_snapshot.get("summary", {})
+    actual_ytd_total = _safe_float(summary.get("actual_ytd_total"))
+    future_mean_total = _safe_float(summary.get("future_mean_total"))
+    full_year_expected = _safe_float(summary.get("full_year_expected"))
+    p20_total = _safe_float(summary.get("p20_total"))
+    p40_total = _safe_float(summary.get("p40_total"))
+    p60_total = _safe_float(summary.get("p60_total"))
+    p80_total = _safe_float(summary.get("p80_total"))
+
+    mean_value = future_mean_total
+    p50_value = percentile([row["mean"] for row in simulation_snapshot["projection_rows"]], 0.50)
+    p80_value = p80_total
+    p90_value = percentile([row["mean"] for row in simulation_snapshot["projection_rows"]], 0.90)
+    min_value = min([row["p20"] for row in simulation_snapshot["projection_rows"]], default=0.0)
+    max_value = max([row["p80"] for row in simulation_snapshot["projection_rows"]], default=0.0)
+
+    target_values = [
+        _safe_float(h.target_value)
         for h in histories
-        if h.tanggal_data.year == actual_year
+        if h.target_value not in (None, "")
     ]
-    actual_ytd_total = sum(actual_ytd)
-
-    # total ekspektasi full-year = actual YTD + mean future
-    full_year_expected = actual_ytd_total + mean_total if actual_ytd else mean_total
-
-    realization_percent = None
-    if full_year_expected > 0 and actual_ytd_total > 0:
-        realization_percent = (actual_ytd_total / full_year_expected) * 100
+    target_value = sum(target_values) if target_values else None
 
     probability_meet_target = None
-    target = float(last_history.target_value) if last_history.target_value is not None else None
-    if target is not None:
-        if config.direction == "lower":
-            probability_meet_target = (
-                sum(1 for x in total_forecasts if x <= target) / len(total_forecasts) * 100
-            )
-        else:
-            probability_meet_target = (
-                sum(1 for x in total_forecasts if x >= target) / len(total_forecasts) * 100
-            )
+    if target_value is not None and future_mean_total > 0:
+        probability_meet_target = 100.0 if future_mean_total <= target_value else 0.0
 
-    result = MonteCarloKorporatResult.objects.create(
+    realization_percent = None
+    if p80_total > 0:
+        realization_percent = (actual_ytd_total / p80_total) * 100.0
+
+    status_hasil = _build_status_hasil(realization_percent)
+
+    # tambah label bulan agar enak dibaca di admin
+    bulan_labels = [
+        "Apr-26", "May-26", "Jun-26", "Jul-26", "Aug-26", "Sep-26",
+        "Oct-26", "Nov-26", "Dec-26", "Jan-27", "Feb-27", "Mar-27",
+    ]
+    for idx, row in enumerate(simulation_snapshot["projection_rows"]):
+        if idx < len(bulan_labels):
+            row["bulan"] = bulan_labels[idx]
+        else:
+            row["bulan"] = f"Month-{idx+1}"
+
+    simulation_snapshot["summary"].update({
+        "actual_ytd_total": actual_ytd_total,
+        "future_mean_total": future_mean_total,
+        "full_year_expected": full_year_expected,
+        "p20_total": p20_total,
+        "p40_total": p40_total,
+        "p60_total": p60_total,
+        "p80_total": p80_total,
+        "realization_percent": realization_percent or 0.0,
+    })
+
+    # =========================
+    # KUNCI AGAR TIDAK DOBEL
+    # =========================
+    result, _created = MonteCarloKorporatResult.objects.update_or_create(
         corporate_risk_item=item,
         forecast_periode=forecast_periode,
         metric_name=config.metric_name,
-        mean_value=_to_decimal(mean_total),
-        p50_value=_to_decimal(p50_total),
-        p80_value=_to_decimal(p80_total),
-        p90_value=_to_decimal(p90_total),
-        min_value=_to_decimal(min_total),
-        max_value=_to_decimal(max_total),
-        probability_meet_target=_to_decimal(probability_meet_target) if probability_meet_target is not None else None,
-        target_value=_to_decimal(target) if target is not None else None,
-        status_hasil=_derive_probability_band(realization_percent),
-        history_snapshot=[
-            {
-                "periode": h.periode.nama_periode if hasattr(h.periode, "nama_periode") else str(h.periode_id),
-                "tanggal": str(h.tanggal_data),
-                "value": float(h.metric_value),
-                "target": float(h.target_value) if h.target_value is not None else None,
-            }
-            for h in histories
-        ],
-        simulation_snapshot={
-            "growth_mean": round(growth_mean, 6),
-            "growth_std": round(growth_std, 6),
-            "projection_rows": projection_rows,
-            "summary": {
-                "actual_ytd_total": round(actual_ytd_total, 3),
-                "future_mean_total": round(mean_total, 3),
-                "full_year_expected": round(full_year_expected, 3),
-                "realization_percent": round(realization_percent, 2) if realization_percent is not None else None,
-                "p20_total": round(p20_total, 3),
-                "p40_total": round(p40_total, 3),
-                "p60_total": round(p60_total, 3),
-                "p80_total": round(p80_total, 3),
-            },
+        defaults={
+            "mean_value": mean_value,
+            "p50_value": p50_value,
+            "p80_value": p80_value,
+            "p90_value": p90_value,
+            "min_value": min_value,
+            "max_value": max_value,
+            "probability_meet_target": probability_meet_target,
+            "target_value": target_value,
+            "status_hasil": status_hasil,
+            "history_snapshot": history_snapshot,
+            "simulation_snapshot": simulation_snapshot,
         },
     )
 
+    # optional: kalau result diupdate, insight lama untuk result ini dibersihkan
+    AIInsightKorporat.objects.filter(monte_carlo_result=result).delete()
+
     return result
+
 
 def generate_rule_based_ai_insight_for_result(result):
     summary = (result.simulation_snapshot or {}).get("summary", {})
@@ -287,11 +344,11 @@ def generate_rule_based_ai_insight_for_result(result):
     )
 
     key_drivers = (
-        f"1. Volatilitas historis incident cyber yang tinggi.\n"
+        "1. Volatilitas historis incident cyber yang tinggi.\n"
         f"2. Proyeksi mean sisa periode sebesar {future_mean_total:,.3f}.\n"
-        f"3. Adanya potensi lonjakan ancaman pada periode proyeksi.\n"
-        f"4. Risiko utama bukan hanya jumlah threat, tetapi kemungkinan eskalasi "
-        f"menjadi insiden yang mengganggu atau merusak sistem."
+        "3. Adanya potensi lonjakan ancaman pada periode proyeksi.\n"
+        "4. Risiko utama bukan hanya jumlah threat, tetapi kemungkinan eskalasi "
+        "menjadi insiden yang mengganggu atau merusak sistem."
     )
 
     recommended_actions = (
@@ -313,3 +370,6 @@ def generate_rule_based_ai_insight_for_result(result):
         },
     )
     return insight
+
+class Meta:
+    unique_together = ("corporate_risk_item", "forecast_periode", "metric_name")
