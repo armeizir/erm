@@ -620,17 +620,6 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
-    
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "<int:result_id>/generate-ai-insight/",
-                self.admin_site.admin_view(self.generate_ai_insight_view),
-                name="corporate_risk_generate_ai_insight",
-            ),
-        ]
-        return custom_urls + urls
 
     def generate_ai_button(self, obj):
         url = reverse("admin:corporate_risk_generate_ai_insight", args=[obj.pk])
@@ -655,6 +644,7 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         return redirect(
             reverse("admin:corporate_risk_montecarlokorporatresult_change", args=[result.pk])
         )
+
     
     def ai_insight_html(self, obj):
         insight = AIInsightKorporat.objects.filter(monte_carlo_result=obj).first()
@@ -681,29 +671,13 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
 
     ai_insight_html.short_description = "AI Insight Korporat"
 
-def generate_ai_button(self, obj):
-    url = reverse("admin:corporate_risk_generate_ai_insight", args=[obj.pk])
-    return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
-generate_ai_button.short_description = "AI Insight"
 
-def generate_ai_insight_view(self, request, result_id, *args, **kwargs):
-    result = get_object_or_404(MonteCarloKorporatResult, pk=result_id)
-    try:
-        insight = generate_rule_based_ai_insight_for_result(result)
-        self.message_user(
-            request,
-            f"AI Insight berhasil dibuat. Insight ID: {insight.pk}",
-            level=messages.SUCCESS,
-        )
-    except Exception as exc:
-        self.message_user(
-            request,
-            f"Gagal generate AI Insight: {exc}",
-            level=messages.ERROR,
-        )
-    return redirect(
-        reverse("admin:corporate_risk_montecarlokorporatresult_change", args=[result.pk])
-    )
+
+
+
+
+
+
 
 @admin.register(AIInsightKorporat)
 class AIInsightKorporatAdmin(admin.ModelAdmin):
