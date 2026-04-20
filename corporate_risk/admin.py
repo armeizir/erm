@@ -198,11 +198,6 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
                 "ringkasan_hasil_html",
             )
         }),
-        ("Pemantauan Tingkat Kemungkinan", {
-            "fields": (
-                "pemantauan_kemungkinan_html",
-            )
-        }),
         ("Histori Aktual", {
             "fields": (
                 "history_snapshot_html",
@@ -211,6 +206,11 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         ("Proyeksi Bulanan Monte Carlo", {
             "fields": (
                 "projection_rows_html",
+            )
+        }),
+        ("Pemantauan Tingkat Kemungkinan", {
+            "fields": (
+                "pemantauan_kemungkinan_html",
             )
         }),
         ("Grafik Monte Carlo", {
