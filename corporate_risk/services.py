@@ -234,3 +234,82 @@ def run_monte_carlo_for_korporat_item(item, forecast_periode, months_ahead=9):
     )
 
     return result
+
+def generate_rule_based_ai_insight_for_result(result):
+    summary = (result.simulation_snapshot or {}).get("summary", {})
+    projection_rows = (result.simulation_snapshot or {}).get("projection_rows", [])
+
+    actual_ytd = float(summary.get("actual_ytd_total") or 0)
+    p80_total = float(summary.get("p80_total") or 0)
+    full_year_expected = float(summary.get("full_year_expected") or 0)
+    future_mean_total = float(summary.get("future_mean_total") or 0)
+
+    realization_percent = 0.0
+    if p80_total > 0:
+        realization_percent = (actual_ytd / p80_total) * 100
+
+    if realization_percent <= 20:
+        tingkat = "rendah"
+        kemungkinan = "20%"
+    elif realization_percent <= 40:
+        tingkat = "moderat"
+        kemungkinan = "40%"
+    elif realization_percent <= 60:
+        tingkat = "cukup tinggi"
+        kemungkinan = "60%"
+    elif realization_percent <= 80:
+        tingkat = "tinggi"
+        kemungkinan = "80%"
+    else:
+        tingkat = "sangat tinggi"
+        kemungkinan = "100%"
+
+    tren = "fluktuatif"
+    if projection_rows:
+        first_mean = float(projection_rows[0].get("mean") or 0)
+        last_mean = float(projection_rows[-1].get("mean") or 0)
+        if last_mean > first_mean * 1.1:
+            tren = "meningkat"
+        elif last_mean < first_mean * 0.9:
+            tren = "menurun"
+        else:
+            tren = "relatif stabil"
+
+    executive_summary = (
+        f"Berdasarkan hasil simulasi Monte Carlo, risiko siber pada item "
+        f"'{result.corporate_risk_item}' menunjukkan profil eksposur {tingkat} "
+        f"dengan tingkat kemungkinan indikatif {kemungkinan}. "
+        f"Proyeksi hingga akhir periode memperlihatkan pola {tren}, dengan "
+        f"full year expected sebesar {full_year_expected:,.3f} dan "
+        f"skenario konservatif P80 sebesar {p80_total:,.3f}. "
+        f"Realisasi year-to-date saat ini masih berada pada {realization_percent:,.2f}% "
+        f"dari skenario konservatif."
+    )
+
+    key_drivers = (
+        f"1. Volatilitas historis incident cyber yang tinggi.\n"
+        f"2. Proyeksi mean sisa periode sebesar {future_mean_total:,.3f}.\n"
+        f"3. Adanya potensi lonjakan ancaman pada periode proyeksi.\n"
+        f"4. Risiko utama bukan hanya jumlah threat, tetapi kemungkinan eskalasi "
+        f"menjadi insiden yang mengganggu atau merusak sistem."
+    )
+
+    recommended_actions = (
+        "1. Perkuat monitoring dan early warning untuk aset IT/OT kritikal.\n"
+        "2. Tingkatkan kesiapan incident response dan containment playbook.\n"
+        "3. Prioritaskan hardening, patching, dan segmentasi jaringan pada sistem kritikal.\n"
+        "4. Lakukan evaluasi berkala atas kontrol mitigasi agar threat tidak berkembang "
+        "menjadi gangguan operasional.\n"
+        "5. Fokuskan pengendalian pada zero tolerance terhadap insiden yang merusak sistem."
+    )
+
+    insight, _ = AIInsightKorporat.objects.update_or_create(
+        corporate_risk_item=result.corporate_risk_item,
+        monte_carlo_result=result,
+        defaults={
+            "executive_summary": executive_summary,
+            "key_drivers": key_drivers,
+            "recommended_actions": recommended_actions,
+        },
+    )
+    return insight

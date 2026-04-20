@@ -12,8 +12,11 @@ from .models import (
     MonteCarloKorporatResult,
     AIInsightKorporat,
 )
-from .services import run_monte_carlo_for_korporat_item
 
+from .services import (
+    run_monte_carlo_for_korporat_item,
+    generate_rule_based_ai_insight_for_result,
+)
 
 @admin.register(MonteCarloKorporatConfig)
 class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
@@ -115,7 +118,6 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
                 reverse("admin:corporate_risk_montecarlokorporatconfig_change", args=[config.pk])
             )
 
-
 @admin.register(MonteCarloKorporatHistory)
 class MonteCarloKorporatHistoryAdmin(admin.ModelAdmin):
     list_display = (
@@ -163,6 +165,7 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         "probability_meet_target",
         "status_hasil",
         "created_at",
+        "generate_ai_button",
     )
     list_filter = ("forecast_periode", "metric_name", "status_hasil")
     search_fields = (
@@ -181,6 +184,8 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         "history_snapshot_html",
         "projection_rows_html",
         "grafik_monte_carlo_html",
+        "narasi_analisis_html",
+        "ai_insight_html",
     )
 
     fieldsets = (
@@ -216,6 +221,16 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         ("Grafik Monte Carlo", {
             "fields": (
                 "grafik_monte_carlo_html",
+            )
+        }),
+        ("Narasi Analisis Sistem", {
+            "fields": (
+                "narasi_analisis_html",
+            )
+        }),
+        ("AI Insight Korporat", {
+            "fields": (
+                "ai_insight_html",
             )
         }),
     )
@@ -535,6 +550,160 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         </script>
         """)
     grafik_monte_carlo_html.short_description = "Grafik Monte Carlo"
+
+    def narasi_analisis_html(self, obj):
+        summary = self._summary(obj)
+
+        actual_ytd = float(summary.get("actual_ytd_total") or 0)
+        p80_total = float(summary.get("p80_total") or 0)
+        full_year_expected = float(summary.get("full_year_expected") or 0)
+
+        realization_percent = 0.0
+        if p80_total > 0:
+            realization_percent = (actual_ytd / p80_total) * 100
+
+        if realization_percent <= 20:
+            tingkat = "masih berada pada level rendah"
+        elif realization_percent <= 40:
+            tingkat = "masih berada pada level moderat"
+        elif realization_percent <= 60:
+            tingkat = "sudah berada pada level cukup tinggi"
+        elif realization_percent <= 80:
+            tingkat = "berada pada level tinggi"
+        else:
+            tingkat = "berada pada level sangat tinggi"
+
+        html = f"""
+        <div style="margin-top:20px; padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #ddd;">
+        <h3 style="margin-bottom:10px;">Analisis Proyeksi Risiko Siber</h3>
+
+        <p>
+            Berdasarkan hasil simulasi Monte Carlo, proyeksi ancaman/incident cyber terhadap sistem IT dan OT
+            menunjukkan bahwa eksposur risiko {tingkat}. Full year expected tercatat sebesar
+            <strong>{self._fmt(full_year_expected, 3)}</strong>, dengan skenario konservatif (P80)
+            sebesar <strong>{self._fmt(p80_total, 3)}</strong>.
+        </p>
+
+        <p>
+            Realisasi year-to-date saat ini sebesar <strong>{self._fmt(actual_ytd, 3)}</strong> atau
+            <strong>{self._fmt(realization_percent, 2)}</strong>% terhadap skenario konservatif.
+            Hal ini menunjukkan bahwa meskipun ancaman telah terjadi, posisi saat ini masih perlu dibaca
+            sebagai sinyal kewaspadaan untuk sisa periode tahun berjalan.
+        </p>
+
+        <p>
+            Dengan target perusahaan yang tidak mentoleransi insiden sampai merusak sistem, maka fokus utama
+            mitigasi bukan hanya menurunkan jumlah threat, tetapi memastikan threat tersebut tidak berkembang
+            menjadi insiden yang mengganggu operasional atau merusak sistem kritikal.
+        </p>
+
+        <p><strong>Fokus mitigasi yang direkomendasikan:</strong></p>
+        <ul>
+            <li>Penguatan deteksi dini dan monitoring ancaman siber</li>
+            <li>Peningkatan respons insiden dan containment pada sistem IT/OT</li>
+            <li>Penguatan kontrol keamanan pada aset kritikal</li>
+            <li>Pencegahan eskalasi ancaman menjadi gangguan operasional</li>
+        </ul>
+        </div>
+        """
+        return mark_safe(html)
+
+    narasi_analisis_html.short_description = "Narasi Analisis Sistem"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:result_id>/generate-ai-insight/",
+                self.admin_site.admin_view(self.generate_ai_insight_view),
+                name="corporate_risk_generate_ai_insight",
+            ),
+        ]
+        return custom_urls + urls
+    
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:result_id>/generate-ai-insight/",
+                self.admin_site.admin_view(self.generate_ai_insight_view),
+                name="corporate_risk_generate_ai_insight",
+            ),
+        ]
+        return custom_urls + urls
+
+    def generate_ai_button(self, obj):
+        url = reverse("admin:corporate_risk_generate_ai_insight", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
+    generate_ai_button.short_description = "AI Insight"
+
+    def generate_ai_insight_view(self, request, result_id, *args, **kwargs):
+        result = get_object_or_404(MonteCarloKorporatResult, pk=result_id)
+        try:
+            insight = generate_rule_based_ai_insight_for_result(result)
+            self.message_user(
+                request,
+                f"AI Insight berhasil dibuat. Insight ID: {insight.pk}",
+                level=messages.SUCCESS,
+            )
+        except Exception as exc:
+            self.message_user(
+                request,
+                f"Gagal generate AI Insight: {exc}",
+                level=messages.ERROR,
+            )
+        return redirect(
+            reverse("admin:corporate_risk_montecarlokorporatresult_change", args=[result.pk])
+        )
+    
+    def ai_insight_html(self, obj):
+        insight = AIInsightKorporat.objects.filter(monte_carlo_result=obj).first()
+        if not insight:
+            return mark_safe(
+                '<div style="padding:12px; background:#fff8e1; border:1px solid #f0d98a; border-radius:8px;">'
+                'AI Insight belum dibuat. Klik tombol <strong>Generate AI Insight</strong> pada daftar hasil Monte Carlo.'
+                '</div>'
+            )
+
+        html = f"""
+        <div style="padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #ddd;">
+        <h3>Executive Summary</h3>
+        <p>{insight.executive_summary.replace(chr(10), '<br>')}</p>
+
+        <h3 style="margin-top:15px;">Key Drivers</h3>
+        <p>{insight.key_drivers.replace(chr(10), '<br>')}</p>
+
+        <h3 style="margin-top:15px;">Recommended Actions</h3>
+        <p>{insight.recommended_actions.replace(chr(10), '<br>')}</p>
+        </div>
+        """
+        return mark_safe(html)
+
+    ai_insight_html.short_description = "AI Insight Korporat"
+
+def generate_ai_button(self, obj):
+    url = reverse("admin:corporate_risk_generate_ai_insight", args=[obj.pk])
+    return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
+generate_ai_button.short_description = "AI Insight"
+
+def generate_ai_insight_view(self, request, result_id, *args, **kwargs):
+    result = get_object_or_404(MonteCarloKorporatResult, pk=result_id)
+    try:
+        insight = generate_rule_based_ai_insight_for_result(result)
+        self.message_user(
+            request,
+            f"AI Insight berhasil dibuat. Insight ID: {insight.pk}",
+            level=messages.SUCCESS,
+        )
+    except Exception as exc:
+        self.message_user(
+            request,
+            f"Gagal generate AI Insight: {exc}",
+            level=messages.ERROR,
+        )
+    return redirect(
+        reverse("admin:corporate_risk_montecarlokorporatresult_change", args=[result.pk])
+    )
 
 @admin.register(AIInsightKorporat)
 class AIInsightKorporatAdmin(admin.ModelAdmin):
