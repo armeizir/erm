@@ -34,3 +34,8 @@ class PeriodeLaporanAdmin(admin.ModelAdmin):
     list_filter = ("jenis_periode", "tahun_buku", "is_locked")
     search_fields = ("nama_periode", "kode_periode", "tahun_buku__tahun")
     ordering = ("tahun_buku__tahun", "tanggal_mulai")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "tahun_buku":
+            kwargs["queryset"] = TahunBuku.objects.order_by('-tahun')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
