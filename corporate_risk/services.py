@@ -13,8 +13,267 @@ from .models import (
     MonteCarloKorporatHistory,
     MonteCarloKorporatResult,
     AIInsightKorporat,
+    RiskMetric,
+    MonteCarloMetricHistory,
+    MultiMetricMonteCarloResult,
 )
 
+def _percentile(values, q):
+    if not values:
+        return 0.0
+
+    values = sorted(float(v) for v in values)
+    if len(values) == 1:
+        return values[0]
+
+    k = (len(values) - 1) * q
+    f = math.floor(k)
+    c = math.ceil(k)
+
+    if f == c:
+        return values[int(k)]
+
+    return values[f] * (c - k) + values[c] * (k - f)
+
+
+def _safe_float(value):
+    try:
+        return float(value or 0)
+    except Exception:
+        return 0.0
+
+
+def _growth_rates(values):
+    rates = []
+
+    for i in range(1, len(values)):
+        prev_value = _safe_float(values[i - 1])
+        current_value = _safe_float(values[i])
+
+        if prev_value <= 0:
+            continue
+
+        rate = (current_value - prev_value) / prev_value
+
+        if math.isfinite(rate):
+            rates.append(rate)
+
+    return rates
+
+
+def _simulate_metric(values, months_ahead=9, n_simulations=1000):
+    if len(values) < 3:
+        raise ValueError("Data histori metric belum cukup. Minimal 3 periode.")
+
+    values = [_safe_float(v) for v in values]
+    rates = _growth_rates(values)
+
+    if len(rates) < 2:
+        raise ValueError("Data histori metric belum cukup untuk menghitung growth rate.")
+
+    avg_growth = mean(rates)
+    variance = mean([(r - avg_growth) ** 2 for r in rates])
+    std_growth = math.sqrt(variance)
+
+    current = values[-1]
+    monthly_results = [[] for _ in range(months_ahead)]
+
+    for _ in range(n_simulations):
+        simulated = current
+
+        for month_idx in range(months_ahead):
+            sampled_growth = random.gauss(avg_growth, std_growth)
+
+            # guardrail supaya hasil tidak terlalu liar
+            sampled_growth = max(min(sampled_growth, 3.0), -0.95)
+
+            simulated = simulated * (1 + sampled_growth)
+            simulated = max(simulated, 0)
+
+            monthly_results[month_idx].append(simulated)
+
+    projection_rows = []
+    mean_total = 0
+    p80_total = 0
+
+    for idx, month_values in enumerate(monthly_results):
+        mean_value = mean(month_values)
+        p20_value = _percentile(month_values, 0.20)
+        p40_value = _percentile(month_values, 0.40)
+        p60_value = _percentile(month_values, 0.60)
+        p80_value = _percentile(month_values, 0.80)
+
+        projection_rows.append({
+            "bulan_index": idx + 1,
+            "mean": mean_value,
+            "p20": p20_value,
+            "p40": p40_value,
+            "p60": p60_value,
+            "p80": p80_value,
+        })
+
+        mean_total += mean_value
+        p80_total += p80_value
+
+    return {
+        "actual_total": sum(values),
+        "future_mean_total": mean_total,
+        "full_year_expected": sum(values) + mean_total,
+        "p80_total": p80_total,
+        "growth_mean": avg_growth,
+        "growth_std": std_growth,
+        "projection_rows": projection_rows,
+    }
+
+
+def _normalize_metric_score(metric, projected_value, last_actual_value):
+    """
+    Normalisasi sederhana untuk composite score.
+    Logika:
+    - increase: makin besar makin berisiko
+    - decrease: makin kecil makin berisiko
+    """
+
+    projected_value = _safe_float(projected_value)
+    last_actual_value = _safe_float(last_actual_value)
+
+    if last_actual_value <= 0:
+        return 0.0
+
+    if metric.direction == "increase":
+        score = (projected_value / last_actual_value) * 100
+    else:
+        score = (last_actual_value / projected_value) * 100 if projected_value > 0 else 100
+
+    return max(score, 0.0)
+
+
+def _status_from_score(score):
+    score = _safe_float(score)
+
+    if score <= 20:
+        return "Rendah"
+    if score <= 40:
+        return "Moderat"
+    if score <= 60:
+        return "Cukup Tinggi"
+    if score <= 80:
+        return "Tinggi"
+
+    return "Sangat Tinggi"
+
+
+@transaction.atomic
+def run_multi_metric_monte_carlo_for_korporat_item(
+    item,
+    forecast_periode,
+    months_ahead=9,
+    n_simulations=1000,
+):
+    metrics = list(
+        RiskMetric.objects.filter(
+            corporate_risk_item=item,
+            is_active=True,
+        ).order_by("name")
+    )
+
+    if not metrics:
+        raise ValueError("Belum ada Risk Metric aktif untuk risiko ini.")
+
+    metric_results = []
+    total_weight = sum([_safe_float(m.weight) for m in metrics])
+
+    if total_weight <= 0:
+        total_weight = len(metrics)
+
+    for metric in metrics:
+        histories = list(
+            MonteCarloMetricHistory.objects.filter(
+                metric=metric,
+            )
+            .select_related("periode")
+            .order_by("tanggal_data", "id")
+        )
+
+        if len(histories) < 3:
+            raise ValueError(
+                f"Data histori untuk metric '{metric.name}' belum cukup. Minimal 3 periode."
+            )
+
+        values = [_safe_float(h.metric_value) for h in histories]
+        last_actual = values[-1]
+
+        simulation = _simulate_metric(
+            values=values,
+            months_ahead=months_ahead,
+            n_simulations=n_simulations,
+        )
+
+        mean_score = _normalize_metric_score(
+            metric=metric,
+            projected_value=simulation["full_year_expected"],
+            last_actual_value=last_actual,
+        )
+
+        p80_score = _normalize_metric_score(
+            metric=metric,
+            projected_value=simulation["p80_total"],
+            last_actual_value=last_actual,
+        )
+
+        weight = _safe_float(metric.weight)
+        weight_ratio = weight / total_weight if total_weight else 0
+
+        metric_results.append({
+            "metric_id": metric.id,
+            "metric_name": metric.name,
+            "unit": metric.unit,
+            "direction": metric.direction,
+            "weight": weight,
+            "weight_ratio": weight_ratio,
+            "last_actual": last_actual,
+            "mean_score": mean_score,
+            "p80_score": p80_score,
+            "actual_total": simulation["actual_total"],
+            "future_mean_total": simulation["future_mean_total"],
+            "full_year_expected": simulation["full_year_expected"],
+            "p80_total": simulation["p80_total"],
+            "projection_rows": simulation["projection_rows"],
+        })
+
+    composite_score = sum([
+        row["mean_score"] * row["weight_ratio"]
+        for row in metric_results
+    ])
+
+    p80_score = sum([
+        row["p80_score"] * row["weight_ratio"]
+        for row in metric_results
+    ])
+
+    status_hasil = _status_from_score(composite_score)
+
+    result, _created = MultiMetricMonteCarloResult.objects.update_or_create(
+        corporate_risk_item=item,
+        forecast_periode=forecast_periode,
+        defaults={
+            "composite_score": Decimal(str(round(composite_score, 4))),
+            "p80_score": Decimal(str(round(p80_score, 4))),
+            "status_hasil": status_hasil,
+            "metric_snapshot": {
+                "metrics": metric_results,
+            },
+            "simulation_snapshot": {
+                "months_ahead": months_ahead,
+                "n_simulations": n_simulations,
+                "composite_score": composite_score,
+                "p80_score": p80_score,
+                "status_hasil": status_hasil,
+            },
+        },
+    )
+
+    return result
 
 @dataclass
 class MonteCarloComputation:
@@ -370,6 +629,20 @@ def generate_rule_based_ai_insight_for_result(result):
         },
     )
     return insight
+
+def map_risk_appetite(probability_percent):
+    """
+    Custom mapping sesuai selera risiko PLN Batam
+    """
+
+    if probability_percent <= 20:
+        return 20
+    elif probability_percent <= 40:
+        return 40
+    elif probability_percent <= 80:
+        return 40   # ← ini yang kamu mau (80% dianggap 40%)
+    else:
+        return 60
 
 class Meta:
     unique_together = ("corporate_risk_item", "forecast_periode", "metric_name")

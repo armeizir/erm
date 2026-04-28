@@ -11,6 +11,9 @@ from .models import (
     MonteCarloKorporatHistory,
     MonteCarloKorporatResult,
     AIInsightKorporat,
+    RiskMetric,
+    MonteCarloMetricHistory,
+    MultiMetricMonteCarloResult,
 )
 
 from .services import (
@@ -672,13 +675,6 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
     ai_insight_html.short_description = "AI Insight Korporat"
 
 
-
-
-
-
-
-
-
 @admin.register(AIInsightKorporat)
 class AIInsightKorporatAdmin(admin.ModelAdmin):
     list_display = (
@@ -710,6 +706,190 @@ class AIInsightKorporatAdmin(admin.ModelAdmin):
         }),
     )
 
+
+@admin.register(RiskMetric)
+class RiskMetricAdmin(admin.ModelAdmin):
+    list_display = (
+        "corporate_risk_item",
+        "name",
+        "unit",
+        "direction",
+        "weight",
+        "is_active",
+    )
+    list_filter = ("direction", "is_active")
+    search_fields = (
+        "corporate_risk_item__peristiwa_risiko",
+        "name",
+        "unit",
+    )
+    autocomplete_fields = ("corporate_risk_item",)
+    ordering = ("corporate_risk_item", "name")
+
+    fieldsets = (
+        ("Relasi Risiko", {
+            "fields": ("corporate_risk_item",)
+        }),
+        ("Informasi Metric", {
+            "fields": (
+                "name",
+                "unit",
+                "direction",
+                "weight",
+                "is_active",
+            )
+        }),
+    )
+
+
+@admin.register(MonteCarloMetricHistory)
+class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "metric",
+        "periode",
+        "tanggal_data",
+        "metric_value",
+        "target_value",
+        "created_at",
+    )
+    list_filter = (
+        "metric",
+        "periode",
+    )
+    search_fields = (
+        "metric__name",
+        "metric__corporate_risk_item__peristiwa_risiko",
+    )
+    autocomplete_fields = (
+        "metric",
+        "periode",
+    )
+    ordering = (
+        "metric",
+        "tanggal_data",
+    )
+
+    fieldsets = (
+        ("Relasi", {
+            "fields": (
+                "metric",
+                "periode",
+            )
+        }),
+        ("Data Historis", {
+            "fields": (
+                "tanggal_data",
+                "metric_value",
+                "target_value",
+                "keterangan",
+            )
+        }),
+    )
+
+@admin.register(MultiMetricMonteCarloResult)
+class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
+    list_display = (
+        "corporate_risk_item",
+        "forecast_periode",
+        "composite_score",
+        "p80_score",
+        "status_hasil",
+        "created_at",
+    )
+    list_filter = (
+        "forecast_periode",
+        "status_hasil",
+    )
+    search_fields = (
+        "corporate_risk_item__peristiwa_risiko",
+    )
+    autocomplete_fields = (
+        "corporate_risk_item",
+        "forecast_periode",
+    )
+    readonly_fields = (
+        "corporate_risk_item",
+        "forecast_periode",
+        "composite_score",
+        "p80_score",
+        "status_hasil",
+        "metric_snapshot_html",
+        "created_at",
+    )
+
+    fieldsets = (
+        ("Informasi Utama", {
+            "fields": (
+                "corporate_risk_item",
+                "forecast_periode",
+                "composite_score",
+                "p80_score",
+                "status_hasil",
+                "created_at",
+            )
+        }),
+        ("Detail Metric", {
+            "fields": (
+                "metric_snapshot_html",
+            )
+        }),
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def _fmt(self, value, digits=2):
+        try:
+            return f"{float(value):,.{digits}f}"
+        except Exception:
+            return "-"
+
+    def metric_snapshot_html(self, obj):
+        metrics = (obj.metric_snapshot or {}).get("metrics", [])
+        if not metrics:
+            return "-"
+
+        rows = []
+
+        for row in metrics:
+            rows.append(f"""
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">{row.get("metric_name", "-")}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">{row.get("unit", "-")}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">{row.get("direction", "-")}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get("weight"), 2)}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get("last_actual"), 2)}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get("full_year_expected"), 2)}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get("mean_score"), 2)}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get("p80_score"), 2)}</td>
+                </tr>
+            """)
+
+        html = f"""
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Metric</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Unit</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Direction</th>
+                    <th style="text-align:right; padding:8px; border-bottom:1px solid #ddd;">Bobot</th>
+                    <th style="text-align:right; padding:8px; border-bottom:1px solid #ddd;">Last Actual</th>
+                    <th style="text-align:right; padding:8px; border-bottom:1px solid #ddd;">Full Year Expected</th>
+                    <th style="text-align:right; padding:8px; border-bottom:1px solid #ddd;">Mean Score</th>
+                    <th style="text-align:right; padding:8px; border-bottom:1px solid #ddd;">P80 Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {''.join(rows)}
+            </tbody>
+        </table>
+        """
+
+        return mark_safe(html)
+
+    metric_snapshot_html.short_description = "Detail Metric"
+
+
 try:
     risk_admin_site.register(MonteCarloKorporatConfig, MonteCarloKorporatConfigAdmin)
 except Exception:
@@ -727,5 +907,20 @@ except Exception:
 
 try:
     risk_admin_site.register(AIInsightKorporat, AIInsightKorporatAdmin)
+except Exception:
+    pass
+
+try:
+    risk_admin_site.register(MonteCarloMetricHistory, MonteCarloMetricHistoryAdmin)
+except Exception:
+    pass
+
+try:
+    risk_admin_site.register(RiskMetric, RiskMetricAdmin)
+except Exception:
+    pass
+
+try:
+    risk_admin_site.register(MultiMetricMonteCarloResult, MultiMetricMonteCarloResultAdmin)
 except Exception:
     pass

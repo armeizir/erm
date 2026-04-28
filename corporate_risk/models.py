@@ -129,3 +129,175 @@ class AIInsightKorporat(TimeStampedModel):
 
     def __str__(self):
         return f"AI Insight - {self.corporate_risk_item}"
+
+class RiskMetric(models.Model):
+    DIRECTION_INCREASE = "increase"
+    DIRECTION_DECREASE = "decrease"
+
+    DIRECTION_CHOICES = (
+        (DIRECTION_INCREASE, "Semakin besar semakin berisiko"),
+        (DIRECTION_DECREASE, "Semakin kecil semakin berisiko"),
+    )
+
+    corporate_risk_item = models.ForeignKey(
+        "risk.ProfilRisikoKorporatItem",
+        on_delete=models.CASCADE,
+        related_name="risk_metrics",
+        verbose_name="Item Risiko Korporat",
+    )
+    name = models.CharField(
+        max_length=255,
+        verbose_name="Nama Metric",
+    )
+    unit = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        verbose_name="Satuan",
+    )
+    direction = models.CharField(
+        max_length=20,
+        choices=DIRECTION_CHOICES,
+        default=DIRECTION_INCREASE,
+        verbose_name="Arah Risiko",
+    )
+    weight = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=1,
+        verbose_name="Bobot",
+        help_text="Bobot untuk perhitungan composite risk score. Contoh: 0.50, 0.30, 0.20",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Aktif",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Dibuat pada",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Diubah pada",
+    )
+
+    class Meta:
+        verbose_name = "Risk Metric"
+        verbose_name_plural = "Risk Metrics"
+        ordering = ("corporate_risk_item", "name")
+        unique_together = ("corporate_risk_item", "name")
+
+    def __str__(self):
+        return f"{self.corporate_risk_item} - {self.name}"
+    
+
+class MonteCarloMetricHistory(models.Model):
+    metric = models.ForeignKey(
+        "corporate_risk.RiskMetric",
+        on_delete=models.CASCADE,
+        related_name="metric_histories",
+        verbose_name="Risk Metric",
+    )
+    periode = models.ForeignKey(
+        "masterdata.PeriodeLaporan",
+        on_delete=models.PROTECT,
+        verbose_name="Periode",
+    )
+    tanggal_data = models.DateField(
+        verbose_name="Tanggal Data",
+    )
+    metric_value = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        verbose_name="Nilai Aktual",
+    )
+    target_value = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        blank=True,
+        null=True,
+        verbose_name="Target",
+    )
+    keterangan = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Keterangan",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Dibuat pada",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Diubah pada",
+    )
+
+    class Meta:
+        verbose_name = "Monte Carlo Metric History"
+        verbose_name_plural = "Monte Carlo Metric Histories"
+        ordering = ("metric", "tanggal_data")
+        unique_together = ("metric", "periode")
+
+    def __str__(self):
+        return f"{self.metric} - {self.periode} = {self.metric_value}"
+
+
+class MultiMetricMonteCarloResult(models.Model):
+    corporate_risk_item = models.ForeignKey(
+        "risk.ProfilRisikoKorporatItem",
+        on_delete=models.CASCADE,
+        related_name="multi_metric_results",
+        verbose_name="Item Risiko Korporat",
+    )
+    forecast_periode = models.ForeignKey(
+        "masterdata.PeriodeLaporan",
+        on_delete=models.PROTECT,
+        verbose_name="Periode Forecast",
+    )
+    composite_score = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=0,
+        verbose_name="Composite Risk Score",
+    )
+    p80_score = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=0,
+        verbose_name="P80 Composite Score",
+    )
+    status_hasil = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="Status Hasil",
+    )
+    metric_snapshot = models.JSONField(
+        blank=True,
+        default=dict,
+        verbose_name="Snapshot Metric",
+    )
+    simulation_snapshot = models.JSONField(
+        blank=True,
+        default=dict,
+        verbose_name="Snapshot Simulasi",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Dibuat pada",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Diubah pada",
+    )
+
+    class Meta:
+        verbose_name = "Multi Metric Monte Carlo Result"
+        verbose_name_plural = "Multi Metric Monte Carlo Results"
+        ordering = ("-created_at",)
+        unique_together = ("corporate_risk_item", "forecast_periode")
+
+    def __str__(self):
+        return f"{self.corporate_risk_item} - {self.forecast_periode}"
+    
