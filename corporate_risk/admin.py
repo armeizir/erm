@@ -809,6 +809,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "forecast_periode",
     )
     readonly_fields = (
+        "executive_summary_html",
+        "metric_contribution_html",
+        "composite_interpretation_html",
         "composite_score",
         "p80_score",
         "status_hasil",
@@ -817,6 +820,11 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     )
 
     fieldsets = (
+        ("Executive Summary", {
+            "fields": (
+                "executive_summary_html",
+            )
+        }),
         ("Informasi Utama", {
             "fields": (
                 "corporate_risk_item",
@@ -827,12 +835,135 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "created_at",
             )
         }),
+        ("Kontribusi Metric", {
+            "fields": (
+                "metric_contribution_html",
+            )
+        }),
+        ("Narasi Analisis Sistem", {
+            "fields": (
+                "composite_interpretation_html",
+            )
+        }),
         ("Detail Metric", {
             "fields": (
                 "metric_snapshot_html",
             )
         }),
     )
+
+    def executive_summary_html(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        metrics = (obj.metric_snapshot or {}).get("metrics", [])
+        if not metrics:
+            return "-"
+
+        top_metric = max(metrics, key=lambda x: float(x.get("mean_score") or 0))
+
+        html = f"""
+        <div style="padding:16px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;">
+            <h3 style="margin-top:0;">Ringkasan Eksekutif Risiko</h3>
+            <p>
+                Risiko <strong>{obj.corporate_risk_item}</strong> untuk periode forecast
+                <strong>{obj.forecast_periode}</strong> berada pada level
+                <strong>{obj.status_hasil}</strong>.
+            </p>
+            <p>
+                Composite Risk Score tercatat sebesar
+                <strong>{self._fmt(obj.composite_score, 2)}</strong>,
+                dengan skenario konservatif P80 sebesar
+                <strong>{self._fmt(obj.p80_score, 2)}</strong>.
+            </p>
+            <p>
+                Faktor dominan yang memengaruhi risiko adalah
+                <strong>{top_metric.get("metric_name", "-")}</strong>.
+            </p>
+        </div>
+        """
+        return mark_safe(html)
+
+    executive_summary_html.short_description = "Ringkasan Eksekutif"
+
+
+    def metric_contribution_html(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        metrics = (obj.metric_snapshot or {}).get("metrics", [])
+        if not metrics:
+            return "-"
+
+        rows = []
+        total = sum(float(m.get("mean_score") or 0) * float(m.get("weight_ratio") or 0) for m in metrics)
+
+        for m in metrics:
+            contribution = float(m.get("mean_score") or 0) * float(m.get("weight_ratio") or 0)
+            percent = (contribution / total * 100) if total > 0 else 0
+
+            rows.append(f"""
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">{m.get("metric_name", "-")}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(m.get("weight"), 2)}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(m.get("mean_score"), 2)}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee; text-align:right; font-weight:700;">{self._fmt(percent, 2)}%</td>
+                </tr>
+            """)
+
+        html = f"""
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Metric</th>
+                    <th style="text-align:right; padding:8px; border-bottom:1px solid #ddd;">Bobot</th>
+                    <th style="text-align:right; padding:8px; border-bottom:1px solid #ddd;">Score</th>
+                    <th style="text-align:right; padding:8px; border-bottom:1px solid #ddd;">Kontribusi</th>
+                </tr>
+            </thead>
+            <tbody>{''.join(rows)}</tbody>
+        </table>
+        """
+        return mark_safe(html)
+
+    metric_contribution_html.short_description = "Kontribusi Metric"
+
+
+    def composite_interpretation_html(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        metrics = (obj.metric_snapshot or {}).get("metrics", [])
+        if not metrics:
+            return "-"
+
+        top_metric = max(metrics, key=lambda x: float(x.get("mean_score") or 0))
+        top_name = top_metric.get("metric_name", "-")
+
+        html = f"""
+        <div style="padding:16px; background:#fff; border:1px solid #ddd; border-radius:10px;">
+            <h3 style="margin-top:0;">Narasi Analisis Sistem</h3>
+            <p>
+                Berdasarkan simulasi multi-metric Monte Carlo, risiko berada pada level
+                <strong>{obj.status_hasil}</strong>. Kondisi ini terutama dipengaruhi oleh
+                metric <strong>{top_name}</strong> sebagai driver utama.
+            </p>
+            <p>
+                Nilai P80 Composite Score sebesar <strong>{self._fmt(obj.p80_score, 2)}</strong>
+                menunjukkan skenario konservatif yang perlu menjadi perhatian dalam pengambilan keputusan.
+            </p>
+            <p><strong>Fokus tindak lanjut:</strong></p>
+            <ul>
+                <li>Prioritaskan mitigasi pada metric dengan kontribusi risiko terbesar.</li>
+                <li>Lakukan monitoring bulanan atas tren historis dan realisasi aktual.</li>
+                <li>Bandingkan hasil simulasi dengan risk appetite dan batas toleransi perusahaan.</li>
+                <li>Gunakan P80 sebagai dasar kewaspadaan manajemen.</li>
+            </ul>
+        </div>
+        """
+        return mark_safe(html)
+
+    composite_interpretation_html.short_description = "Narasi Analisis Sistem"
 
     def save_model(self, request, obj, form, change):
         result = run_multi_metric_monte_carlo_for_korporat_item(
