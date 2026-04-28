@@ -18,6 +18,7 @@ from .models import (
 
 from .services import (
     run_monte_carlo_for_korporat_item,
+    run_multi_metric_monte_carlo_for_korporat_item,
     generate_rule_based_ai_insight_for_result,
 )
 
@@ -808,8 +809,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "forecast_periode",
     )
     readonly_fields = (
-        "corporate_risk_item",
-        "forecast_periode",
         "composite_score",
         "p80_score",
         "status_hasil",
@@ -835,8 +834,25 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         }),
     )
 
+    def save_model(self, request, obj, form, change):
+        result = run_multi_metric_monte_carlo_for_korporat_item(
+            item=obj.corporate_risk_item,
+            forecast_periode=obj.forecast_periode,
+            months_ahead=9,
+            n_simulations=1000,
+        )
+
+        obj.pk = result.pk
+        obj.composite_score = result.composite_score
+        obj.p80_score = result.p80_score
+        obj.status_hasil = result.status_hasil
+        obj.metric_snapshot = result.metric_snapshot
+        obj.simulation_snapshot = result.simulation_snapshot
+
+        super().save_model(request, obj, form, change)
+
     def has_add_permission(self, request):
-        return False
+        return True
 
     def _fmt(self, value, digits=2):
         try:

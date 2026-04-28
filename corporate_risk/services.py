@@ -6,6 +6,8 @@ from typing import Any
 import math
 import random
 
+from decimal import Decimal
+
 from django.db import transaction
 
 from .models import (
@@ -644,5 +646,3 @@ def map_risk_appetite(probability_percent):
     else:
         return 60
 
-class Meta:
-    unique_together = ("corporate_risk_item", "forecast_periode", "metric_name")
