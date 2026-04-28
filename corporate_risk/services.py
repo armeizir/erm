@@ -163,6 +163,72 @@ def _status_from_score(score):
 
     return "Ekstrem"
 
+def _build_multi_metric_projection_rows(metric_results):
+    """
+    Membentuk proyeksi bulanan agregat untuk Multi Metric Monte Carlo.
+    Output berupa composite score bulanan berbasis bobot metric.
+    """
+
+    if not metric_results:
+        return []
+
+    total_months = len(metric_results[0].get("projection_rows", []))
+    rows = []
+
+    for idx in range(total_months):
+        mean_score_total = 0.0
+        p20_score_total = 0.0
+        p40_score_total = 0.0
+        p60_score_total = 0.0
+        p80_score_total = 0.0
+
+        contributions = []
+
+        for metric_row in metric_results:
+            projection_rows = metric_row.get("projection_rows", [])
+
+            if idx >= len(projection_rows):
+                continue
+
+            projection = projection_rows[idx]
+            weight_ratio = _safe_float(metric_row.get("weight_ratio"))
+
+            mean_score = _safe_float(projection.get("mean_score"))
+            p20_score = _safe_float(projection.get("p20_score"))
+            p40_score = _safe_float(projection.get("p40_score"))
+            p60_score = _safe_float(projection.get("p60_score"))
+            p80_score = _safe_float(projection.get("p80_score"))
+
+            mean_score_total += mean_score * weight_ratio
+            p20_score_total += p20_score * weight_ratio
+            p40_score_total += p40_score * weight_ratio
+            p60_score_total += p60_score * weight_ratio
+            p80_score_total += p80_score * weight_ratio
+
+            contributions.append({
+                "metric_name": metric_row.get("metric_name"),
+                "contribution": p80_score * weight_ratio,
+            })
+
+        dominant_metric = "-"
+        if contributions:
+            dominant_metric = max(
+                contributions,
+                key=lambda x: _safe_float(x.get("contribution"))
+            ).get("metric_name") or "-"
+
+        rows.append({
+            "bulan_index": idx + 1,
+            "mean_score": round(mean_score_total, 4),
+            "p20_score": round(p20_score_total, 4),
+            "p40_score": round(p40_score_total, 4),
+            "p60_score": round(p60_score_total, 4),
+            "p80_score": round(p80_score_total, 4),
+            "dominant_metric": dominant_metric,
+        })
+
+    return rows
+
 
 @transaction.atomic
 def run_multi_metric_monte_carlo_for_korporat_item(
@@ -211,6 +277,9 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             n_simulations=n_simulations,
         )
 
+        weight = _safe_float(metric.weight)
+        weight_ratio = weight / total_weight if total_weight else 0
+
         mean_score = _normalize_metric_score(
             metric=metric,
             projected_value=simulation["full_year_expected"],
@@ -223,11 +292,56 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             last_actual_value=last_actual,
         )
 
-        weight = _safe_float(metric.weight)
-        weight_ratio = weight / total_weight if total_weight else 0
-
         scenario_key = f"p{scenario_percentile}_total"
         scenario_total = simulation.get(scenario_key, simulation["p80_total"])
+
+        scenario_score = _normalize_metric_score(
+            metric=metric,
+            projected_value=scenario_total,
+            last_actual_value=last_actual,
+        )
+
+        enriched_projection_rows = []
+
+        for projection in simulation["projection_rows"]:
+            mean_month_score = _normalize_metric_score(
+                metric=metric,
+                projected_value=projection.get("mean"),
+                last_actual_value=last_actual,
+            )
+
+            p20_month_score = _normalize_metric_score(
+                metric=metric,
+                projected_value=projection.get("p20"),
+                last_actual_value=last_actual,
+            )
+
+            p40_month_score = _normalize_metric_score(
+                metric=metric,
+                projected_value=projection.get("p40"),
+                last_actual_value=last_actual,
+            )
+
+            p60_month_score = _normalize_metric_score(
+                metric=metric,
+                projected_value=projection.get("p60"),
+                last_actual_value=last_actual,
+            )
+
+            p80_month_score = _normalize_metric_score(
+                metric=metric,
+                projected_value=projection.get("p80"),
+                last_actual_value=last_actual,
+            )
+
+            enriched_projection_rows.append({
+                **projection,
+                "mean_score": mean_month_score,
+                "p20_score": p20_month_score,
+                "p40_score": p40_month_score,
+                "p60_score": p60_month_score,
+                "p80_score": p80_month_score,
+            })
 
         metric_results.append({
             "metric_id": metric.id,
@@ -237,17 +351,19 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "weight": weight,
             "weight_ratio": weight_ratio,
             "last_actual": last_actual,
-            "mean_score": mean_score,
 
-            # 🔥 INI YANG DINAMIS
-            "scenario_score": p80_score,
+            "mean_score": mean_score,
+            "p80_score": p80_score,
+
+            "scenario_score": scenario_score,
             "scenario_total": scenario_total,
             "scenario_percentile": scenario_percentile,
 
             "actual_total": simulation["actual_total"],
             "future_mean_total": simulation["future_mean_total"],
             "full_year_expected": simulation["full_year_expected"],
-            "projection_rows": simulation["projection_rows"],
+            "p80_total": simulation["p80_total"],
+            "projection_rows": enriched_projection_rows,
         })
 
     composite_score = sum([
@@ -260,7 +376,41 @@ def run_multi_metric_monte_carlo_for_korporat_item(
         for row in metric_results
     ])
 
-    status_hasil = _status_from_score(composite_score)
+    scenario_score = sum([
+        row["scenario_score"] * row["weight_ratio"]
+        for row in metric_results
+    ])
+
+    multi_metric_projection_rows = _build_multi_metric_projection_rows(metric_results)
+
+    chart_series = {
+        "labels": [
+            row.get("bulan") or f"Bulan-{row.get('bulan_index')}"
+            for row in multi_metric_projection_rows
+        ],
+        "mean": [
+            row.get("mean_score", 0)
+            for row in multi_metric_projection_rows
+        ],
+        "p20": [
+            row.get("p20_score", 0)
+            for row in multi_metric_projection_rows
+        ],
+        "p40": [
+            row.get("p40_score", 0)
+            for row in multi_metric_projection_rows
+        ],
+        "p60": [
+            row.get("p60_score", 0)
+            for row in multi_metric_projection_rows
+        ],
+        "p80": [
+            row.get("p80_score", 0)
+            for row in multi_metric_projection_rows
+        ],
+    }
+
+    status_hasil = _status_from_score(scenario_score)
 
     result, _created = MultiMetricMonteCarloResult.objects.update_or_create(
         corporate_risk_item=item,
@@ -275,14 +425,19 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "simulation_snapshot": {
                 "months_ahead": months_ahead,
                 "n_simulations": n_simulations,
+                "scenario_percentile": scenario_percentile,
                 "composite_score": composite_score,
                 "p80_score": p80_score,
+                "scenario_score": scenario_score,
                 "status_hasil": status_hasil,
+                "projection_rows": multi_metric_projection_rows,
+                "chart_series": chart_series,
             },
         },
     )
 
     return result
+
 
 @dataclass
 class MonteCarloComputation:
