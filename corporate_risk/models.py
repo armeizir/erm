@@ -168,6 +168,11 @@ class RiskMetric(models.Model):
         verbose_name="Bobot",
         help_text="Bobot untuk perhitungan composite risk score. Contoh: 0.50, 0.30, 0.20",
     )
+    threshold = models.FloatField(
+        default=1,
+        verbose_name="Threshold Risiko",
+        help_text="Nilai batas risiko (untuk normalisasi ke 0–100)"
+    )
     is_active = models.BooleanField(
         default=True,
         verbose_name="Aktif",
@@ -181,6 +186,7 @@ class RiskMetric(models.Model):
         auto_now=True,
         verbose_name="Diubah pada",
     )
+    
 
     class Meta:
         verbose_name = "Risk Metric"

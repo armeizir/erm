@@ -130,24 +130,23 @@ def _simulate_metric(values, months_ahead=9, n_simulations=1000):
 
 def _normalize_metric_score(metric, projected_value, last_actual_value):
     """
-    Normalisasi sederhana untuk composite score.
-    Logika:
-    - increase: makin besar makin berisiko
-    - decrease: makin kecil makin berisiko
+    Normalisasi score ke skala 0-100 berbasis threshold.
+    - increase: makin besar nilai dibanding threshold = makin berisiko
+    - decrease: makin kecil nilai dibanding threshold = makin berisiko
     """
 
     projected_value = _safe_float(projected_value)
-    last_actual_value = _safe_float(last_actual_value)
+    threshold = _safe_float(getattr(metric, "threshold", 0))
 
-    if last_actual_value <= 0:
+    if threshold <= 0:
         return 0.0
 
     if metric.direction == "increase":
-        score = (projected_value / last_actual_value) * 100
+        score = (projected_value / threshold) * 100
     else:
-        score = (last_actual_value / projected_value) * 100 if projected_value > 0 else 100
+        score = (threshold / projected_value) * 100 if projected_value > 0 else 100
 
-    return max(score, 0.0)
+    return max(0.0, min(score, 100.0))
 
 
 def _status_from_score(score):
@@ -158,11 +157,11 @@ def _status_from_score(score):
     if score <= 40:
         return "Moderat"
     if score <= 60:
-        return "Cukup Tinggi"
-    if score <= 80:
         return "Tinggi"
+    if score <= 80:
+        return "Sangat Tinggi"
 
-    return "Sangat Tinggi"
+    return "Ekstrem"
 
 
 @transaction.atomic
