@@ -787,6 +787,7 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
         }),
     )
 
+
 @admin.register(MultiMetricMonteCarloResult)
 class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     list_display = (
@@ -797,17 +798,21 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "status_hasil",
         "created_at",
     )
+
     list_filter = (
         "forecast_periode",
         "status_hasil",
     )
+
     search_fields = (
         "corporate_risk_item__peristiwa_risiko",
     )
+
     autocomplete_fields = (
         "corporate_risk_item",
         "forecast_periode",
     )
+
     readonly_fields = (
         "executive_summary_html",
         "metric_contribution_html",
@@ -823,9 +828,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ("Executive Summary", {
-            "fields": (
-                "executive_summary_html",
-            )
+            "fields": ("executive_summary_html",)
         }),
         ("Informasi Utama", {
             "fields": (
@@ -839,41 +842,76 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             )
         }),
         ("Kontribusi Metric", {
-            "fields": (
-                "metric_contribution_html",
-            )
+            "fields": ("metric_contribution_html",)
         }),
         ("Narasi Analisis Sistem", {
-            "fields": (
-                "composite_interpretation_html",
-            )
-        }),
-        ("Detail Metric", {
-            "fields": (
-                "metric_snapshot_html",
-            )
+            "fields": ("composite_interpretation_html",)
         }),
         ("Proyeksi Bulanan Multi Metric", {
-            "fields": ("multi_metric_projection_rows_html",),
+            "fields": ("multi_metric_projection_rows_html",)
         }),
-
         ("Grafik Multi Metric Monte Carlo", {
-            "fields": ("multi_metric_chart_html",),
+            "fields": ("multi_metric_chart_html",)
+        }),
+        ("Detail Metric", {
+            "fields": ("metric_snapshot_html",)
         }),
     )
+
+    def has_add_permission(self, request):
+        return True
+
+    def _fmt(self, value, digits=2):
+        try:
+            return f"{float(value):,.{digits}f}"
+        except Exception:
+            return "-"
+
+    def save_model(self, request, obj, form, change):
+        result = run_multi_metric_monte_carlo_for_korporat_item(
+            item=obj.corporate_risk_item,
+            forecast_periode=obj.forecast_periode,
+            months_ahead=9,
+            n_simulations=1000,
+            scenario_percentile=obj.scenario_percentile,
+        )
+
+        obj.composite_score = result.composite_score
+        obj.p80_score = result.p80_score
+        obj.status_hasil = result.status_hasil
+        obj.metric_snapshot = result.metric_snapshot
+        obj.simulation_snapshot = result.simulation_snapshot
+
+        super().save_model(request, obj, form, change)
 
     def multi_metric_projection_rows_html(self, obj):
         snapshot = obj.simulation_snapshot or {}
         rows = snapshot.get("projection_rows", [])
 
         if not rows:
-            return format_html(
+            return mark_safe(
                 "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
                 "Proyeksi bulanan belum tersedia. Generate ulang Multi Metric Monte Carlo Result."
                 "</div>"
             )
 
-        html = """
+        table_rows = []
+
+        for row in rows:
+            bulan = row.get("bulan") or f"Bulan-{row.get('bulan_index')}"
+            table_rows.append(f"""
+                <tr>
+                    <td style="padding:8px;border:1px solid #ddd;">{bulan}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{self._fmt(row.get("mean_score"), 2)}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{self._fmt(row.get("p20_score"), 2)}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{self._fmt(row.get("p40_score"), 2)}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{self._fmt(row.get("p60_score"), 2)}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:bold;">{self._fmt(row.get("p80_score"), 2)}</td>
+                    <td style="padding:8px;border:1px solid #ddd;">{row.get("dominant_metric") or "-"}</td>
+                </tr>
+            """)
+
+        html = f"""
         <table style="border-collapse:collapse;width:100%;font-size:13px;">
             <thead>
                 <tr style="background:#f3f4f6;">
@@ -887,30 +925,13 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 </tr>
             </thead>
             <tbody>
-        """
-
-        for row in rows:
-            bulan = row.get("bulan") or f"Bulan-{row.get('bulan_index')}"
-            html += f"""
-                <tr>
-                    <td style="padding:8px;border:1px solid #ddd;">{bulan}</td>
-                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{float(row.get("mean_score") or 0):,.2f}</td>
-                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{float(row.get("p20_score") or 0):,.2f}</td>
-                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{float(row.get("p40_score") or 0):,.2f}</td>
-                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{float(row.get("p60_score") or 0):,.2f}</td>
-                    <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:bold;">{float(row.get("p80_score") or 0):,.2f}</td>
-                    <td style="padding:8px;border:1px solid #ddd;">{row.get("dominant_metric") or "-"}</td>
-                </tr>
-            """
-
-        html += """
+                {''.join(table_rows)}
             </tbody>
         </table>
         """
+        return mark_safe(html)
 
-        return format_html(html)
-
-        multi_metric_projection_rows_html.short_description = "Proyeksi Bulanan Multi Metric"
+    multi_metric_projection_rows_html.short_description = "Proyeksi Bulanan Multi Metric"
 
     def multi_metric_chart_html(self, obj):
         snapshot = obj.simulation_snapshot or {}
@@ -919,10 +940,12 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         labels = chart_series.get("labels", [])
         mean_values = chart_series.get("mean", [])
         p20_values = chart_series.get("p20", [])
+        p40_values = chart_series.get("p40", [])
+        p60_values = chart_series.get("p60", [])
         p80_values = chart_series.get("p80", [])
 
         if not labels:
-            return format_html(
+            return mark_safe(
                 "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
                 "Data grafik belum tersedia. Generate ulang Multi Metric Monte Carlo Result."
                 "</div>"
@@ -930,76 +953,93 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
         chart_id = f"multiMetricChart_{obj.id}"
 
-        return format_html(
-            """
-            <div style="width:100%;max-width:1000px;height:420px;">
-                <canvas id="{chart_id}"></canvas>
-            </div>
+        html = f"""
+        <div style="width:100%;max-width:1100px;height:420px;">
+            <canvas id="{chart_id}"></canvas>
+        </div>
 
-            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-            <script>
-            (function() {{
-                const ctx = document.getElementById("{chart_id}");
-                if (!ctx) return;
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script>
+        (function() {{
+            const canvas = document.getElementById("{chart_id}");
+            if (!canvas) return;
 
-                new Chart(ctx, {{
-                    type: "line",
-                    data: {{
-                        labels: {labels},
-                        datasets: [
-                            {{
-                                label: "Mean Score",
-                                data: {mean_values},
-                                borderWidth: 2,
-                                tension: 0.25
-                            }},
-                            {{
-                                label: "P20",
-                                data: {p20_values},
-                                borderWidth: 2,
-                                tension: 0.25
-                            }},
-                            {{
-                                label: "P80",
-                                data: {p80_values},
-                                borderWidth: 2,
-                                tension: 0.25
-                            }}
-                        ]
+            if (typeof Chart === "undefined") return;
+
+            const existing = Chart.getChart("{chart_id}");
+            if (existing) {{
+                existing.destroy();
+            }}
+
+            new Chart(canvas, {{
+                type: "line",
+                data: {{
+                    labels: {json.dumps(labels)},
+                    datasets: [
+                        {{
+                            label: "Mean Score",
+                            data: {json.dumps(mean_values)},
+                            borderWidth: 2,
+                            tension: 0.25
+                        }},
+                        {{
+                            label: "P20",
+                            data: {json.dumps(p20_values)},
+                            borderWidth: 2,
+                            borderDash: [6, 4],
+                            tension: 0.25
+                        }},
+                        {{
+                            label: "P40",
+                            data: {json.dumps(p40_values)},
+                            borderWidth: 1,
+                            borderDash: [6, 4],
+                            tension: 0.25
+                        }},
+                        {{
+                            label: "P60",
+                            data: {json.dumps(p60_values)},
+                            borderWidth: 1,
+                            borderDash: [6, 4],
+                            tension: 0.25
+                        }},
+                        {{
+                            label: "P80",
+                            data: {json.dumps(p80_values)},
+                            borderWidth: 2,
+                            borderDash: [6, 4],
+                            tension: 0.25
+                        }}
+                    ]
+                }},
+                options: {{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {{
+                        legend: {{
+                            position: "bottom"
+                        }},
+                        title: {{
+                            display: true,
+                            text: "Proyeksi Composite Risk Score Multi Metric"
+                        }}
                     }},
-                    options: {{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {{
-                            legend: {{
-                                position: "bottom"
-                            }},
+                    scales: {{
+                        y: {{
+                            beginAtZero: true,
+                            max: 100,
                             title: {{
                                 display: true,
-                                text: "Proyeksi Composite Risk Score Multi Metric"
-                            }}
-                        }},
-                        scales: {{
-                            y: {{
-                                beginAtZero: true,
-                                max: 100,
-                                title: {{
-                                    display: true,
-                                    text: "Composite Risk Score"
-                                }}
+                                text: "Composite Risk Score"
                             }}
                         }}
                     }}
-                }});
-            }})();
-            </script>
-            """,
-            chart_id=chart_id,
-            labels=json.dumps(labels),
-            mean_values=json.dumps(mean_values),
-            p20_values=json.dumps(p20_values),
-            p80_values=json.dumps(p80_values),
-        )
+                }}
+            }});
+        }})();
+        </script>
+        """
+        return mark_safe(html)
 
     multi_metric_chart_html.short_description = "Grafik Multi Metric Monte Carlo"
 
@@ -1037,7 +1077,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
     executive_summary_html.short_description = "Ringkasan Eksekutif"
 
-
     def metric_contribution_html(self, obj):
         if not obj or not obj.pk:
             return "-"
@@ -1046,9 +1085,12 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         if not metrics:
             return "-"
 
-        rows = []
-        total = sum(float(m.get("mean_score") or 0) * float(m.get("weight_ratio") or 0) for m in metrics)
+        total = sum(
+            float(m.get("mean_score") or 0) * float(m.get("weight_ratio") or 0)
+            for m in metrics
+        )
 
+        rows = []
         for m in metrics:
             contribution = float(m.get("mean_score") or 0) * float(m.get("weight_ratio") or 0)
             percent = (contribution / total * 100) if total > 0 else 0
@@ -1078,7 +1120,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         return mark_safe(html)
 
     metric_contribution_html.short_description = "Kontribusi Metric"
-
 
     def composite_interpretation_html(self, obj):
         if not obj or not obj.pk:
@@ -1115,29 +1156,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         return mark_safe(html)
 
     composite_interpretation_html.short_description = "Narasi Analisis Sistem"
-
-    def save_model(self, request, obj, form, change):
-        result = run_multi_metric_monte_carlo_for_korporat_item(
-            item=obj.corporate_risk_item,
-            forecast_periode=obj.forecast_periode,
-            months_ahead=9,
-            n_simulations=1000,
-        )
-
-        obj.composite_score = result.composite_score
-        obj.p80_score = result.p80_score
-        obj.status_hasil = result.status_hasil
-
-        super().save_model(request, obj, form, change)
-
-    def has_add_permission(self, request):
-        return True
-
-    def _fmt(self, value, digits=2):
-        try:
-            return f"{float(value):,.{digits}f}"
-        except Exception:
-            return "-"
 
     def metric_snapshot_html(self, obj):
         metrics = (obj.metric_snapshot or {}).get("metrics", [])
@@ -1179,7 +1197,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             </tbody>
         </table>
         """
-
         return mark_safe(html)
 
     metric_snapshot_html.short_description = "Detail Metric"
