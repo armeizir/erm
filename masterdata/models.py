@@ -56,7 +56,7 @@ class PeriodeLaporan(TimeStampedModel):
     class Meta:
         db_table = "md_periode_laporan"
         unique_together = [("tahun_buku", "kode_periode")]
-        ordering = ["tahun_buku__tahun", "tanggal_mulai"]
+        ordering = ["-tanggal_mulai"]
 
     def __str__(self):
         return self.nama_periode
