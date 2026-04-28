@@ -842,17 +842,11 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             n_simulations=1000,
         )
 
-        obj.pk = result.pk
-        obj.id = result.id
         obj.composite_score = result.composite_score
         obj.p80_score = result.p80_score
         obj.status_hasil = result.status_hasil
-        obj.metric_snapshot = result.metric_snapshot
-        obj.simulation_snapshot = result.simulation_snapshot
-        obj.created_at = result.created_at
-        obj.updated_at = result.updated_at
 
-        # JANGAN panggil super().save_model()
+        super().save_model(request, obj, form, change)
 
     def has_add_permission(self, request):
         return True
