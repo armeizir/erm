@@ -812,6 +812,8 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "executive_summary_html",
         "metric_contribution_html",
         "composite_interpretation_html",
+        "multi_metric_projection_rows_html",
+        "multi_metric_chart_html",
         "composite_score",
         "p80_score",
         "status_hasil",
@@ -851,7 +853,155 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "metric_snapshot_html",
             )
         }),
+        ("Proyeksi Bulanan Multi Metric", {
+            "fields": ("multi_metric_projection_rows_html",),
+        }),
+
+        ("Grafik Multi Metric Monte Carlo", {
+            "fields": ("multi_metric_chart_html",),
+        }),
     )
+
+    def multi_metric_projection_rows_html(self, obj):
+        snapshot = obj.simulation_snapshot or {}
+        rows = snapshot.get("projection_rows", [])
+
+        if not rows:
+            return format_html(
+                "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
+                "Proyeksi bulanan belum tersedia. Generate ulang Multi Metric Monte Carlo Result."
+                "</div>"
+            )
+
+        html = """
+        <table style="border-collapse:collapse;width:100%;font-size:13px;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:8px;border:1px solid #ddd;">Bulan</th>
+                    <th style="padding:8px;border:1px solid #ddd;text-align:right;">Mean Score</th>
+                    <th style="padding:8px;border:1px solid #ddd;text-align:right;">P20</th>
+                    <th style="padding:8px;border:1px solid #ddd;text-align:right;">P40</th>
+                    <th style="padding:8px;border:1px solid #ddd;text-align:right;">P60</th>
+                    <th style="padding:8px;border:1px solid #ddd;text-align:right;">P80</th>
+                    <th style="padding:8px;border:1px solid #ddd;">Metric Dominan</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+
+        for row in rows:
+            bulan = row.get("bulan") or f"Bulan-{row.get('bulan_index')}"
+            html += f"""
+                <tr>
+                    <td style="padding:8px;border:1px solid #ddd;">{bulan}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{float(row.get("mean_score") or 0):,.2f}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{float(row.get("p20_score") or 0):,.2f}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{float(row.get("p40_score") or 0):,.2f}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{float(row.get("p60_score") or 0):,.2f}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:bold;">{float(row.get("p80_score") or 0):,.2f}</td>
+                    <td style="padding:8px;border:1px solid #ddd;">{row.get("dominant_metric") or "-"}</td>
+                </tr>
+            """
+
+        html += """
+            </tbody>
+        </table>
+        """
+
+        return format_html(html)
+
+        multi_metric_projection_rows_html.short_description = "Proyeksi Bulanan Multi Metric"
+
+    def multi_metric_chart_html(self, obj):
+        snapshot = obj.simulation_snapshot or {}
+        chart_series = snapshot.get("chart_series", {})
+
+        labels = chart_series.get("labels", [])
+        mean_values = chart_series.get("mean", [])
+        p20_values = chart_series.get("p20", [])
+        p80_values = chart_series.get("p80", [])
+
+        if not labels:
+            return format_html(
+                "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
+                "Data grafik belum tersedia. Generate ulang Multi Metric Monte Carlo Result."
+                "</div>"
+            )
+
+        chart_id = f"multiMetricChart_{obj.id}"
+
+        return format_html(
+            """
+            <div style="width:100%;max-width:1000px;height:420px;">
+                <canvas id="{chart_id}"></canvas>
+            </div>
+
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <script>
+            (function() {{
+                const ctx = document.getElementById("{chart_id}");
+                if (!ctx) return;
+
+                new Chart(ctx, {{
+                    type: "line",
+                    data: {{
+                        labels: {labels},
+                        datasets: [
+                            {{
+                                label: "Mean Score",
+                                data: {mean_values},
+                                borderWidth: 2,
+                                tension: 0.25
+                            }},
+                            {{
+                                label: "P20",
+                                data: {p20_values},
+                                borderWidth: 2,
+                                tension: 0.25
+                            }},
+                            {{
+                                label: "P80",
+                                data: {p80_values},
+                                borderWidth: 2,
+                                tension: 0.25
+                            }}
+                        ]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                position: "bottom"
+                            }},
+                            title: {{
+                                display: true,
+                                text: "Proyeksi Composite Risk Score Multi Metric"
+                            }}
+                        }},
+                        scales: {{
+                            y: {{
+                                beginAtZero: true,
+                                max: 100,
+                                title: {{
+                                    display: true,
+                                    text: "Composite Risk Score"
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+            }})();
+            </script>
+            """,
+            chart_id=chart_id,
+            labels=json.dumps(labels),
+            mean_values=json.dumps(mean_values),
+            p20_values=json.dumps(p20_values),
+            p80_values=json.dumps(p80_values),
+        )
+
+    multi_metric_chart_html.short_description = "Grafik Multi Metric Monte Carlo"
 
     def executive_summary_html(self, obj):
         if not obj or not obj.pk:
