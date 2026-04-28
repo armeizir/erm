@@ -261,6 +261,19 @@ class MultiMetricMonteCarloResult(models.Model):
         on_delete=models.PROTECT,
         verbose_name="Periode Forecast",
     )
+    SCENARIO_CHOICES = (
+        (40, "P40 - Moderat"),
+        (50, "P50 - Median"),
+        (60, "P60 - Konservatif ringan"),
+        (80, "P80 - Konservatif"),
+        (90, "P90 - Stress scenario"),
+    )
+
+    scenario_percentile = models.PositiveSmallIntegerField(
+        choices=SCENARIO_CHOICES,
+        default=80,
+        verbose_name="Scenario Percentile",
+    )
     composite_score = models.DecimalField(
         max_digits=18,
         decimal_places=4,

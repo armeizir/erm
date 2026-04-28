@@ -170,6 +170,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     forecast_periode,
     months_ahead=9,
     n_simulations=1000,
+    scenario_percentile=80,
 ):
     metrics = list(
         RiskMetric.objects.filter(
@@ -225,6 +226,9 @@ def run_multi_metric_monte_carlo_for_korporat_item(
         weight = _safe_float(metric.weight)
         weight_ratio = weight / total_weight if total_weight else 0
 
+        scenario_key = f"p{scenario_percentile}_total"
+        scenario_total = simulation.get(scenario_key, simulation["p80_total"])
+
         metric_results.append({
             "metric_id": metric.id,
             "metric_name": metric.name,
@@ -234,11 +238,15 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "weight_ratio": weight_ratio,
             "last_actual": last_actual,
             "mean_score": mean_score,
-            "p80_score": p80_score,
+
+            # 🔥 INI YANG DINAMIS
+            "scenario_score": p80_score,
+            "scenario_total": scenario_total,
+            "scenario_percentile": scenario_percentile,
+
             "actual_total": simulation["actual_total"],
             "future_mean_total": simulation["future_mean_total"],
             "full_year_expected": simulation["full_year_expected"],
-            "p80_total": simulation["p80_total"],
             "projection_rows": simulation["projection_rows"],
         })
 

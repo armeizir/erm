@@ -829,6 +829,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             "fields": (
                 "corporate_risk_item",
                 "forecast_periode",
+                "scenario_percentile",
                 "composite_score",
                 "p80_score",
                 "status_hasil",
