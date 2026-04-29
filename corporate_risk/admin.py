@@ -942,6 +942,20 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
         super().save_model(request, obj, form, change)
 
+        try:
+            insight = generate_rule_based_ai_insight_for_multi_metric_result(obj)
+            self.message_user(
+                request,
+                f"AI Insight Multi Metric otomatis dibuat/diperbarui. Insight ID: {insight.pk}",
+                level=messages.SUCCESS,
+            )
+        except Exception as exc:
+            self.message_user(
+                request,
+                f"Data tersimpan, tetapi AI Insight gagal dibuat otomatis: {exc}",
+                level=messages.WARNING,
+            )
+
     def multi_metric_history_rows_html(self, obj):
         snapshot = obj.simulation_snapshot or {}
         rows = snapshot.get("history_rows", [])
