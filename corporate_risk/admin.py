@@ -14,12 +14,14 @@ from .models import (
     RiskMetric,
     MonteCarloMetricHistory,
     MultiMetricMonteCarloResult,
+    MultiMetricAIInsightKorporat,
 )
 
 from .services import (
     run_monte_carlo_for_korporat_item,
     run_multi_metric_monte_carlo_for_korporat_item,
     generate_rule_based_ai_insight_for_result,
+    generate_rule_based_ai_insight_for_multi_metric_result,
 )
 
 @admin.register(MonteCarloKorporatConfig)
@@ -170,6 +172,7 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         "status_hasil",
         "created_at",
         "generate_ai_button",
+        "generate_ai_insight_button",
     )
     list_filter = ("forecast_periode", "metric_name", "status_hasil")
     search_fields = (
@@ -675,6 +678,52 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
 
     ai_insight_html.short_description = "AI Insight Korporat"
 
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:result_id>/generate-ai-insight-multi-metric/",
+                self.admin_site.admin_view(self.generate_ai_insight_multi_metric_view),
+                name="corporate_risk_generate_ai_insight_multi_metric",
+            ),
+        ]
+        return custom_urls + urls
+
+
+    def generate_ai_insight_button(self, obj):
+        url = reverse(
+            "admin:corporate_risk_generate_ai_insight_multi_metric",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
+
+    generate_ai_insight_button.short_description = "AI Insight"
+
+
+    def generate_ai_insight_multi_metric_view(self, request, result_id, *args, **kwargs):
+        result = get_object_or_404(MultiMetricMonteCarloResult, pk=result_id)
+
+        try:
+            insight = generate_rule_based_ai_insight_for_multi_metric_result(result)
+            self.message_user(
+                request,
+                f"AI Insight Multi Metric berhasil dibuat. Insight ID: {insight.pk}",
+                level=messages.SUCCESS,
+            )
+        except Exception as exc:
+            self.message_user(
+                request,
+                f"Gagal generate AI Insight Multi Metric: {exc}",
+                level=messages.ERROR,
+            )
+
+        return redirect(
+            reverse(
+                "admin:corporate_risk_multimetricmontecarloresult_change",
+                args=[result.pk],
+            )
+        )
+
 
 @admin.register(AIInsightKorporat)
 class AIInsightKorporatAdmin(admin.ModelAdmin):
@@ -824,6 +873,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "p80_score",
         "status_hasil",
         "metric_snapshot_html",
+        "multi_metric_ai_insight_html",
         "created_at",
     )
 
@@ -859,6 +909,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         }),
         ("Detail Metric", {
             "fields": ("metric_snapshot_html",)
+        }),
+        ("AI Insight Multi Metric", {
+            "fields": ("multi_metric_ai_insight_html",)
         }),
     )
 
@@ -1310,6 +1363,52 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
     metric_snapshot_html.short_description = "Detail Metric"
 
+    def multi_metric_ai_insight_html(self, obj):
+        insight = MultiMetricAIInsightKorporat.objects.filter(
+            multi_metric_result=obj
+        ).first()
+
+        if not insight:
+            return mark_safe(
+                '<div style="padding:12px; background:#fff8e1; border:1px solid #f0d98a; border-radius:8px;">'
+                'AI Insight Multi Metric belum dibuat. Klik tombol <strong>Generate AI Insight</strong> pada daftar hasil.'
+                '</div>'
+            )
+
+        html = f"""
+        <div style="padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #ddd;">
+            <h3>Executive Summary</h3>
+            <p>{insight.executive_summary.replace(chr(10), '<br>')}</p>
+
+            <h3 style="margin-top:15px;">Key Findings</h3>
+            <p>{insight.key_findings.replace(chr(10), '<br>')}</p>
+
+            <h3 style="margin-top:15px;">Recommended Actions</h3>
+            <p>{insight.recommended_actions.replace(chr(10), '<br>')}</p>
+        </div>
+        """
+        return mark_safe(html)
+
+    multi_metric_ai_insight_html.short_description = "AI Insight Multi Metric"
+
+
+@admin.register(MultiMetricAIInsightKorporat)
+class MultiMetricAIInsightKorporatAdmin(admin.ModelAdmin):
+    list_display = (
+        "multi_metric_result",
+        "created_at",
+    )
+    search_fields = (
+        "executive_summary",
+        "key_findings",
+        "recommended_actions",
+    )
+    autocomplete_fields = (
+        "multi_metric_result",
+    )
+    readonly_fields = (
+        "created_at",
+    )
 
 try:
     risk_admin_site.register(MonteCarloKorporatConfig, MonteCarloKorporatConfigAdmin)
@@ -1343,5 +1442,10 @@ except Exception:
 
 try:
     risk_admin_site.register(MultiMetricMonteCarloResult, MultiMetricMonteCarloResultAdmin)
+except Exception:
+    pass
+
+try:
+    risk_admin_site.register(MultiMetricAIInsightKorporat, MultiMetricAIInsightKorporatAdmin)
 except Exception:
     pass

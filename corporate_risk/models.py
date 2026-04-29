@@ -320,3 +320,24 @@ class MultiMetricMonteCarloResult(models.Model):
     def __str__(self):
         return f"{self.corporate_risk_item} - {self.forecast_periode}"
     
+
+
+class MultiMetricAIInsightKorporat(models.Model):
+    multi_metric_result = models.OneToOneField(
+        "MultiMetricMonteCarloResult",
+        on_delete=models.CASCADE,
+        related_name="ai_insight_multi_metric",
+    )
+    executive_summary = models.TextField()
+    key_findings = models.TextField()
+    recommended_actions = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "AI Insight Multi Metric Korporat"
+        verbose_name_plural = "AI Insight Multi Metric Korporat"
+
+    def __str__(self):
+        return f"AI Insight - {self.multi_metric_result}"
+
+

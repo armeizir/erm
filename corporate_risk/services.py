@@ -18,6 +18,7 @@ from .models import (
     RiskMetric,
     MonteCarloMetricHistory,
     MultiMetricMonteCarloResult,
+    MultiMetricAIInsightKorporat,
 )
 
 def _percentile(values, q):
@@ -890,4 +891,72 @@ def map_risk_appetite(probability_percent):
         return 40   # ← ini yang kamu mau (80% dianggap 40%)
     else:
         return 60
+    
 
+def generate_rule_based_ai_insight_for_multi_metric_result(result):
+    metrics = (result.metric_snapshot or {}).get("metrics", [])
+    snapshot = result.simulation_snapshot or {}
+    projection_rows = snapshot.get("projection_rows", [])
+
+    if not metrics:
+        raise ValueError("Metric snapshot belum tersedia.")
+
+    top_metric = max(
+        metrics,
+        key=lambda x: float(x.get("mean_score") or 0)
+    )
+
+    weak_metrics = [
+        m.get("metric_name", "-")
+        for m in metrics
+        if float(m.get("mean_score") or 0) <= 20
+    ]
+
+    trend = "relatif stabil"
+    if projection_rows:
+        first_score = float(projection_rows[0].get("mean_score") or 0)
+        last_score = float(projection_rows[-1].get("mean_score") or 0)
+
+        if last_score > first_score + 5:
+            trend = "meningkat"
+        elif last_score < first_score - 5:
+            trend = "menurun"
+
+    executive_summary = (
+        f"Berdasarkan hasil simulasi multi-metric Monte Carlo, risiko "
+        f"{result.corporate_risk_item} berada pada level {result.status_hasil} "
+        f"dengan Composite Risk Score sebesar {float(result.composite_score):,.2f} "
+        f"dan skenario konservatif P80 sebesar {float(result.p80_score):,.2f}. "
+        f"Tren proyeksi bulanan menunjukkan pola {trend}."
+    )
+
+    key_findings = (
+        f"Driver utama risiko adalah {top_metric.get('metric_name', '-')} "
+        f"dengan score {float(top_metric.get('mean_score') or 0):,.2f}. "
+        f"Hal ini menunjukkan bahwa profil risiko sangat dipengaruhi oleh metric tersebut."
+    )
+
+    if weak_metrics:
+        key_findings += (
+            f"\nMetric yang perlu perhatian khusus adalah: {', '.join(weak_metrics)} "
+            f"karena memiliki score rendah terhadap target/threshold."
+        )
+
+    recommended_actions = (
+        "1. Prioritaskan mitigasi pada metric dengan kontribusi risiko terbesar.\n"
+        "2. Review threshold dan target pada metric dengan score rendah.\n"
+        "3. Lakukan monitoring bulanan terhadap tren aktual dan proyeksi.\n"
+        "4. Bandingkan hasil simulasi dengan risk appetite perusahaan.\n"
+        "5. Gunakan skenario P80 sebagai dasar kewaspadaan manajemen."
+    )
+
+    insight, _ = MultiMetricAIInsightKorporat.objects.update_or_create(
+        multi_metric_result=result,
+        defaults={
+            "executive_summary": executive_summary,
+            "key_findings": key_findings,
+            "recommended_actions": recommended_actions,
+        },
+    )
+
+    return insight
