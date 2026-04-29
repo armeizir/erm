@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from dateutil.relativedelta import relativedelta
 from dataclasses import dataclass
 from statistics import mean
 from typing import Any
@@ -229,6 +229,71 @@ def _build_multi_metric_projection_rows(metric_results):
 
     return rows
 
+def _build_multi_metric_history_rows(metric_results):
+    if not metric_results:
+        return []
+
+    total_periods = len(metric_results[0].get("history_rows", []))
+    rows = []
+
+    for idx in range(total_periods):
+        actual_score_total = 0.0
+        periode = "-"
+        tanggal = None
+
+        for metric_row in metric_results:
+            history_rows = metric_row.get("history_rows", [])
+            if idx >= len(history_rows):
+                continue
+
+            history = history_rows[idx]
+            weight_ratio = _safe_float(metric_row.get("weight_ratio"))
+
+            periode = history.get("periode") or periode
+            tanggal = history.get("tanggal") or tanggal
+
+            actual_score_total += _safe_float(history.get("actual_score")) * weight_ratio
+
+        rows.append({
+            "periode": periode,
+            "tanggal": tanggal,
+            "actual_score": round(actual_score_total, 4),
+        })
+
+    return rows
+
+def _build_multi_metric_history_rows(metric_results):
+    if not metric_results:
+        return []
+
+    total_periods = len(metric_results[0].get("history_rows", []))
+    rows = []
+
+    for idx in range(total_periods):
+        actual_score_total = 0.0
+        periode = "-"
+        tanggal = None
+
+        for metric_row in metric_results:
+            history_rows = metric_row.get("history_rows", [])
+            if idx >= len(history_rows):
+                continue
+
+            history = history_rows[idx]
+            weight_ratio = _safe_float(metric_row.get("weight_ratio"))
+
+            periode = history.get("periode") or periode
+            tanggal = history.get("tanggal") or tanggal
+            actual_score_total += _safe_float(history.get("actual_score")) * weight_ratio
+
+        rows.append({
+            "periode": periode,
+            "tanggal": tanggal,
+            "actual_score": round(actual_score_total, 4),
+        })
+
+    return rows
+
 
 @transaction.atomic
 def run_multi_metric_monte_carlo_for_korporat_item(
@@ -352,6 +417,20 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "weight_ratio": weight_ratio,
             "last_actual": last_actual,
 
+            "history_rows": [
+                {
+                    "periode": str(h.periode) if h.periode else "-",
+                    "tanggal": h.tanggal_data.isoformat() if h.tanggal_data else None,
+                    "actual": _safe_float(h.metric_value),
+                    "actual_score": _normalize_metric_score(
+                        metric=metric,
+                        projected_value=_safe_float(h.metric_value),
+                        last_actual_value=last_actual,
+                    ),
+                }
+                for h in histories
+            ],
+
             "mean_score": mean_score,
             "p80_score": p80_score,
 
@@ -381,7 +460,27 @@ def run_multi_metric_monte_carlo_for_korporat_item(
         for row in metric_results
     ])
 
+    multi_metric_history_rows = _build_multi_metric_history_rows(metric_results)
     multi_metric_projection_rows = _build_multi_metric_projection_rows(metric_results)
+
+    last_history_date = None
+
+    for metric_row in metric_results:
+        history_rows = metric_row.get("history_rows", [])
+        if history_rows:
+            tanggal = history_rows[-1].get("tanggal")
+            if tanggal:
+                from datetime import date
+                parsed_date = date.fromisoformat(tanggal)
+                if last_history_date is None or parsed_date > last_history_date:
+                    last_history_date = parsed_date
+
+    for idx, row in enumerate(multi_metric_projection_rows):
+        if last_history_date:
+            forecast_date = last_history_date + relativedelta(months=idx + 1)
+            row["bulan"] = forecast_date.strftime("%b-%y")
+        else:
+            row["bulan"] = f"Bulan-{idx + 1}"
 
     chart_series = {
         "labels": [
@@ -430,6 +529,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 "p80_score": p80_score,
                 "scenario_score": scenario_score,
                 "status_hasil": status_hasil,
+                "history_rows": multi_metric_history_rows,
                 "projection_rows": multi_metric_projection_rows,
                 "chart_series": chart_series,
             },
