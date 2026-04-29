@@ -233,16 +233,22 @@ def _build_multi_metric_history_rows(metric_results):
     if not metric_results:
         return []
 
-    total_periods = len(metric_results[0].get("history_rows", []))
+    total_periods = max(
+        len(metric_row.get("history_rows", []))
+        for metric_row in metric_results
+    )
+
     rows = []
 
     for idx in range(total_periods):
         actual_score_total = 0.0
         periode = "-"
         tanggal = None
+        metric_values = []
 
         for metric_row in metric_results:
             history_rows = metric_row.get("history_rows", [])
+
             if idx >= len(history_rows):
                 continue
 
@@ -252,44 +258,21 @@ def _build_multi_metric_history_rows(metric_results):
             periode = history.get("periode") or periode
             tanggal = history.get("tanggal") or tanggal
 
-            actual_score_total += _safe_float(history.get("actual_score")) * weight_ratio
+            actual_score = _safe_float(history.get("actual_score"))
+            actual_score_total += actual_score * weight_ratio
+
+            metric_values.append({
+                "metric_name": metric_row.get("metric_name") or "-",
+                "actual": history.get("actual"),
+                "actual_score": actual_score,
+                "weight_ratio": weight_ratio,
+            })
 
         rows.append({
             "periode": periode,
             "tanggal": tanggal,
             "actual_score": round(actual_score_total, 4),
-        })
-
-    return rows
-
-def _build_multi_metric_history_rows(metric_results):
-    if not metric_results:
-        return []
-
-    total_periods = len(metric_results[0].get("history_rows", []))
-    rows = []
-
-    for idx in range(total_periods):
-        actual_score_total = 0.0
-        periode = "-"
-        tanggal = None
-
-        for metric_row in metric_results:
-            history_rows = metric_row.get("history_rows", [])
-            if idx >= len(history_rows):
-                continue
-
-            history = history_rows[idx]
-            weight_ratio = _safe_float(metric_row.get("weight_ratio"))
-
-            periode = history.get("periode") or periode
-            tanggal = history.get("tanggal") or tanggal
-            actual_score_total += _safe_float(history.get("actual_score")) * weight_ratio
-
-        rows.append({
-            "periode": periode,
-            "tanggal": tanggal,
-            "actual_score": round(actual_score_total, 4),
+            "metric_values": metric_values,
         })
 
     return rows

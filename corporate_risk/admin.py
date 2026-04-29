@@ -892,6 +892,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         snapshot = obj.simulation_snapshot or {}
         rows = snapshot.get("history_rows", [])
 
+        metrics = (obj.metric_snapshot or {}).get("metrics", [])
+        metric_names = [m.get("metric_name") for m in metrics]
+
         if not rows:
             return mark_safe(
                 "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
@@ -899,13 +902,37 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "</div>"
             )
 
+        header_metric_cols = "".join([
+            f'<th style="padding:8px;border:1px solid #ddd;text-align:right;">{name}</th>'
+            for name in metric_names
+        ])
+
         table_rows = []
+
         for row in rows:
+            metric_values = {
+                item.get("metric_name"): item
+                for item in row.get("metric_values", [])
+            }
+
+            metric_cols = ""
+
+            for name in metric_names:
+                item = metric_values.get(name, {})
+                metric_cols += f"""
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">
+                        {self._fmt(item.get("actual"), 2)}
+                    </td>
+                """
+
             table_rows.append(f"""
                 <tr>
                     <td style="padding:8px;border:1px solid #ddd;">{row.get("periode") or "-"}</td>
                     <td style="padding:8px;border:1px solid #ddd;">{row.get("tanggal") or "-"}</td>
-                    <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:bold;">{self._fmt(row.get("actual_score"), 2)}</td>
+                    {metric_cols}
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:bold;">
+                        {self._fmt(row.get("actual_score"), 2)}
+                    </td>
                 </tr>
             """)
 
@@ -915,6 +942,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 <tr style="background:#f3f4f6;">
                     <th style="padding:8px;border:1px solid #ddd;">Periode</th>
                     <th style="padding:8px;border:1px solid #ddd;">Tanggal</th>
+                    {header_metric_cols}
                     <th style="padding:8px;border:1px solid #ddd;text-align:right;">Actual Composite Score</th>
                 </tr>
             </thead>
@@ -926,6 +954,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         return mark_safe(html)
 
     multi_metric_history_rows_html.short_description = "Histori Aktual Multi Metric"
+
 
     def multi_metric_projection_rows_html(self, obj):
         snapshot = obj.simulation_snapshot or {}
