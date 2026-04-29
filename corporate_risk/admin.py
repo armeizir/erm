@@ -817,6 +817,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "executive_summary_html",
         "metric_contribution_html",
         "composite_interpretation_html",
+        "multi_metric_history_rows_html",
         "multi_metric_projection_rows_html",
         "multi_metric_chart_html",
         "composite_score",
@@ -846,6 +847,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         }),
         ("Narasi Analisis Sistem", {
             "fields": ("composite_interpretation_html",)
+        }),
+        ("Histori Aktual Multi Metric", {
+            "fields": ("multi_metric_history_rows_html",)
         }),
         ("Proyeksi Bulanan Multi Metric", {
             "fields": ("multi_metric_projection_rows_html",)
@@ -883,6 +887,45 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         obj.simulation_snapshot = result.simulation_snapshot
 
         super().save_model(request, obj, form, change)
+
+    def multi_metric_history_rows_html(self, obj):
+        snapshot = obj.simulation_snapshot or {}
+        rows = snapshot.get("history_rows", [])
+
+        if not rows:
+            return mark_safe(
+                "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
+                "Histori aktual multi metric belum tersedia. Generate ulang Multi Metric Monte Carlo Result."
+                "</div>"
+            )
+
+        table_rows = []
+        for row in rows:
+            table_rows.append(f"""
+                <tr>
+                    <td style="padding:8px;border:1px solid #ddd;">{row.get("periode") or "-"}</td>
+                    <td style="padding:8px;border:1px solid #ddd;">{row.get("tanggal") or "-"}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:bold;">{self._fmt(row.get("actual_score"), 2)}</td>
+                </tr>
+            """)
+
+        html = f"""
+        <table style="border-collapse:collapse;width:100%;font-size:13px;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:8px;border:1px solid #ddd;">Periode</th>
+                    <th style="padding:8px;border:1px solid #ddd;">Tanggal</th>
+                    <th style="padding:8px;border:1px solid #ddd;text-align:right;">Actual Composite Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {''.join(table_rows)}
+            </tbody>
+        </table>
+        """
+        return mark_safe(html)
+
+    multi_metric_history_rows_html.short_description = "Histori Aktual Multi Metric"
 
     def multi_metric_projection_rows_html(self, obj):
         snapshot = obj.simulation_snapshot or {}
