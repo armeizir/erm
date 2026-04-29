@@ -846,6 +846,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "p80_score",
         "status_hasil",
         "created_at",
+        "generate_ai_insight_button",
     )
 
     list_filter = (
@@ -1390,6 +1391,15 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         return mark_safe(html)
 
     multi_metric_ai_insight_html.short_description = "AI Insight Multi Metric"
+
+    def generate_ai_insight_button(self, obj):
+        url = reverse(
+            "admin:corporate_risk_generate_ai_insight_multi_metric",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
+
+    generate_ai_insight_button.short_description = "AI Insight"
 
 
 @admin.register(MultiMetricAIInsightKorporat)
