@@ -1023,11 +1023,30 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "</div>"
             )
 
+        all_values = []
+        for series in [mean_values, p20_values, p40_values, p60_values, p80_values]:
+            all_values.extend([float(v) for v in series if v is not None])
+
+        if all_values:
+            min_val = min(all_values)
+            max_val = max(all_values)
+            padding = max((max_val - min_val) * 0.35, 0.25)
+            y_min = max(0, min_val - padding)
+            y_max = min(100, max_val + padding)
+        else:
+            y_min = 0
+            y_max = 100
+
         chart_id = f"multiMetricChart_{obj.id}"
 
         html = f"""
-        <div style="width:100%;max-width:1100px;height:420px;">
+        <div style="width:100%;max-width:1200px;height:480px;">
             <canvas id="{chart_id}"></canvas>
+        </div>
+
+        <div style="margin-top:10px;padding:10px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;">
+            Grafik menggunakan <strong>auto zoom</strong> pada sumbu Y agar perbedaan kecil antar percentile tetap terlihat.
+            Rentang score ditampilkan dari <strong>{self._fmt(y_min, 2)}</strong> sampai <strong>{self._fmt(y_max, 2)}</strong>.
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -1049,44 +1068,53 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                     labels: {json.dumps(labels)},
                     datasets: [
                         {{
+                            label: "P80",
+                            data: {json.dumps(p80_values)},
+                            borderWidth: 2,
+                            borderDash: [6, 4],
+                            tension: 0.25,
+                            pointRadius: 4
+                        }},
+                        {{
+                            label: "P60",
+                            data: {json.dumps(p60_values)},
+                            borderWidth: 2,
+                            borderDash: [4, 4],
+                            tension: 0.25,
+                            pointRadius: 3
+                        }},
+                        {{
                             label: "Mean Score",
                             data: {json.dumps(mean_values)},
+                            borderWidth: 3,
+                            tension: 0.25,
+                            pointRadius: 5
+                        }},
+                        {{
+                            label: "P40",
+                            data: {json.dumps(p40_values)},
                             borderWidth: 2,
-                            tension: 0.25
+                            borderDash: [4, 4],
+                            tension: 0.25,
+                            pointRadius: 3
                         }},
                         {{
                             label: "P20",
                             data: {json.dumps(p20_values)},
                             borderWidth: 2,
                             borderDash: [6, 4],
-                            tension: 0.25
-                        }},
-                        {{
-                            label: "P40",
-                            data: {json.dumps(p40_values)},
-                            borderWidth: 1,
-                            borderDash: [6, 4],
-                            tension: 0.25
-                        }},
-                        {{
-                            label: "P60",
-                            data: {json.dumps(p60_values)},
-                            borderWidth: 1,
-                            borderDash: [6, 4],
-                            tension: 0.25
-                        }},
-                        {{
-                            label: "P80",
-                            data: {json.dumps(p80_values)},
-                            borderWidth: 2,
-                            borderDash: [6, 4],
-                            tension: 0.25
+                            tension: 0.25,
+                            pointRadius: 4
                         }}
                     ]
                 }},
                 options: {{
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {{
+                        mode: "index",
+                        intersect: false
+                    }},
                     plugins: {{
                         legend: {{
                             position: "bottom"
@@ -1094,12 +1122,20 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                         title: {{
                             display: true,
                             text: "Proyeksi Composite Risk Score Multi Metric"
+                        }},
+                        tooltip: {{
+                            callbacks: {{
+                                label: function(context) {{
+                                    let value = context.parsed.y;
+                                    return context.dataset.label + ": " + value.toFixed(4);
+                                }}
+                            }}
                         }}
                     }},
                     scales: {{
                         y: {{
-                            beginAtZero: true,
-                            max: 100,
+                            min: {y_min},
+                            max: {y_max},
                             title: {{
                                 display: true,
                                 text: "Composite Risk Score"
@@ -1111,6 +1147,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         }})();
         </script>
         """
+
         return mark_safe(html)
 
     multi_metric_chart_html.short_description = "Grafik Multi Metric Monte Carlo"
