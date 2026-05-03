@@ -195,7 +195,6 @@ def _get_filtered_items(request):
 
     return items.order_by("summary", "no_item"), selected_summary, mode
 
-
 def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
     matrix = _default_matrix()
     matrix_lookup, dampak_labels, kemungkinan_labels, legend_map = _matrix_lookup(matrix)
@@ -214,38 +213,49 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
         entry = _build_risk_entry(item, mode, matrix_lookup)
         if not entry:
             continue
+
         level_counts[entry["level_bucket"]] += 1
         legend_map.setdefault(entry["level_bucket"], entry["color"])
         cell_items[(entry["dampak"], entry["kemungkinan"])].append(entry)
         drilldown_items.append(entry)
 
     grid = []
+
     for likelihood in range(size, 0, -1):
         row = {
             "value": likelihood,
             "label": kemungkinan_labels.get(likelihood, f"Skala {likelihood}"),
             "cells": [],
         }
+
         for impact in range(1, size + 1):
             cell_meta = matrix_lookup.get((impact, likelihood))
+
             cell_risks = sorted(
                 cell_items.get((impact, likelihood), []),
                 key=lambda risk: (risk["no_risiko"] or 0, risk["peristiwa_risiko"]),
             )
-            score = impact * likelihood
-            level_name, color = _fallback_level_from_score(score)
 
-            row["cells"].append(
-                {
-                    "impact": impact,
-                    "likelihood": likelihood,
-                    "score": score,
-                    "level": level_name,
-                    "color": color,
-                    "count": len(cell_risks),
-                    "risks": cell_risks,
-                }
-            )
+            if cell_meta:
+                score = cell_meta.get("score") or (impact * likelihood)
+                level_name = cell_meta.get("level") or "-"
+                color = cell_meta.get("color") or "#d9d9d9"
+            else:
+                score = impact * likelihood
+                level_name, color = _fallback_level_from_score(score)
+
+            level_bucket = _resolve_level_bucket(level_name)
+
+            row["cells"].append({
+                "impact": impact,
+                "likelihood": likelihood,
+                "score": score,
+                "level": level_bucket,
+                "color": color or "#d9d9d9",
+                "count": len(cell_risks),
+                "risks": cell_risks,
+            })
+
         grid.append(row)
 
     impact_axis = [
@@ -254,27 +264,65 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
     ]
 
     summaries = ProfilRisikoKorporatSummary.objects.order_by("-tahun", "judul")
+
     years = list(
-        ProfilRisikoKorporatSummary.objects.order_by("-tahun").values_list("tahun", flat=True).distinct()
+        ProfilRisikoKorporatSummary.objects
+        .order_by("-tahun")
+        .values_list("tahun", flat=True)
+        .distinct()
     )
+
     statuses = list(
-        ProfilRisikoKorporatItem.objects.exclude(status__isnull=True).exclude(status__exact="").order_by("status").values_list("status", flat=True).distinct()
+        ProfilRisikoKorporatItem.objects
+        .exclude(status__isnull=True)
+        .exclude(status__exact="")
+        .order_by("status")
+        .values_list("status", flat=True)
+        .distinct()
     )
+
     owners = list(
-        ProfilRisikoKorporatItem.objects.exclude(pemilik_risiko__isnull=True).exclude(pemilik_risiko__exact="").order_by("pemilik_risiko").values_list("pemilik_risiko", flat=True).distinct()
+        ProfilRisikoKorporatItem.objects
+        .exclude(pemilik_risiko__isnull=True)
+        .exclude(pemilik_risiko__exact="")
+        .order_by("pemilik_risiko")
+        .values_list("pemilik_risiko", flat=True)
+        .distinct()
     )
+
     categories = list(
-        ProfilRisikoKorporatItem.objects.filter(kategori_risiko__isnull=False).select_related("kategori_risiko").order_by("kategori_risiko__nama").values_list("kategori_risiko__id", "kategori_risiko__nama").distinct()
+        ProfilRisikoKorporatItem.objects
+        .filter(kategori_risiko__isnull=False)
+        .select_related("kategori_risiko")
+        .order_by("kategori_risiko__nama")
+        .values_list("kategori_risiko__id", "kategori_risiko__nama")
+        .distinct()
     )
 
     total_risks = len(drilldown_items)
-    defaults = {bucket["name"]: bucket["default_color"] for bucket in LEVEL_FALLBACKS}
+
+    fallback_legend = {
+        "Low": "#5a8f3a",
+        "Low to Moderate": "#a9c98f",
+        "Moderate": "#fff200",
+        "Moderate to High": "#f4a300",
+        "High": "#d00000",
+    }
+
+    legend_order = [
+        "Low",
+        "Low to Moderate",
+        "Moderate",
+        "Moderate to High",
+        "High",
+    ]
+
     legend = [
-        {"name": "Low", "color": "#5a8f3a"},
-        {"name": "Low to Moderate", "color": "#a9c98f"},
-        {"name": "Moderate", "color": "#fff200"},
-        {"name": "Moderate to High", "color": "#f4a300"},
-        {"name": "High", "color": "#d00000"},
+        {
+            "name": name,
+            "color": legend_map.get(name) or fallback_legend.get(name, "#d9d9d9"),
+        }
+        for name in legend_order
     ]
 
     return {
@@ -293,7 +341,10 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
         "mode": mode,
         "mode_label": _get_mode_label(mode),
         "matrix_source_label": "RiskMatrixCell default" if matrix else "Fallback skor standar",
-        "drilldown_rows": sorted(drilldown_items, key=lambda row: (row["score"] * -1, row["no_risiko"] or 0)),
+        "drilldown_rows": sorted(
+            drilldown_items,
+            key=lambda row: (row["score"] * -1, row["no_risiko"] or 0),
+        ),
         "filters": {
             "summaries": summaries,
             "years": years,
@@ -304,7 +355,6 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
             "modes": MODE_CHOICES,
         },
     }
-
 
 def _export_workbook(context, params):
     workbook = Workbook()
