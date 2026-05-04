@@ -57,18 +57,51 @@ def _resolve_level_bucket(level_name):
     return level_name or "Tidak Terkategori"
 
 
-def _fallback_level_from_score(score):
+def _fallback_level_from_score(score, likelihood=None, impact=None):
+    mapping = {
+        # High
+        (5, 5): ("High", "#d00000"),
+        (3, 5): ("High", "#d00000"),
+        (2, 5): ("High", "#d00000"),
+        (1, 5): ("High", "#d00000"),
+        (5, 4): ("High", "#d00000"),
+
+        # Moderate to High
+        (5, 3): ("Moderate to High", "#f4a300"),
+        (4, 4): ("Moderate to High", "#f4a300"),
+        (3, 4): ("Moderate to High", "#f4a300"),
+        (2, 4): ("Moderate to High", "#f4a300"),
+
+        # Moderate
+        (5, 2): ("Moderate", "#fff200"),
+        (4, 3): ("Moderate", "#fff200"),
+        (3, 3): ("Moderate", "#fff200"),
+        (1, 4): ("Moderate", "#fff200"),
+
+        # Low to Moderate
+        (5, 1): ("Low to Moderate", "#a9c98f"),
+        (4, 2): ("Low to Moderate", "#a9c98f"),
+        (3, 2): ("Low to Moderate", "#a9c98f"),
+        (2, 2): ("Low to Moderate", "#a9c98f"),
+        (2, 3): ("Low to Moderate", "#a9c98f"),
+        (1, 3): ("Low to Moderate", "#a9c98f"),
+    }
+
+    if likelihood is not None and impact is not None:
+        result = mapping.get((likelihood, impact))
+        if result:
+            return result
+
     if score >= 15:
-        return "High", "#d00000"  # merah
+        return "High", "#d00000"
     elif score >= 12:
-        return "Moderate to High", "#f4a300"  # orange
+        return "Moderate to High", "#f4a300"
     elif score >= 8:
-        return "Moderate", "#fff200"  # kuning
+        return "Moderate", "#fff200"
     elif score >= 5:
-        return "Low to Moderate", "#a9c98f"  # hijau muda
+        return "Low to Moderate", "#a9c98f"
     else:
-        return "Low", "#5a8f3a"  # hijau tua
-    
+        return "Low", "#5a8f3a"
 
 def _default_matrix():
     return RiskMatrix.objects.filter(is_default=True, aktif=True).prefetch_related(
@@ -141,10 +174,14 @@ def _build_risk_entry(item, mode, matrix_lookup):
         score = stored_cell.skor or score
         matrix_source = "stored_cell"
 
-    if not level_name:
-        level_name, fallback_color = _fallback_level_from_score(score or (impact * likelihood))
-        color = color or fallback_color
-        matrix_source = "fallback"
+    score = impact * likelihood
+    level_name, fallback_color = _fallback_level_from_score(
+        score,
+        likelihood=likelihood,
+        impact=impact,
+    )
+    color = fallback_color
+    matrix_source = "view_policy"
 
     return {
         "id": item.id,
@@ -236,13 +273,12 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
                 key=lambda risk: (risk["no_risiko"] or 0, risk["peristiwa_risiko"]),
             )
 
-            if cell_meta:
-                score = cell_meta.get("score") or (impact * likelihood)
-                level_name = cell_meta.get("level") or "-"
-                color = cell_meta.get("color") or "#d9d9d9"
-            else:
-                score = impact * likelihood
-                level_name, color = _fallback_level_from_score(score)
+            score = impact * likelihood
+            level_name, color = _fallback_level_from_score(
+                score,
+                likelihood=likelihood,
+                impact=impact,
+            )
 
             level_bucket = _resolve_level_bucket(level_name)
 
