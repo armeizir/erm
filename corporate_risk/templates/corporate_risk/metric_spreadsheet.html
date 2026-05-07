@@ -51,7 +51,33 @@
 
 <div class="card">
 
-    <h1>{{ metric.name }}</h1>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+    
+        <div>
+            <h1 style="margin-bottom:5px;">
+                {{ metric.name }}
+            </h1>
+    
+            <div style="color:#666;">
+                Monte Carlo Spreadsheet Input
+            </div>
+        </div>
+    
+        <div>
+            <a href="/admin/corporate_risk/montecarlometrichistory/"
+               style="
+                    background:#6c757d;
+                    color:white;
+                    padding:10px 16px;
+                    border-radius:6px;
+                    text-decoration:none;
+                    font-weight:bold;
+               ">
+                ← Back to Menu
+            </a>
+        </div>
+    
+    </div>
 
     <div id="metric-table"></div>
 
