@@ -15,6 +15,7 @@ import logging
 from django_auth_ldap.config import LDAPSearch
 from pathlib import Path
 
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -50,6 +51,7 @@ INSTALLED_APPS = [
 
     'risk.apps.RiskConfig',
     'corporate_risk',
+    'django_extensions',
 ]
 
 MIDDLEWARE = [

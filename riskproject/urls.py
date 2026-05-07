@@ -18,4 +18,6 @@ urlpatterns = [
     path("montecarlo/", include("corporate_risk.urls")),
 
     path("reassessment/", include("reassessment.urls")),
+
+    path("corporate-risk/", include("corporate_risk.urls")),
 ]
