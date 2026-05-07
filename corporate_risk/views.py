@@ -38,8 +38,8 @@ def bulk_metric_input(request, metric_id):
         can_delete=True,
     )
 
-    queryset = MonteCarloMetricHistory.objects.filter(
-        risk_metric=metric
+    MonteCarloMetricHistory.objects.filter(
+        metric=metric
     ).order_by("tanggal_data")
 
     if request.method == "POST":
