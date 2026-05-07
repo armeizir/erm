@@ -27,7 +27,13 @@ def bulk_metric_input(request, metric_id):
 
     HistoryFormSet = modelformset_factory(
         MonteCarloMetricHistory,
-        fields=("periode", "tanggal_data", "nilai_aktual", "target", "keterangan"),
+        fields=(
+            "periode",
+            "tanggal_data",
+            "metric_value",
+            "target_value",
+            "keterangan",
+        ),
         extra=12,
         can_delete=True,
     )
