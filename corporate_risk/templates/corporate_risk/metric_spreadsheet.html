@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Metric Spreadsheet</title>
+
+    <link href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css" rel="stylesheet">
+
+    <script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+
+    <style>
+        body{
+            font-family: Arial;
+            margin:30px;
+            background:#f5f7fb;
+        }
+
+        .card{
+            background:white;
+            padding:20px;
+            border-radius:10px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        h1{
+            margin-top:0;
+        }
+
+        #metric-table{
+            margin-top:20px;
+        }
+
+        .toolbar{
+            margin-top:20px;
+        }
+
+        .btn{
+            background:#0d6efd;
+            color:white;
+            border:none;
+            padding:10px 20px;
+            border-radius:5px;
+            cursor:pointer;
+        }
+
+        .btn:hover{
+            background:#084298;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+
+    <h1>{{ metric.name }}</h1>
+
+    <div id="metric-table"></div>
+
+    <div class="toolbar">
+        <button class="btn" onclick="saveData()">
+            Save Spreadsheet
+        </button>
+    </div>
+
+</div>
+
+<script>
+
+const metricId = {{ metric.id }};
+
+let table = new Tabulator("#metric-table", {
+
+    layout:"fitColumns",
+
+    height:"700px",
+
+    ajaxURL:`/montecarlo/metric/${metricId}/history-data/`,
+
+    ajaxResponse:function(url, params, response){
+        return response.rows;
+    },
+
+    clipboard:true,
+
+    clipboardPasteAction:"replace",
+
+    movableColumns:true,
+
+    addRowPos:"bottom",
+
+    columns:[
+
+        {
+            title:"Periode",
+            field:"periode",
+            editor:"input",
+        },
+
+        {
+            title:"Tanggal",
+            field:"tanggal_data",
+            editor:"input",
+        },
+
+        {
+            title:"Nilai Aktual",
+            field:"metric_value",
+            editor:"number",
+        },
+
+        {
+            title:"Target",
+            field:"target_value",
+            editor:"number",
+        },
+
+        {
+            title:"Keterangan",
+            field:"keterangan",
+            editor:"input",
+        },
+
+    ],
+});
+
+function saveData(){
+
+    let data = table.getData();
+
+    console.log(data);
+
+    alert("Phase berikutnya: save ke database");
+}
+
+</script>
+
+</body>
+</html>

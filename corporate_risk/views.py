@@ -7,6 +7,9 @@ from django.forms import modelformset_factory
 
 from .models import RiskMetric, MonteCarloMetricHistory
 
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from decimal import Decimal
 
 def monte_carlo_result_chart(request, pk):
     result = get_object_or_404(MonteCarloKorporatResult, pk=pk)
@@ -68,9 +71,39 @@ def bulk_metric_input(request, metric_id):
 
     return render(
         request,
-        "corporate_risk/bulk_metric_input.html",
+        "corporate_risk/metric_spreadsheet.html",
         {
             "metric": metric,
             "formset": formset,
         },
     )
+
+def metric_history_data(request, metric_id):
+    metric = get_object_or_404(RiskMetric, id=metric_id)
+
+    rows = []
+    histories = MonteCarloMetricHistory.objects.filter(
+        metric=metric
+    ).select_related("periode").order_by("tanggal_data")
+
+    for h in histories:
+        rows.append({
+            "id": h.id,
+            "periode_id": h.periode_id,
+            "periode": str(h.periode),
+            "tanggal_data": h.tanggal_data.isoformat() if h.tanggal_data else "",
+            "metric_value": float(h.metric_value) if h.metric_value is not None else None,
+            "target_value": float(h.target_value) if h.target_value is not None else None,
+            "keterangan": h.keterangan or "",
+        })
+
+    return JsonResponse({
+        "metric": {
+            "id": metric.id,
+            "name": metric.name,
+            "unit": metric.unit,
+            "direction": metric.direction,
+            "weight": float(metric.weight),
+        },
+        "rows": rows,
+    })
