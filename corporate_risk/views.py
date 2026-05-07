@@ -38,24 +38,31 @@ def bulk_metric_input(request, metric_id):
         can_delete=True,
     )
 
-    MonteCarloMetricHistory.objects.filter(
+    queryset = MonteCarloMetricHistory.objects.filter(
         metric=metric
     ).order_by("tanggal_data")
 
     if request.method == "POST":
-        formset = HistoryFormSet(request.POST, queryset=queryset)
+        formset = HistoryFormSet(
+            request.POST,
+            queryset=queryset,
+        )
 
         if formset.is_valid():
             instances = formset.save(commit=False)
 
             for obj in instances:
-                obj.risk_metric = metric
+                obj.metric = metric
                 obj.save()
 
             for obj in formset.deleted_objects:
                 obj.delete()
 
-            return redirect("admin:corporate_risk_montecarlometrichistory_changelist")
+            return redirect(
+                "corporate_risk:bulk_metric_input",
+                metric_id=metric.id,
+            )
+
     else:
         formset = HistoryFormSet(queryset=queryset)
 
@@ -67,4 +74,3 @@ def bulk_metric_input(request, metric_id):
             "formset": formset,
         },
     )
-
