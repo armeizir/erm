@@ -71,14 +71,13 @@ def bulk_metric_input(request, metric_id):
 
     return render(
         request,
-        "corporate_risk/metric_spreadsheet.html",
+        "corporate_risk/bulk_metric_input.html",
         {
             "metric": metric,
             "formset": formset,
         },
     )
 
-def metric_history_data(request, metric_id):
     metric = get_object_or_404(RiskMetric, id=metric_id)
 
     rows = []
