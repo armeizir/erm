@@ -1161,6 +1161,7 @@ class ProfilRisikoKorporatPenyebabInline(admin.StackedInline):
 
     fields = (
         "urutan",
+        "pemilik_risiko",
         "no_penyebab_risiko",
         "kode_penyebab_risiko",
         "penyebab_risiko",
@@ -1183,10 +1184,11 @@ class ProfilRisikoKorporatPenyebabInline(admin.StackedInline):
     )
 
     autocomplete_fields = (
+        "pemilik_risiko",
         "jenis_existing_control",
         "penilaian_efektivitas_kontrol",
         "kategori_dampak",
-    )
+    )   
 
 
 class RisikoInherenKuantitatifInline(admin.StackedInline):
@@ -1251,92 +1253,41 @@ class RencanaPerlakuanRisikoKorporatInline(admin.StackedInline):
 @admin.register(ProfilRisikoKorporatItem)
 class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     inlines = [
-        RisikoInherenKuantitatifInline,
         ProfilRisikoKorporatPenyebabInline,
-        RencanaPerlakuanRisikoKorporatInline,
     ]
 
     list_display = (
-        "summary",
-        "no_display",
-        "no_risiko_display",
-        "bumn",
-        "rkap_item",
-        "sasaran_korporat",
-        "sasaran_kbumn",
-        "kategori_risiko",
-        "taksonomi_t3",
-        "level_risiko",
-        "pemilik_risiko",
-        "status",
-    )
-
-    def no_display(self, obj):
-        return obj.no_risiko
-    no_display.short_description = "No"
-    no_display.admin_order_field = "no_risiko"
-
-    def no_risiko_display(self, obj):
-        return obj.no_item
-    no_risiko_display.short_description = "No Risiko"
-    no_risiko_display.admin_order_field = "no_item"
-
-    
-
-    list_filter = (
-        "summary__tahun",
-        "summary",
-        "bumn",
-        "sasaran_kbumn",
-        "kategori_risiko",
-        "taksonomi_t3",
+        "id",
+        "no_risiko",
+        "no_item",
+        "peristiwa_risiko",
         "status",
     )
 
     search_fields = (
-        "summary__judul",
-        "bumn__nama",
-        "bumn__kode",
-        "rkap_item__kode",
-        "rkap_item__sasaran",
-        "rkap_item__indikator",
-        "sasaran_korporat",
+        "no_risiko",
+        "no_item",
         "peristiwa_risiko",
         "deskripsi_peristiwa_risiko",
-        "pemilik_risiko",
-        "sasaran_kbumn__kode",
-        "sasaran_kbumn__nama",
-        "kategori_risiko__kode",
-        "kategori_risiko__nama",
-        "taksonomi_t3__kode",
-        "taksonomi_t3__nama",
     )
 
-    ordering = ("summary", "no_item")
-
-    autocomplete_fields = (
-        "bumn",
+    list_filter = (
+        "summary__tahun",
         "summary",
-        "rkap_item",
-        "sasaran_kbumn",
-        "kategori_risiko",
-        "taksonomi_t3",
+        "status",
     )
 
-    readonly_fields = (
-        "no",
-        "level_risiko",
-        "matrix_cell_inheren",
-        "residual_level_risiko",
-        "matrix_cell_residual",
+    ordering = (
+        "summary",
+        "no_item",
     )
 
     fieldsets = (
         ("Header Risiko", {
             "fields": (
                 "summary",
-                "no",        # 🔥 pindah ke atas
-                "no_item",   # 🔥 jadi setelahnya
+                "no_item",
+                "no_risiko",
                 "bumn",
                 "rkap_item",
             )
@@ -1373,22 +1324,26 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         }),
         ("Info Tambahan", {
             "fields": (
-                "pemilik_risiko",
                 "status",
             )
         }),
     )
 
-    def formfield_for_dbfield(self, db_field, **kwargs):
-        field = super().formfield_for_dbfield(db_field, **kwargs)
-        if db_field.name == "no_item":
-            field.label = "No Risiko"
-        return field
+    readonly_fields = (
+        "level_risiko",
+        "matrix_cell_inheren",
+        "residual_level_risiko",
+        "matrix_cell_residual",
+    )
 
-    def no(self, obj):
-        return obj.no_risiko
-    no.short_description = "No"
-
+    autocomplete_fields = (
+        "summary",
+        "bumn",
+        "rkap_item",
+        "sasaran_kbumn",
+        "kategori_risiko",
+        "taksonomi_t3",
+    )
 
 @admin.register(ProfilRisikoKorporatSumber)
 class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):

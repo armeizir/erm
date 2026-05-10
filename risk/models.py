@@ -1656,13 +1656,6 @@ class ProfilRisikoKorporatItem(models.Model):
         verbose_name="Sel Matriks Residual",
     )
 
-    pemilik_risiko = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        verbose_name="Pemilik Risiko",
-    )
-
     status = models.CharField(
         max_length=100,
         blank=True,
@@ -1778,9 +1771,18 @@ class ProfilRisikoKorporatPenyebab(models.Model):
         on_delete=models.CASCADE,
         related_name="daftar_penyebab",
         verbose_name="Risiko Korporat",
-    )
+    ) 
 
     urutan = models.PositiveIntegerField(default=1, verbose_name="Urutan")
+
+    pemilik_risiko = models.ForeignKey(
+        Group,
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="pemilik_penyebab_risiko_korporat",
+        verbose_name="Pemilik Risiko",
+    )
 
     no_penyebab_risiko = models.CharField(
         max_length=5,
