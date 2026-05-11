@@ -5,6 +5,12 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from django.http import HttpResponse
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+
 from masterdata.models import MasterBUMN, TahunBuku, PeriodeLaporan
 
 from decimal import Decimal
@@ -382,7 +388,15 @@ class BagianKontrakInline(admin.TabularInline):
 
 @admin.register(KontrakManajemen)
 class KontrakManajemenAdmin(admin.ModelAdmin):
-    list_display = ("judul", "tahun", "template", "unit_bisnis", "status", "dibuat_pada")
+    list_display = (
+        "judul",
+        "tahun",
+        "template",
+        "unit_bisnis",
+        "status",
+        "dibuat_pada",
+        "pdf_button",
+    )
     list_filter = ("tahun", "status", "unit_bisnis", "template")
     search_fields = ("judul", "unit_bisnis__name", "template__nama")
     ordering = ("-tahun", "judul")
@@ -418,6 +432,120 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
                         "bobot": 0,
                     },
                 )
+    def pdf_button(self, obj):
+        url = reverse("admin:risk_kontrakmanajemen_pdf", args=[obj.pk])
+        return format_html('<a class="button" href="{}" target="_blank">PDF</a>', url)
+
+    pdf_button.short_description = "PDF"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:kontrak_id>/pdf/",
+                self.admin_site.admin_view(self.pdf_view),
+                name="risk_kontrakmanajemen_pdf",
+            ),
+        ]
+        return custom_urls + urls
+    
+    def pdf_view(self, request, kontrak_id):
+        kontrak = get_object_or_404(KontrakManajemen, pk=kontrak_id)
+
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="KM_{kontrak.judul}_{kontrak.tahun}.pdf"'
+        )
+
+        doc = SimpleDocTemplate(
+            response,
+            pagesize=landscape(A4),
+            rightMargin=20,
+            leftMargin=20,
+            topMargin=20,
+            bottomMargin=20,
+        )
+
+        styles = getSampleStyleSheet()
+        normal = styles["Normal"]
+        title = styles["Title"]
+
+        elements = []
+
+        elements.append(Paragraph("KONTRAK MANAJEMEN TAHUN {}".format(kontrak.tahun), title))
+        elements.append(Paragraph("{}".format(kontrak.judul), styles["Heading2"]))
+        elements.append(Paragraph("Bidang / Unit Bisnis: {}".format(kontrak.unit_bisnis), normal))
+        elements.append(Spacer(1, 12))
+
+        data = [[
+            "NO",
+            "INDIKATOR KINERJA KUNCI",
+            "FORMULA",
+            "SATUAN",
+            "BOBOT",
+            "TARGET",
+            "POLARITAS",
+        ]]
+
+        items = (
+            ItemKontrakManajemen.objects
+            .filter(kontrak=kontrak)
+            .select_related("master_bagian")
+            .order_by("master_bagian__urutan", "no_urut")
+        )
+
+        current_bagian = None
+
+        for item in items:
+            if item.master_bagian_id and item.master_bagian != current_bagian:
+                current_bagian = item.master_bagian
+                data.append([
+                    current_bagian.kode_bagian,
+                    Paragraph(f"<b>{current_bagian.nama_bagian}</b>", normal),
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ])
+
+            data.append([
+                item.no_urut,
+                Paragraph(item.indikator_kinerja_kunci or "", normal),
+                Paragraph(item.formula or "", normal),
+                item.satuan or "",
+                item.bobot or "",
+                item.target or "",
+                item.get_polaritas_display() if hasattr(item, "get_polaritas_display") else item.polaritas,
+            ])
+
+        table = Table(
+            data,
+            colWidths=[35, 230, 270, 60, 50, 70, 70],
+            repeatRows=1,
+        )
+
+        table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+        ]))
+
+        elements.append(table)
+        elements.append(Spacer(1, 20))
+
+        elements.append(Paragraph("TOTAL", styles["Heading3"]))
+        elements.append(Spacer(1, 30))
+
+        elements.append(Paragraph("Batam, Februari {}".format(kontrak.tahun), normal))
+        elements.append(Spacer(1, 60))
+        elements.append(Paragraph("PIHAK PERTAMA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PIHAK KEDUA", normal))
+
+        doc.build(elements)
+        return response
 
 
 class ItemKontrakInline(admin.TabularInline):
@@ -510,7 +638,7 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
             obj.bagian = bagian
 
         super().save_model(request, obj, form, change)
-        
+
 
 # =========================================================
 # RKM
