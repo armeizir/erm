@@ -454,12 +454,14 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
         "satuan",
         "bobot",
         "target",
+        "polaritas",
     )
 
     list_filter = (
         "kontrak__tahun",
         "kontrak__unit_bisnis",
         "master_bagian",
+        "polaritas",
     )
 
     search_fields = (
@@ -493,6 +495,7 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
         "satuan",
         "bobot",
         "target",
+        "polaritas",
     )
 
     def save_model(self, request, obj, form, change):
@@ -507,7 +510,7 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
             obj.bagian = bagian
 
         super().save_model(request, obj, form, change)
-
+        
 
 # =========================================================
 # RKM
