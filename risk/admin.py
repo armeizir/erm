@@ -50,6 +50,8 @@ from .models import (
     RoadmapProgram,
     RoadmapPenilaianSemester,
     RKAPItem,
+    MasterTemplateKM,
+    MasterBagianKM,
 )
 from riskproject.admin_site import risk_admin_site
 
@@ -303,6 +305,49 @@ class RKAPItemAdmin(admin.ModelAdmin):
         }),
     )
 
+class MasterBagianKMInline(admin.TabularInline):
+    model = MasterBagianKM
+    extra = 0
+    fields = ("urutan", "kode_bagian", "nama_bagian")
+    ordering = ("urutan", "kode_bagian")
+
+
+@admin.register(MasterTemplateKM)
+class MasterTemplateKMAdmin(admin.ModelAdmin):
+    list_display = ("tahun", "nama")
+    search_fields = ("nama",)
+    ordering = ("-tahun",)
+    inlines = [MasterBagianKMInline]
+
+@admin.register(MasterBagianKM)
+class MasterBagianKMAdmin(admin.ModelAdmin):
+    list_display = (
+        "template",
+        "urutan",
+        "kode_bagian",
+        "nama_bagian",
+    )
+
+    search_fields = (
+        "template__nama",
+        "kode_bagian",
+        "nama_bagian",
+    )
+
+    list_filter = (
+        "template__tahun",
+        "template",
+    )
+
+    ordering = (
+        "template__tahun",
+        "urutan",
+        "kode_bagian",
+    )
+
+    def has_module_permission(self, request):
+        return False
+
 
 # =========================================================
 # KONTRAK MANAJEMEN
@@ -324,11 +369,42 @@ class BagianKontrakInline(admin.TabularInline):
 
 @admin.register(KontrakManajemen)
 class KontrakManajemenAdmin(admin.ModelAdmin):
-    list_display = ("judul", "tahun", "unit_bisnis", "status", "dibuat_pada")
-    list_filter = ("tahun", "status", "unit_bisnis")
-    search_fields = ("judul", "unit_bisnis__name")
+    list_display = ("judul", "tahun", "template", "unit_bisnis", "status", "dibuat_pada")
+    list_filter = ("tahun", "status", "unit_bisnis", "template")
+    search_fields = ("judul", "unit_bisnis__name", "template__nama")
     ordering = ("-tahun", "judul")
-    inlines = [BagianKontrakInline]
+    autocomplete_fields = ("template", "unit_bisnis")
+
+    fieldsets = (
+        ("Informasi Utama", {
+            "fields": (
+                "judul",
+                "tahun",
+                "template",
+                "unit_bisnis",
+                "status",
+            )
+        }),
+    )
+
+    def save_model(self, request, obj, form, change):
+        is_new = obj.pk is None
+        super().save_model(request, obj, form, change)
+
+        if is_new and obj.template:
+            for bagian in obj.template.bagian_list.all():
+                ItemKontrakManajemen.objects.get_or_create(
+                    kontrak=obj,
+                    master_bagian=bagian,
+                    no_urut=bagian.urutan,
+                    defaults={
+                        "indikator_kinerja_kunci": "",
+                        "formula": "",
+                        "satuan": "",
+                        "target": "",
+                        "bobot": 0,
+                    },
+                )
 
 
 class ItemKontrakInline(admin.TabularInline):
@@ -348,44 +424,62 @@ class ItemKontrakInline(admin.TabularInline):
 @admin.register(BagianKontrakManajemen)
 class BagianKontrakManajemenAdmin(admin.ModelAdmin):
     list_display = ("kontrak", "kode_bagian", "nama_bagian")
-    list_filter = ("kontrak__tahun", "kontrak__unit_bisnis")
     search_fields = ("kode_bagian", "nama_bagian", "kontrak__judul")
     ordering = ("kontrak", "kode_bagian", "nama_bagian")
     inlines = [ItemKontrakInline]
+
+    def has_module_permission(self, request):
+        return False
 
 
 @admin.register(ItemKontrakManajemen)
 class ItemKontrakManajemenAdmin(admin.ModelAdmin):
     list_display = (
-        "bagian",
+        "kontrak",
+        "master_bagian",
         "no_urut",
         "indikator_kinerja_kunci",
-        "formula",
         "satuan",
         "bobot",
         "target",
     )
+
     list_filter = (
-        "bagian__kontrak__tahun",
-        "bagian__kontrak__unit_bisnis",
+        "kontrak__tahun",
+        "kontrak__unit_bisnis",
+        "master_bagian",
     )
+
     search_fields = (
+        "kontrak__judul",
+        "kontrak__unit_bisnis__name",
+        "master_bagian__nama_bagian",
         "indikator_kinerja_kunci",
         "formula",
         "satuan",
         "target",
-        "bagian__nama_bagian",
-        "bagian__kontrak__judul",
     )
-    ordering = ("bagian", "no_urut")
+
+    autocomplete_fields = (
+        "kontrak",
+        "master_bagian",
+    )
+
+    ordering = (
+        "kontrak",
+        "master_bagian__urutan",
+        "no_urut",
+    )
+
     fields = (
-        "bagian",
+        "kontrak",
+        "master_bagian",
         "no_urut",
         "indikator_kinerja_kunci",
         "formula",
         "satuan",
-        "target",
         "bobot",
+        "target",
     )
 
 
@@ -1430,7 +1524,6 @@ try:
 except Exception:
     pass
 
-risk_admin_site.register(KontrakManajemen, KontrakManajemenAdmin)
 risk_admin_site.register(BagianKontrakManajemen, BagianKontrakManajemenAdmin)
 risk_admin_site.register(ItemKontrakManajemen, ItemKontrakManajemenAdmin)
 risk_admin_site.register(RKMSummary, RKMSummaryAdmin)
@@ -1466,6 +1559,16 @@ risk_admin_site.register(RoadmapPenilaianSemester, RoadmapPenilaianSemesterAdmin
 risk_admin_site.register(RKAPItem, RKAPItemAdmin)
 
 try:
+    risk_admin_site.register(KontrakManajemen, KontrakManajemenAdmin)
+except admin.sites.AlreadyRegistered:
+    pass
+
+try:
+    risk_admin_site.register(MasterTemplateKM, MasterTemplateKMAdmin)
+except admin.sites.AlreadyRegistered:
+    pass
+
+try:
     risk_admin_site.register(TahunBuku, TahunBukuAdmin)
 except Exception:
     pass
@@ -1473,4 +1576,9 @@ except Exception:
 try:
     risk_admin_site.register(PeriodeLaporan, PeriodeLaporanAdmin)
 except Exception:
+    pass
+
+try:
+    risk_admin_site.register(MasterBagianKM, MasterBagianKMAdmin)
+except admin.sites.AlreadyRegistered:
     pass

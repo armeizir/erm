@@ -346,6 +346,65 @@ class PenugasanUnitBisnis(models.Model):
 
 
 # =========================================================
+# TEMPLATE KONTRAK MANAJEMEN
+# =========================================================
+
+class TemplateKontrakManajemen(models.Model):
+    tahun = models.IntegerField(unique=True)
+    nama = models.CharField(max_length=200)
+
+    class Meta:
+        verbose_name = "Template Kontrak Manajemen"
+        verbose_name_plural = "Template Kontrak Manajemen"
+        ordering = ["-tahun"]
+
+    def __str__(self):
+        return f"{self.nama} ({self.tahun})"
+
+
+class TemplateBagianKM(models.Model):
+    template = models.ForeignKey(
+        TemplateKontrakManajemen,
+        on_delete=models.CASCADE,
+        related_name="bagian_list"
+    )
+
+    kode_bagian = models.CharField(max_length=10)
+    nama_bagian = models.CharField(max_length=255)
+
+    class Meta:
+        verbose_name = "Bagian Template KM"
+        verbose_name_plural = "Bagian Template KM"
+        ordering = ["kode_bagian"]
+
+    def __str__(self):
+        return f"{self.kode_bagian}. {self.nama_bagian}"
+
+
+class TemplateItemKM(models.Model):
+    bagian = models.ForeignKey(
+        TemplateBagianKM,
+        on_delete=models.CASCADE,
+        related_name="item_list"
+    )
+
+    no_urut = models.PositiveIntegerField()
+
+    indikator_kinerja_kunci = models.TextField()
+    formula = models.TextField(blank=True, null=True)
+    satuan = models.CharField(max_length=100, blank=True, null=True)
+    target = models.CharField(max_length=255, blank=True, null=True)
+    bobot = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = "Item Template KM"
+        verbose_name_plural = "Item Template KM"
+        ordering = ["no_urut"]
+
+    def __str__(self):
+        return f"{self.no_urut}. {self.indikator_kinerja_kunci}"
+
+# =========================================================
 # KONTRAK MANAJEMEN UNIT / BIDANG
 # =========================================================
 
@@ -384,6 +443,45 @@ class KontrakManajemen(models.Model):
 
     def __str__(self):
         return f"{self.judul} ({self.tahun})"
+    
+    template = models.ForeignKey(
+        "MasterTemplateKM",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="kontrak_list",
+    )
+
+class MasterTemplateKM(models.Model):
+    tahun = models.IntegerField(unique=True)
+    nama = models.CharField(max_length=200)
+
+    class Meta:
+        verbose_name = "MASTER — Template KM"
+        verbose_name_plural = "MASTER — Template KM"
+        ordering = ["-tahun"]
+
+    def __str__(self):
+        return f"{self.nama} ({self.tahun})"
+
+
+class MasterBagianKM(models.Model):
+    template = models.ForeignKey(
+        MasterTemplateKM,
+        on_delete=models.CASCADE,
+        related_name="bagian_list",
+    )
+    kode_bagian = models.CharField(max_length=10)
+    nama_bagian = models.CharField(max_length=255)
+    urutan = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "MASTER — Bagian KM"
+        verbose_name_plural = "MASTER — Bagian KM"
+        ordering = ["template__tahun", "urutan", "kode_bagian"]
+
+    def __str__(self):
+        return f"{self.kode_bagian}. {self.nama_bagian}"
 
 
 class BagianKontrakManajemen(models.Model):
@@ -416,7 +514,9 @@ class ItemKontrakManajemen(models.Model):
         "BagianKontrakManajemen",
         on_delete=models.CASCADE,
         related_name="item",
-        verbose_name="Bagian Kontrak",
+        verbose_name="Bagian Kontrak Lama",
+        null=True,
+        blank=True,
     )
     no_urut = models.PositiveIntegerField(verbose_name="No Urut")
     indikator_kinerja_kunci = models.TextField(verbose_name="Indikator Kinerja Kunci")
@@ -425,10 +525,25 @@ class ItemKontrakManajemen(models.Model):
     bobot = models.DecimalField(max_digits=6, decimal_places=2, default=0, verbose_name="Bobot")
     target = models.CharField(max_length=255, null=True, blank=True, verbose_name="Target")
 
+    kontrak = models.ForeignKey(
+        KontrakManajemen,
+        on_delete=models.CASCADE,
+        related_name="item_list",
+        null=True,
+        blank=True,
+    )
+
+    master_bagian = models.ForeignKey(
+        "MasterBagianKM",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+
     class Meta:
         verbose_name = "Item Kontrak"
         verbose_name_plural = "TRANSAKSI UNIT — Item Kontrak"
-        ordering = ["bagian", "no_urut"]
+        ordering = ["kontrak", "master_bagian__urutan", "no_urut"]
         constraints = [
             models.UniqueConstraint(
                 fields=["bagian", "no_urut"],
@@ -437,7 +552,8 @@ class ItemKontrakManajemen(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.bagian.kode_bagian}.{self.no_urut}"
+        bagian = self.master_bagian.kode_bagian if self.master_bagian else "-"
+        return f"{bagian}.{self.no_urut}"
 
 # =========================================================
 # RKAP (SIMPLIFIED FOR RISK APP)
