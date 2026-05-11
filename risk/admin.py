@@ -345,6 +345,19 @@ class MasterBagianKMAdmin(admin.ModelAdmin):
         "kode_bagian",
     )
 
+    def save_model(self, request, obj, form, change):
+        if obj.kontrak_id and obj.master_bagian_id and not obj.bagian_id:
+            bagian, created = BagianKontrakManajemen.objects.get_or_create(
+                kontrak=obj.kontrak,
+                kode_bagian=obj.master_bagian.kode_bagian,
+                defaults={
+                    "nama_bagian": obj.master_bagian.nama_bagian,
+                }
+            )
+            obj.bagian = bagian
+
+        super().save_model(request, obj, form, change)
+
     def has_module_permission(self, request):
         return False
 
