@@ -508,52 +508,40 @@ class BagianKontrakManajemen(models.Model):
     def __str__(self):
         return f"{self.kode_bagian}. {self.nama_bagian}"
 
-
 class ItemKontrakManajemen(models.Model):
-    bagian = models.ForeignKey(
-        "BagianKontrakManajemen",
-        on_delete=models.CASCADE,
-        related_name="item",
-        verbose_name="Bagian Kontrak Lama",
-        null=True,
-        blank=True,
+
+    POLARITAS_CHOICES = (
+        ('positif', 'Positif'),
+        ('negatif', 'Negatif'),
     )
-    no_urut = models.PositiveIntegerField(verbose_name="No Urut")
-    indikator_kinerja_kunci = models.TextField(verbose_name="Indikator Kinerja Kunci")
-    formula = models.TextField(null=True, blank=True, verbose_name="Formula")
-    satuan = models.CharField(max_length=50, null=True, blank=True, verbose_name="Satuan")
-    bobot = models.DecimalField(max_digits=6, decimal_places=2, default=0, verbose_name="Bobot")
-    target = models.CharField(max_length=255, null=True, blank=True, verbose_name="Target")
 
     kontrak = models.ForeignKey(
         KontrakManajemen,
-        on_delete=models.CASCADE,
-        related_name="item_list",
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE
     )
 
     master_bagian = models.ForeignKey(
-        "MasterBagianKM",
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
+        MasterBagianKM,
+        on_delete=models.CASCADE
     )
 
-    class Meta:
-        verbose_name = "Item Kontrak"
-        verbose_name_plural = "TRANSAKSI UNIT — Item Kontrak"
-        ordering = ["kontrak", "master_bagian__urutan", "no_urut"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["bagian", "no_urut"],
-                name="unik_item_kontrak_per_bagian",
-            )
-        ]
+    no_urut = models.IntegerField(default=0)
 
-    def __str__(self):
-        bagian = self.master_bagian.kode_bagian if self.master_bagian else "-"
-        return f"{bagian}.{self.no_urut}"
+    indikator_kinerja_kunci = models.TextField()
+
+    formula = models.TextField(blank=True, null=True)
+
+    satuan = models.CharField(max_length=100, blank=True, null=True)
+
+    bobot = models.FloatField(default=0)
+
+    target = models.CharField(max_length=100, blank=True, null=True)
+
+    polaritas = models.CharField(
+        max_length=10,
+        choices=POLARITAS_CHOICES,
+        default='positif'
+    )
 
 # =========================================================
 # RKAP (SIMPLIFIED FOR RISK APP)

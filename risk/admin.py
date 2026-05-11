@@ -439,7 +439,6 @@ class BagianKontrakManajemenAdmin(admin.ModelAdmin):
     list_display = ("kontrak", "kode_bagian", "nama_bagian")
     search_fields = ("kode_bagian", "nama_bagian", "kontrak__judul")
     ordering = ("kontrak", "kode_bagian", "nama_bagian")
-    inlines = [ItemKontrakInline]
 
     def has_module_permission(self, request):
         return False
