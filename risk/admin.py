@@ -466,6 +466,7 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
     search_fields = (
         "kontrak__judul",
         "kontrak__unit_bisnis__name",
+        "master_bagian__kode_bagian",
         "master_bagian__nama_bagian",
         "indikator_kinerja_kunci",
         "formula",
@@ -494,6 +495,19 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
         "bobot",
         "target",
     )
+
+    def save_model(self, request, obj, form, change):
+        if obj.master_bagian and obj.kontrak:
+            bagian, created = BagianKontrakManajemen.objects.get_or_create(
+                kontrak=obj.kontrak,
+                kode_bagian=obj.master_bagian.kode_bagian,
+                defaults={
+                    "nama_bagian": obj.master_bagian.nama_bagian,
+                }
+            )
+            obj.bagian = bagian
+
+        super().save_model(request, obj, form, change)
 
 
 # =========================================================
