@@ -12,6 +12,7 @@ from .models import (
     KPMRItem,
     KPMRSummary,
     ProfilRisikoKorporatItem,
+    ProfilRisikoKorporatPenyebab,
     ProfilRisikoKorporatSummary,
     RiskMatrix,
 )
@@ -57,51 +58,18 @@ def _resolve_level_bucket(level_name):
     return level_name or "Tidak Terkategori"
 
 
-def _fallback_level_from_score(score, likelihood=None, impact=None):
-    mapping = {
-        # High
-        (5, 5): ("High", "#d00000"),
-        (3, 5): ("High", "#d00000"),
-        (2, 5): ("High", "#d00000"),
-        (1, 5): ("High", "#d00000"),
-        (5, 4): ("High", "#d00000"),
-
-        # Moderate to High
-        (5, 3): ("Moderate to High", "#f4a300"),
-        (4, 4): ("Moderate to High", "#f4a300"),
-        (3, 4): ("Moderate to High", "#f4a300"),
-        (2, 4): ("Moderate to High", "#f4a300"),
-
-        # Moderate
-        (5, 2): ("Moderate", "#fff200"),
-        (4, 3): ("Moderate", "#fff200"),
-        (3, 3): ("Moderate", "#fff200"),
-        (1, 4): ("Moderate", "#fff200"),
-
-        # Low to Moderate
-        (5, 1): ("Low to Moderate", "#a9c98f"),
-        (4, 2): ("Low to Moderate", "#a9c98f"),
-        (3, 2): ("Low to Moderate", "#a9c98f"),
-        (2, 2): ("Low to Moderate", "#a9c98f"),
-        (2, 3): ("Low to Moderate", "#a9c98f"),
-        (1, 3): ("Low to Moderate", "#a9c98f"),
-    }
-
-    if likelihood is not None and impact is not None:
-        result = mapping.get((likelihood, impact))
-        if result:
-            return result
-
+def _fallback_level_from_score(score):
     if score >= 15:
-        return "High", "#d00000"
+        return "High", "#d00000"  # merah
     elif score >= 12:
-        return "Moderate to High", "#f4a300"
+        return "Moderate to High", "#f4a300"  # orange
     elif score >= 8:
-        return "Moderate", "#fff200"
+        return "Moderate", "#fff200"  # kuning
     elif score >= 5:
-        return "Low to Moderate", "#a9c98f"
+        return "Low to Moderate", "#a9c98f"  # hijau muda
     else:
-        return "Low", "#5a8f3a"
+        return "Low", "#5a8f3a"  # hijau tua
+    
 
 def _default_matrix():
     return RiskMatrix.objects.filter(is_default=True, aktif=True).prefetch_related(
@@ -174,21 +142,22 @@ def _build_risk_entry(item, mode, matrix_lookup):
         score = stored_cell.skor or score
         matrix_source = "stored_cell"
 
-    score = impact * likelihood
-    level_name, fallback_color = _fallback_level_from_score(
-        score,
-        likelihood=likelihood,
-        impact=impact,
-    )
-    color = fallback_color
-    matrix_source = "view_policy"
+    if not level_name:
+        level_name, fallback_color = _fallback_level_from_score(score or (impact * likelihood))
+        color = color or fallback_color
+        matrix_source = "fallback"
 
     return {
         "id": item.id,
         "no_risiko": item.no_risiko,
         "peristiwa_risiko": item.peristiwa_risiko,
         "kategori_risiko": str(item.kategori_risiko) if item.kategori_risiko_id else "-",
-        "pemilik_risiko": item.pemilik_risiko or "-",
+        "pemilik_risiko": (
+            str(item.daftar_penyebab.first().pemilik_risiko)
+            if item.daftar_penyebab.exists()
+            and item.daftar_penyebab.first().pemilik_risiko
+            else "-"
+        ),
         "status": item.status or "-",
         "summary": str(item.summary),
         "dampak": impact,
@@ -226,11 +195,12 @@ def _get_filtered_items(request):
     if status:
         items = items.filter(status=status)
     if owner:
-        items = items.filter(pemilik_risiko=owner)
+        items = items.filter(daftar_penyebab__pemilik_risiko_id=owner).distinct()
     if category_id:
         items = items.filter(kategori_risiko_id=category_id)
 
     return items.order_by("summary", "no_item"), selected_summary, mode
+
 
 def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
     matrix = _default_matrix()
@@ -250,48 +220,38 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
         entry = _build_risk_entry(item, mode, matrix_lookup)
         if not entry:
             continue
-
         level_counts[entry["level_bucket"]] += 1
         legend_map.setdefault(entry["level_bucket"], entry["color"])
         cell_items[(entry["dampak"], entry["kemungkinan"])].append(entry)
         drilldown_items.append(entry)
 
     grid = []
-
     for likelihood in range(size, 0, -1):
         row = {
             "value": likelihood,
             "label": kemungkinan_labels.get(likelihood, f"Skala {likelihood}"),
             "cells": [],
         }
-
         for impact in range(1, size + 1):
             cell_meta = matrix_lookup.get((impact, likelihood))
-
             cell_risks = sorted(
                 cell_items.get((impact, likelihood), []),
                 key=lambda risk: (risk["no_risiko"] or 0, risk["peristiwa_risiko"]),
             )
-
             score = impact * likelihood
-            level_name, color = _fallback_level_from_score(
-                score,
-                likelihood=likelihood,
-                impact=impact,
+            level_name, color = _fallback_level_from_score(score)
+
+            row["cells"].append(
+                {
+                    "impact": impact,
+                    "likelihood": likelihood,
+                    "score": score,
+                    "level": level_name,
+                    "color": color,
+                    "count": len(cell_risks),
+                    "risks": cell_risks,
+                }
             )
-
-            level_bucket = _resolve_level_bucket(level_name)
-
-            row["cells"].append({
-                "impact": impact,
-                "likelihood": likelihood,
-                "score": score,
-                "level": level_bucket,
-                "color": color or "#d9d9d9",
-                "count": len(cell_risks),
-                "risks": cell_risks,
-            })
-
         grid.append(row)
 
     impact_axis = [
@@ -300,65 +260,31 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
     ]
 
     summaries = ProfilRisikoKorporatSummary.objects.order_by("-tahun", "judul")
-
     years = list(
-        ProfilRisikoKorporatSummary.objects
-        .order_by("-tahun")
-        .values_list("tahun", flat=True)
-        .distinct()
+        ProfilRisikoKorporatSummary.objects.order_by("-tahun").values_list("tahun", flat=True).distinct()
     )
-
     statuses = list(
-        ProfilRisikoKorporatItem.objects
-        .exclude(status__isnull=True)
-        .exclude(status__exact="")
-        .order_by("status")
-        .values_list("status", flat=True)
-        .distinct()
+        ProfilRisikoKorporatItem.objects.exclude(status__isnull=True).exclude(status__exact="").order_by("status").values_list("status", flat=True).distinct()
     )
-
     owners = list(
-        ProfilRisikoKorporatItem.objects
+        ProfilRisikoKorporatPenyebab.objects
         .exclude(pemilik_risiko__isnull=True)
-        .exclude(pemilik_risiko__exact="")
-        .order_by("pemilik_risiko")
-        .values_list("pemilik_risiko", flat=True)
+        .order_by("pemilik_risiko__name")
+        .values_list("pemilik_risiko_id", "pemilik_risiko__name")
         .distinct()
     )
-
     categories = list(
-        ProfilRisikoKorporatItem.objects
-        .filter(kategori_risiko__isnull=False)
-        .select_related("kategori_risiko")
-        .order_by("kategori_risiko__nama")
-        .values_list("kategori_risiko__id", "kategori_risiko__nama")
-        .distinct()
+        ProfilRisikoKorporatItem.objects.filter(kategori_risiko__isnull=False).select_related("kategori_risiko").order_by("kategori_risiko__nama").values_list("kategori_risiko__id", "kategori_risiko__nama").distinct()
     )
 
     total_risks = len(drilldown_items)
-
-    fallback_legend = {
-        "Low": "#5a8f3a",
-        "Low to Moderate": "#a9c98f",
-        "Moderate": "#fff200",
-        "Moderate to High": "#f4a300",
-        "High": "#d00000",
-    }
-
-    legend_order = [
-        "Low",
-        "Low to Moderate",
-        "Moderate",
-        "Moderate to High",
-        "High",
-    ]
-
+    defaults = {bucket["name"]: bucket["default_color"] for bucket in LEVEL_FALLBACKS}
     legend = [
-        {
-            "name": name,
-            "color": legend_map.get(name) or fallback_legend.get(name, "#d9d9d9"),
-        }
-        for name in legend_order
+        {"name": "Low", "color": "#5a8f3a"},
+        {"name": "Low to Moderate", "color": "#a9c98f"},
+        {"name": "Moderate", "color": "#fff200"},
+        {"name": "Moderate to High", "color": "#f4a300"},
+        {"name": "High", "color": "#d00000"},
     ]
 
     return {
@@ -377,10 +303,7 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
         "mode": mode,
         "mode_label": _get_mode_label(mode),
         "matrix_source_label": "RiskMatrixCell default" if matrix else "Fallback skor standar",
-        "drilldown_rows": sorted(
-            drilldown_items,
-            key=lambda row: (row["score"] * -1, row["no_risiko"] or 0),
-        ),
+        "drilldown_rows": sorted(drilldown_items, key=lambda row: (row["score"] * -1, row["no_risiko"] or 0)),
         "filters": {
             "summaries": summaries,
             "years": years,
@@ -391,6 +314,7 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
             "modes": MODE_CHOICES,
         },
     }
+
 
 def _export_workbook(context, params):
     workbook = Workbook()
