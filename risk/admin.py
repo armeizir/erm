@@ -10,9 +10,10 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-
 from masterdata.models import MasterBUMN, TahunBuku, PeriodeLaporan
 
+from django.contrib.auth import get_user_model
+from django.db import models
 from decimal import Decimal
 
 from .models import (
@@ -58,6 +59,7 @@ from .models import (
     RKAPItem,
     MasterTemplateKM,
     MasterBagianKM,
+    RiwayatJabatanUser,
 )
 from riskproject.admin_site import risk_admin_site
 
@@ -134,6 +136,25 @@ class PenugasanUnitBisnisAdmin(admin.ModelAdmin):
     autocomplete_fields = ("user", "unit_bisnis")
     ordering = ("unit_bisnis__name", "peran", "user__username")
 
+
+@admin.register(RiwayatJabatanUser)
+class RiwayatJabatanUserAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "jabatan",
+        "tanggal_mulai",
+        "tanggal_selesai",
+    )
+    list_filter = ("user",)
+    search_fields = (
+        "user__username",
+        "user__first_name",
+        "user__last_name",
+        "user__email",
+        "jabatan",
+    )
+    autocomplete_fields = ("user",)
+    ordering = ("user", "-tanggal_mulai")
 
 
 
@@ -391,28 +412,37 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
     list_display = (
         "judul",
         "tahun",
+        "tanggal_kontrak",
         "template",
         "unit_bisnis",
+        "pihak_pertama",
+        "pihak_kedua",
         "status",
         "dibuat_pada",
         "pdf_button",
     )
+
+    autocomplete_fields = (
+        "template",
+        "unit_bisnis",
+        "pihak_pertama",
+        "pihak_kedua",
+    )
+
+    fields = (
+        "judul",
+        "tahun",
+        "tanggal_kontrak",
+        "template",
+        "unit_bisnis",
+        "status",
+        "pihak_pertama",
+        "pihak_kedua",
+    )
+
     list_filter = ("tahun", "status", "unit_bisnis", "template")
     search_fields = ("judul", "unit_bisnis__name", "template__nama")
     ordering = ("-tahun", "judul")
-    autocomplete_fields = ("template", "unit_bisnis")
-
-    fieldsets = (
-        ("Informasi Utama", {
-            "fields": (
-                "judul",
-                "tahun",
-                "template",
-                "unit_bisnis",
-                "status",
-            )
-        }),
-    )
 
     def save_model(self, request, obj, form, change):
         is_new = obj.pk is None
@@ -432,9 +462,13 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
                         "bobot": 0,
                     },
                 )
+
     def pdf_button(self, obj):
         url = reverse("admin:risk_kontrakmanajemen_pdf", args=[obj.pk])
-        return format_html('<a class="button" href="{}" target="_blank">PDF</a>', url)
+        return format_html(
+            '<a class="button" href="{}" target="_blank">PDF</a>',
+            url,
+        )
 
     pdf_button.short_description = "PDF"
 
@@ -448,7 +482,29 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
-    
+
+    def nama_user(self, user):
+        if not user:
+            return "-"
+        return user.get_full_name() or user.username
+
+    def jabatan_user(self, user, tanggal):
+        if not user or not tanggal:
+            return "-"
+
+        riwayat = (
+            user.riwayat_jabatan
+            .filter(tanggal_mulai__lte=tanggal)
+            .filter(
+                models.Q(tanggal_selesai__isnull=True)
+                | models.Q(tanggal_selesai__gte=tanggal)
+            )
+            .order_by("-tanggal_mulai")
+            .first()
+        )
+
+        return riwayat.jabatan if riwayat else "-"
+
     def pdf_view(self, request, kontrak_id):
         kontrak = get_object_or_404(KontrakManajemen, pk=kontrak_id)
 
@@ -472,9 +528,19 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
 
         elements = []
 
-        elements.append(Paragraph("KONTRAK MANAJEMEN TAHUN {}".format(kontrak.tahun), title))
-        elements.append(Paragraph("{}".format(kontrak.judul), styles["Heading2"]))
-        elements.append(Paragraph("Bidang / Unit Bisnis: {}".format(kontrak.unit_bisnis), normal))
+        elements.append(
+            Paragraph(
+                "KONTRAK MANAJEMEN TAHUN {}".format(kontrak.tahun),
+                title,
+            )
+        )
+        elements.append(Paragraph(str(kontrak.judul), styles["Heading2"]))
+        elements.append(
+            Paragraph(
+                "Bidang / Unit Bisnis: {}".format(kontrak.unit_bisnis),
+                normal,
+            )
+        )
         elements.append(Spacer(1, 12))
 
         data = [[
@@ -516,7 +582,9 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
                 item.satuan or "",
                 item.bobot or "",
                 item.target or "",
-                item.get_polaritas_display() if hasattr(item, "get_polaritas_display") else item.polaritas,
+                item.get_polaritas_display()
+                if hasattr(item, "get_polaritas_display")
+                else item.polaritas,
             ])
 
         table = Table(
@@ -540,9 +608,41 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
         elements.append(Paragraph("TOTAL", styles["Heading3"]))
         elements.append(Spacer(1, 30))
 
-        elements.append(Paragraph("Batam, Februari {}".format(kontrak.tahun), normal))
-        elements.append(Spacer(1, 60))
-        elements.append(Paragraph("PIHAK PERTAMA &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PIHAK KEDUA", normal))
+        nama_p1 = self.nama_user(kontrak.pihak_pertama)
+        nama_p2 = self.nama_user(kontrak.pihak_kedua)
+
+        jabatan_p1 = self.jabatan_user(
+            kontrak.pihak_pertama,
+            kontrak.tanggal_kontrak,
+        )
+        jabatan_p2 = self.jabatan_user(
+            kontrak.pihak_kedua,
+            kontrak.tanggal_kontrak,
+        )
+
+        elements.append(
+            Paragraph(
+                "Batam, Februari {}".format(kontrak.tahun),
+                normal,
+            )
+        )
+        elements.append(Spacer(1, 40))
+
+        ttd_data = [
+            ["PIHAK PERTAMA", "PIHAK KEDUA"],
+            ["", ""],
+            [f"<u>({nama_p1})</u>", f"<u>({nama_p2})</u>"],
+            [jabatan_p1, jabatan_p2],
+        ]
+
+        ttd_table = Table(ttd_data, colWidths=[380, 380])
+        ttd_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 1), (-1, 1), 60),
+        ]))
+
+        elements.append(ttd_table)
 
         doc.build(elements)
         return response
@@ -1362,7 +1462,6 @@ class ProfilRisikoKorporatItemInline(admin.TabularInline):
         "residual_kemungkinan",
         "residual_level_risiko",
         "matrix_cell_residual",
-        "pemilik_risiko",
         "status",
     )
     readonly_fields = (
@@ -1737,5 +1836,10 @@ except Exception:
 
 try:
     risk_admin_site.register(MasterBagianKM, MasterBagianKMAdmin)
+except admin.sites.AlreadyRegistered:
+    pass
+
+try:
+    risk_admin_site.register(RiwayatJabatanUser, RiwayatJabatanUserAdmin)
 except admin.sites.AlreadyRegistered:
     pass

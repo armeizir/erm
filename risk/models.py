@@ -4,6 +4,7 @@ import string
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.conf import settings
 
 
 # =========================================================
@@ -345,6 +346,26 @@ class PenugasanUnitBisnis(models.Model):
         return f"{self.unit_bisnis.name} - {self.get_peran_display()} - {self.user.get_username()}"
 
 
+class RiwayatJabatanUser(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="riwayat_jabatan",
+        verbose_name="User",
+    )
+    jabatan = models.CharField(max_length=255, verbose_name="Jabatan")
+    tanggal_mulai = models.DateField(verbose_name="Tanggal Mulai")
+    tanggal_selesai = models.DateField(null=True, blank=True, verbose_name="Tanggal Selesai")
+
+    class Meta:
+        verbose_name = "Riwayat Jabatan User"
+        verbose_name_plural = "MASTER — Riwayat Jabatan User"
+        ordering = ["user", "-tanggal_mulai"]
+
+    def __str__(self):
+        akhir = self.tanggal_selesai or "NOW"
+        return f"{self.user} - {self.jabatan} ({self.tanggal_mulai} s.d. {akhir})"
+
 # =========================================================
 # TEMPLATE KONTRAK MANAJEMEN
 # =========================================================
@@ -450,6 +471,42 @@ class KontrakManajemen(models.Model):
         null=True,
         blank=True,
         related_name="kontrak_list",
+    )
+
+    pihak_pertama = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="km_pihak_pertama"
+    )
+
+    pihak_kedua = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="km_pihak_kedua"
+    )
+
+    tanggal_kontrak = models.DateField(null=True, blank=True, verbose_name="Tanggal Kontrak")
+
+    pihak_pertama = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="km_pihak_pertama",
+        verbose_name="Pihak Pertama",
+    )
+
+    pihak_kedua = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="km_pihak_kedua",
+        verbose_name="Pihak Kedua",
     )
 
 class MasterTemplateKM(models.Model):
