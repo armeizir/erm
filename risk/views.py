@@ -197,7 +197,7 @@ def _get_filtered_items(request):
     if owner:
         items = items.filter(daftar_penyebab__pemilik_risiko_id=owner).distinct()
     if category_id:
-        items = items.filter(kategori_risiko_id=category_id)
+        items = items.filter(kategori_risiko_id=category_id) 
 
     return items.order_by("summary", "no_item"), selected_summary, mode
 
