@@ -1395,15 +1395,11 @@ class ReAssessmentItem(models.Model):
     class Meta:
         verbose_name = "Item Risiko Unit/Bidang"
         verbose_name_plural = "TRANSAKSI UNIT — Item Re-Assessment"
-        ordering = ["summary", "no_item"]
+        ordering = ["summary", "no_item", "no_risiko"]
         constraints = [
             models.UniqueConstraint(
-                fields=["summary", "no_item"],
-                name="unik_reassessment_item_per_summary",
-            ),
-            models.UniqueConstraint(
-                fields=["summary", "no_risiko"],
-                name="unik_reassessment_risiko_per_summary",
+                fields=["summary", "no_item", "no_risiko"],
+                name="unik_reassessment_item_risiko_per_summary",
             ),
         ]
 
