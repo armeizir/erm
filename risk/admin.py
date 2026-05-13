@@ -875,7 +875,6 @@ class ReAssessmentItemInline(admin.TabularInline):
         if db_field.name == "km_item":
             summary_id = request.POST.get("summary") or request.GET.get("summary")
 
-            # untuk halaman CHANGE / edit existing item
             object_id = request.resolver_match.kwargs.get("object_id")
             if not summary_id and object_id:
                 obj = ReAssessmentItem.objects.filter(pk=object_id).first()
@@ -884,130 +883,20 @@ class ReAssessmentItemInline(admin.TabularInline):
 
             if summary_id:
                 summary = ReAssessmentSummary.objects.filter(pk=summary_id).first()
-
                 if summary and summary.kontrak_manajemen_id:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
                         kontrak_id=summary.kontrak_manajemen_id
-                    ).order_by(
-                        "master_bagian__urutan",
-                        "no_urut",
-                    )
+                    ).order_by("master_bagian__urutan", "no_urut")
                 else:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.none()
             else:
-                kwargs["queryset"] = ItemKontrakManajemen.objects.none()
+                kwargs["queryset"] = ItemKontrakManajemen.objects.all().order_by(
+                    "kontrak__judul",
+                    "master_bagian__urutan",
+                    "no_urut",
+                )
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
-        autocomplete_fields = (
-            "taksonomi_t3",
-            "sasaran_kbumn",
-            "kategori_risiko",
-            "jenis_existing_control",
-            "penilaian_efektivitas_kontrol",
-            "kategori_dampak",
-            "opsi_perlakuan_risiko",
-            "pos_anggaran",
-            "jenis_program_dalam_rkap",
-        )
-        fields = (
-            "no_item",
-            "km_item",
-            "taksonomi_t3",
-            "sasaran_kbumn",
-            "kategori_risiko",
-            "no_risiko",
-            "peristiwa_risiko",
-            "deskripsi_peristiwa_risiko",
-            "no_penyebab_risiko",
-            "kode_penyebab_risiko",
-            "penyebab_risiko",
-            "key_risk_indicators",
-            "unit_satuan_kri",
-            "threshold_aman",
-            "threshold_hati_hati",
-            "threshold_bahaya",
-            "jenis_existing_control",
-            "existing_control",
-            "penilaian_efektivitas_kontrol",
-            "kategori_dampak",
-            "deskripsi_dampak",
-            "perkiraan_waktu_terpapar_risiko",
-            "asumsi_perhitungan_dampak",
-            "nilai_dampak",
-            "nilai_dampak_q1",
-            "nilai_dampak_q2",
-            "nilai_dampak_q3",
-            "nilai_dampak_q4",
-            "skala_dampak_q1",
-            "skala_dampak_q2",
-            "skala_dampak_q3",
-            "skala_dampak_q4",
-            "nilai_probabilitas",
-            "nilai_probabilitas_q1",
-            "nilai_probabilitas_q2",
-            "nilai_probabilitas_q3",
-            "nilai_probabilitas_q4",
-            "skala_probabilitas",
-            "skala_probabilitas_q1",
-            "skala_probabilitas_q2",
-            "skala_probabilitas_q3",
-            "skala_probabilitas_q4",
-            "eksposur_risiko_q1",
-            "eksposur_risiko_q2",
-            "eksposur_risiko_q3",
-            "eksposur_risiko_q4",
-            "skala_risiko_q1",
-            "skala_risiko_q2",
-            "skala_risiko_q3",
-            "skala_risiko_q4",
-            "level_nilai_risiko_q1",
-            "level_nilai_risiko_q2",
-            "level_nilai_risiko_q3",
-            "level_nilai_risiko_q4",
-            "opsi_perlakuan_risiko",
-            "jenis_rencana_perlakuan_risiko",
-            "rencana_perlakuan_risiko",
-            "output_perlakuan_risiko",
-            "biaya_perlakuan_risiko",
-            "pos_anggaran",
-            "prk",
-            "jenis_program_dalam_rkap",
-            "pic",
-            "timeline_1",
-            "timeline_2",
-            "timeline_3",
-            "timeline_4",
-            "timeline_5",
-            "timeline_6",
-            "timeline_7",
-            "timeline_8",
-            "timeline_9",
-            "timeline_10",
-            "timeline_11",
-            "timeline_12",
-        )
-        readonly_fields = (
-            "kode_penyebab_risiko",
-            "nilai_dampak_q1",
-            "nilai_probabilitas_q1",
-            "nilai_probabilitas_q2",
-            "nilai_probabilitas_q3",
-            "nilai_probabilitas_q4",
-            "eksposur_risiko_q1",
-            "eksposur_risiko_q2",
-            "eksposur_risiko_q3",
-            "eksposur_risiko_q4",
-            "skala_risiko_q1",
-            "skala_risiko_q2",
-            "skala_risiko_q3",
-            "skala_risiko_q4",
-            "level_nilai_risiko_q1",
-            "level_nilai_risiko_q2",
-            "level_nilai_risiko_q3",
-            "level_nilai_risiko_q4",
-        )
-
 
 @admin.register(ReAssessmentSummary)
 class ReAssessmentSummaryAdmin(admin.ModelAdmin):
