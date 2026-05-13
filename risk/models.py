@@ -577,6 +577,14 @@ class ItemKontrakManajemen(models.Model):
         on_delete=models.CASCADE
     )
 
+    bagian = models.ForeignKey(
+        BagianKontrakManajemen,
+        on_delete=models.CASCADE,
+        related_name="items",
+        null=True,
+        blank=True,
+    )
+
     master_bagian = models.ForeignKey(
         MasterBagianKM,
         on_delete=models.CASCADE
@@ -599,6 +607,23 @@ class ItemKontrakManajemen(models.Model):
         choices=POLARITAS_CHOICES,
         default='positif'
     )
+
+    class Meta:
+        verbose_name = "Item Kontrak"
+        verbose_name_plural = "TRANSAKSI UNIT — Item Kontrak"
+        ordering = ["kontrak", "master_bagian__urutan", "no_urut"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["kontrak", "master_bagian", "no_urut"],
+                name="unique_km_item_per_bagian"
+            )
+        ]
+
+    def __str__(self):
+        bagian = self.master_bagian.kode_bagian if self.master_bagian_id else "-"
+        indikator = self.indikator_kinerja_kunci or "-"
+        return f"{self.kontrak} | {bagian}.{self.no_urut} - {indikator}"
 
 # =========================================================
 # RKAP (SIMPLIFIED FOR RISK APP)

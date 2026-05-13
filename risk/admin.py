@@ -60,6 +60,7 @@ from .models import (
     MasterTemplateKM,
     MasterBagianKM,
     RiwayatJabatanUser,
+    BagianKontrakManajemen,
 )
 from riskproject.admin_site import risk_admin_site
 
@@ -727,14 +728,21 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
     )
 
     def save_model(self, request, obj, form, change):
+
         if obj.master_bagian and obj.kontrak:
-            bagian, created = BagianKontrakManajemen.objects.get_or_create(
+
+            bagian = BagianKontrakManajemen.objects.filter(
                 kontrak=obj.kontrak,
-                kode_bagian=obj.master_bagian.kode_bagian,
-                defaults={
-                    "nama_bagian": obj.master_bagian.nama_bagian,
-                }
-            )
+                kode_bagian=obj.master_bagian.kode_bagian
+            ).first()
+
+            if not bagian:
+                bagian = BagianKontrakManajemen.objects.create(
+                    kontrak=obj.kontrak,
+                    kode_bagian=obj.master_bagian.kode_bagian,
+                    nama_bagian=obj.master_bagian.nama_bagian,
+                )
+
             obj.bagian = bagian
 
         super().save_model(request, obj, form, change)
@@ -980,11 +988,26 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         "kontrak_manajemen",
         "dibuat_pada",
     )
+
     list_filter = ("tahun", "unit_bisnis")
     search_fields = ("judul", "unit_bisnis__name", "kontrak_manajemen__judul")
     ordering = ("-tahun", "judul")
-    inlines = [ReAssessmentItemInline]
 
+    fields = (
+        "judul",
+        "tahun",
+        "unit_bisnis",
+        "kontrak_manajemen",
+        "risk_matrix",
+    )
+
+    autocomplete_fields = (
+        "unit_bisnis",
+        "kontrak_manajemen",
+        "risk_matrix",
+    )
+
+    inlines = [ReAssessmentItemInline]
 
 class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
     model = ProfilRisikoKorporatSumber
