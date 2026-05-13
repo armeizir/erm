@@ -1210,6 +1210,27 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
         return obj.mendukung_risiko_korporat.count()
     jumlah_relasi_korporat.short_description = "Relasi Korporat"
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "km_item":
+            summary_id = request.POST.get("summary") or request.GET.get("summary")
+
+            if summary_id:
+                summary = ReAssessmentSummary.objects.filter(pk=summary_id).first()
+
+                if summary and summary.kontrak_manajemen_id:
+                    kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
+                        kontrak_id=summary.kontrak_manajemen_id
+                    ).order_by(
+                        "master_bagian__urutan",
+                        "no_urut",
+                    )
+                else:
+                    kwargs["queryset"] = ItemKontrakManajemen.objects.none()
+            else:
+                kwargs["queryset"] = ItemKontrakManajemen.objects.none()
+
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 # =========================================================
 # KPMR
