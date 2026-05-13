@@ -870,7 +870,6 @@ class ReAssessmentItemInline(admin.TabularInline):
     extra = 0
     ordering = ("no_item",)
     autocomplete_fields = (
-        "km_item",
         "taksonomi_t3",
         "sasaran_kbumn",
         "kategori_risiko",
@@ -1035,7 +1034,6 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     fields = (
         "summary",
         "no_item",
-        "km_item",
         "taksonomi_t3",
         "sasaran_kbumn",
         "kategori_risiko",
