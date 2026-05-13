@@ -1111,18 +1111,22 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "km_item":
-
-            summary_id = request.POST.get("summary")
+            summary_id = request.POST.get("summary") or request.GET.get("summary")
 
             object_id = request.resolver_match.kwargs.get("object_id")
 
-            # mode EDIT existing object
+            # Saat edit existing item
             if not summary_id and object_id:
                 obj = ReAssessmentItem.objects.filter(pk=object_id).first()
                 if obj:
                     summary_id = obj.summary_id
 
-            # mode ADD baru → kosongkan dulu sampai save
+            # Saat add baru dan Summary sudah default terpilih di form
+            if not summary_id:
+                default_summary = ReAssessmentSummary.objects.order_by("-tahun", "judul").first()
+                if default_summary:
+                    summary_id = default_summary.id
+
             if summary_id:
                 summary = ReAssessmentSummary.objects.filter(pk=summary_id).first()
 
@@ -1135,7 +1139,6 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
                     )
                 else:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.none()
-
             else:
                 kwargs["queryset"] = ItemKontrakManajemen.objects.none()
 
