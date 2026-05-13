@@ -1111,22 +1111,24 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "km_item":
-            summary_id = request.POST.get("summary") or request.GET.get("summary")
+            object_id = request.resolver_match.kwargs.get("object_id")
 
-            if summary_id:
-                summary = ReAssessmentSummary.objects.filter(pk=summary_id).first()
-
-                if summary and summary.kontrak_manajemen_id:
+            if object_id:
+                obj = ReAssessmentItem.objects.filter(pk=object_id).first()
+                if obj and obj.summary_id:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
-                        kontrak_id=summary.kontrak_manajemen_id
+                        kontrak_id=obj.summary.kontrak_manajemen_id
                     ).order_by("master_bagian__urutan", "no_urut")
                 else:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.none()
             else:
-                kwargs["queryset"] = ItemKontrakManajemen.objects.none()
+                kwargs["queryset"] = ItemKontrakManajemen.objects.all().order_by(
+                    "kontrak__judul",
+                    "master_bagian__urutan",
+                    "no_urut",
+                )
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
 
 # =========================================================
 # KPMR
