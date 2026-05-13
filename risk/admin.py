@@ -869,6 +869,29 @@ class ReAssessmentItemInline(admin.TabularInline):
     model = ReAssessmentItem
     extra = 0
     ordering = ("no_item",)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "km_item":
+            object_id = request.resolver_match.kwargs.get("object_id")
+
+            if object_id:
+                summary = ReAssessmentSummary.objects.filter(pk=object_id).first()
+
+                if summary and summary.kontrak_manajemen_id:
+                    kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
+                        kontrak=summary.kontrak_manajemen
+                    ).order_by(
+                        "master_bagian__urutan",
+                        "no_urut",
+                    )
+                else:
+                    kwargs["queryset"] = ItemKontrakManajemen.objects.none()
+            else:
+                kwargs["queryset"] = ItemKontrakManajemen.objects.none()
+
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
     autocomplete_fields = (
         "taksonomi_t3",
         "sasaran_kbumn",
@@ -977,6 +1000,7 @@ class ReAssessmentItemInline(admin.TabularInline):
         "level_nilai_risiko_q3",
         "level_nilai_risiko_q4",
     )
+
 
 @admin.register(ReAssessmentSummary)
 class ReAssessmentSummaryAdmin(admin.ModelAdmin):
