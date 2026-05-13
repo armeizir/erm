@@ -1408,8 +1408,8 @@ class ReAssessmentItem(models.Model):
         ]
 
     def clean(self):
-        if self.km_item and self.summary:
-            if self.km_item.bagian.kontrak_id != self.summary.kontrak_manajemen_id:
+        if getattr(self, "km_item_id", None) and self.summary_id:
+            if self.km_item.kontrak_id != self.summary.kontrak_manajemen_id:
                 raise ValidationError(
                     "KM Item harus berasal dari Kontrak Manajemen yang sama dengan Summary."
                 )
