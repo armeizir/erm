@@ -1057,6 +1057,7 @@ class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
 class ReAssessmentItemAdmin(admin.ModelAdmin):
     fields = (
         "summary",
+        "km_item",
         "no_item",
         "taksonomi_t3",
         "sasaran_kbumn",
