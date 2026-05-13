@@ -883,10 +883,14 @@ class ReAssessmentItemInline(admin.TabularInline):
 
             if summary_id:
                 summary = ReAssessmentSummary.objects.filter(pk=summary_id).first()
+
                 if summary and summary.kontrak_manajemen_id:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
                         kontrak_id=summary.kontrak_manajemen_id
-                    ).order_by("master_bagian__urutan", "no_urut")
+                    ).order_by(
+                        "master_bagian__urutan",
+                        "no_urut",
+                    )
                 else:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.none()
             else:
