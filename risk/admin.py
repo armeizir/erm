@@ -1189,7 +1189,6 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     ordering = ("summary", "no_item")
     autocomplete_fields = (
         "summary",
-        "km_item",
         "taksonomi_t3",
         "sasaran_kbumn",
         "kategori_risiko",
@@ -1220,10 +1219,7 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
                 if summary and summary.kontrak_manajemen_id:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
                         kontrak_id=summary.kontrak_manajemen_id
-                    ).order_by(
-                        "master_bagian__urutan",
-                        "no_urut",
-                    )
+                    ).order_by("master_bagian__urutan", "no_urut")
                 else:
                     kwargs["queryset"] = ItemKontrakManajemen.objects.none()
             else:
