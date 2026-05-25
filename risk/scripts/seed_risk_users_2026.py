@@ -214,6 +214,12 @@ def deactivate_obsolete_mukhlis_user():
 
 def upsert_assignment(user, unit_name, role):
     unit = Group.objects.get(name=unit_name)
+    if role == PenugasanUnitBisnis.ROLE_PAIRING_OFFICER:
+        PenugasanUnitBisnis.objects.filter(
+            unit_bisnis=unit,
+            peran=role,
+            aktif=True,
+        ).exclude(user=user).update(aktif=False)
     assignment, created = PenugasanUnitBisnis.objects.get_or_create(
         user=user,
         unit_bisnis=unit,
