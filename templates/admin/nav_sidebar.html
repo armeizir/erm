@@ -1,0 +1,87 @@
+{% load i18n %}
+
+<button class="sticky toggle-nav-sidebar"
+        id="toggle-nav-sidebar"
+        aria-label="{% translate 'Toggle navigation' %}">
+</button>
+
+<nav class="sticky" id="nav-sidebar" aria-label="{% translate 'Sidebar' %}">
+  <style>
+    #nav-sidebar {
+      padding: 12px 10px 24px;
+    }
+
+    #nav-filter {
+      margin-bottom: 14px;
+    }
+
+    .enterprise-nav-level {
+      margin: 18px 8px 8px;
+      color: var(--body-quiet-color, #6b7280);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .enterprise-nav-group {
+      border: 1px solid var(--hairline-color, #e5e7eb);
+      border-radius: 8px;
+      background: var(--body-bg, #fff);
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+
+    .enterprise-nav-title {
+      background: #28596a;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 9px 10px;
+    }
+
+    .enterprise-nav-list {
+      list-style: none;
+      margin: 0;
+      padding: 4px 0;
+    }
+
+    .enterprise-nav-list a {
+      display: block;
+      color: var(--link-fg, #2563eb);
+      font-size: 12px;
+      line-height: 1.35;
+      padding: 7px 10px;
+      text-decoration: none;
+    }
+
+    .enterprise-nav-list a:hover {
+      background: var(--darkened-bg, #f3f4f6);
+    }
+  </style>
+
+  <input type="search"
+         id="nav-filter"
+         placeholder="{% translate 'Start typing to filter…' %}"
+         aria-label="{% translate 'Filter navigation items' %}">
+
+  {% if sidebar_sections %}
+    <div class="enterprise-nav">
+      {% for section in sidebar_sections %}
+        <div class="enterprise-nav-level">{{ section.level }}</div>
+        {% for group in section.groups %}
+          <section class="enterprise-nav-group">
+            <div class="enterprise-nav-title">{{ group.title }}</div>
+            <ul class="enterprise-nav-list">
+              {% for item in group.items %}
+                <li><a href="{{ item.url }}">{{ item.label }}</a></li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  {% else %}
+    {% include 'admin/app_list.html' with app_list=available_apps show_changelinks=False %}
+  {% endif %}
+</nav>

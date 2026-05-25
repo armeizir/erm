@@ -11,6 +11,40 @@ from django.conf import settings
 # MASTER DATA
 # =========================================================
 
+class AppSetting(models.Model):
+    nama_aplikasi = models.CharField(
+        max_length=120,
+        default="Manajemen Risiko PLN Batam",
+        verbose_name="Nama Aplikasi",
+    )
+    logo = models.ImageField(
+        upload_to="system/logo/",
+        blank=True,
+        null=True,
+        verbose_name="Logo PLN Batam",
+    )
+    diperbarui_pada = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Diperbarui pada",
+    )
+
+    class Meta:
+        verbose_name = "Pengaturan Aplikasi"
+        verbose_name_plural = "PENGATURAN — Aplikasi"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return self.nama_aplikasi
+
+
 class TaksonomiT3(models.Model):
     kode = models.CharField(max_length=50, unique=True, verbose_name="Kode")
     nama = models.CharField(max_length=255, verbose_name="Nama Taksonomi T3")

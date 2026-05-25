@@ -61,7 +61,7 @@
         }
 
         .filters {
-            grid-template-columns: repeat(6, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
             margin-bottom: 20px;
         }
 
@@ -132,6 +132,35 @@
             display: grid;
             gap: 10px;
             margin-top: 21px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin: 0 0 20px;
+            overflow-x: auto;
+        }
+
+        .tab-button {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: #fff;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 800;
+            padding: 12px 18px;
+            white-space: nowrap;
+        }
+
+        .tab-button.active {
+            background: var(--navy);
+            border-color: var(--navy);
+            color: #fff;
+        }
+
+        .tab-panel[hidden] {
+            display: none;
         }
 
         .stat-card {
@@ -364,6 +393,150 @@
             font-size: 13px;
         }
 
+        .progress-track {
+            min-width: 120px;
+            height: 10px;
+            border-radius: 999px;
+            background: #e8eef6;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            border-radius: inherit;
+            background: #1d4e89;
+        }
+
+        .score-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 72px;
+            border-radius: 999px;
+            padding: 6px 10px;
+            background: #eaf1fb;
+            color: var(--navy);
+            font-weight: 800;
+        }
+
+        .indicator-grid {
+            display: grid;
+            gap: 8px;
+            min-width: 220px;
+        }
+
+        .indicator-line {
+            display: grid;
+            grid-template-columns: 42px 64px minmax(0, 1fr);
+            gap: 8px;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .indicator-code {
+            font-weight: 800;
+            color: var(--navy);
+        }
+
+        .indicator-score {
+            font-weight: 800;
+        }
+
+        .note-list {
+            margin: 0;
+            padding-left: 16px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .km-toolbar {
+            display: grid;
+            grid-template-columns: minmax(240px, 1fr) auto;
+            gap: 12px;
+            align-items: end;
+            margin-bottom: 16px;
+        }
+
+        .km-toolbar label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .km-toolbar select {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 14px;
+            color: var(--text);
+            background: #fff;
+        }
+
+        .km-table {
+            min-width: 1320px;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .km-table th,
+        .km-table td {
+            border: 1px solid #4f5b66;
+            padding: 6px 8px;
+            vertical-align: middle;
+        }
+
+        .km-table thead th {
+            background: #0878bd;
+            color: #fff;
+            text-align: center;
+            font-weight: 800;
+        }
+
+        .km-table .subhead th {
+            background: #0878bd;
+            color: #fff;
+            font-size: 11px;
+        }
+
+        .km-section-row td {
+            background: #ffc400;
+            color: #111827;
+            font-weight: 800;
+        }
+
+        .km-total-row td {
+            background: #bfbfbf;
+            color: #111827;
+            font-weight: 800;
+        }
+
+        .km-number,
+        .km-center {
+            text-align: center;
+        }
+
+        .km-right {
+            text-align: right;
+        }
+
+        .km-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #cbd5e1;
+        }
+
+        .km-indicator.good {
+            background: #67a690;
+        }
+
+        .km-indicator.attention {
+            background: #dd5a32;
+        }
+
         @media (max-width: 1200px) {
             .filters {
                 grid-template-columns: 1fr 1fr 1fr;
@@ -395,6 +568,10 @@
             .risk-meta {
                 grid-template-columns: 1fr;
             }
+
+            .km-toolbar {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -403,13 +580,14 @@
     <section class="hero">
         <h1>Risk Control Center (RCC)</h1>
         <p>
-            Monitoring heatmap 5x5 untuk Profil Risiko Korporat PLN Batam. Dashboard ini sudah mendukung mode
-            <strong>Inheren</strong> dan <strong>Residual</strong>, membaca level langsung dari
-            <strong>RiskMatrixCell</strong>, serta menyediakan drilldown dan export Excel untuk kebutuhan monitoring RCC.
+            Monitoring profil risiko korporat dan profil risiko bidang/unit bisnis PLN Batam. Pilih tahun dan bulan
+            untuk melihat perkembangan laporan risiko bulanan, heatmap 5x5, drilldown, dan export Excel RCC.
         </p>
     </section>
 
     <form method="get" class="filters">
+        <input type="hidden" name="tab" value="{{ active_tab }}">
+        <input type="hidden" name="km" value="{{ request.GET.km|default:selected_kontrak.id }}">
         <div class="panel filter-card">
             <label for="mode">Mode Monitoring</label>
             <select name="mode" id="mode">
@@ -438,8 +616,20 @@
             <select name="tahun" id="tahun">
                 <option value="">Semua Tahun</option>
                 {% for tahun in filters.years %}
-                    <option value="{{ tahun }}" {% if request.GET.tahun == tahun|stringformat:"s" %}selected{% endif %}>
+                    <option value="{{ tahun }}" {% if request.GET.tahun == tahun|stringformat:"s" or not request.GET.tahun and filters.selected_year == tahun %}selected{% endif %}>
                         {{ tahun }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="panel filter-card">
+            <label for="bulan">Bulan Monitoring</label>
+            <select name="bulan" id="bulan">
+                <option value="">Semua Bulan / Terakhir</option>
+                {% for month_value, month_name in filters.months %}
+                    <option value="{{ month_value }}" {% if request.GET.bulan == month_value|stringformat:"s" %}selected{% endif %}>
+                        {{ month_name }}
                     </option>
                 {% endfor %}
             </select>
@@ -485,7 +675,7 @@
                 <a class="button soft" href="?">Reset Filter</a>
                 <a
                     class="button soft"
-                    href="{% url 'rcc_export_excel' %}?mode={{ mode }}{% if request.GET.summary %}&summary={{ request.GET.summary }}{% endif %}{% if request.GET.tahun %}&tahun={{ request.GET.tahun }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status|urlencode }}{% endif %}{% if request.GET.pemilik %}&pemilik={{ request.GET.pemilik|urlencode }}{% endif %}{% if request.GET.kategori %}&kategori={{ request.GET.kategori }}{% endif %}"
+                    href="{% url 'rcc_export_excel' %}?mode={{ mode }}{% if request.GET.summary %}&summary={{ request.GET.summary }}{% endif %}{% if request.GET.tahun %}&tahun={{ request.GET.tahun }}{% endif %}{% if request.GET.bulan %}&bulan={{ request.GET.bulan }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status|urlencode }}{% endif %}{% if request.GET.pemilik %}&pemilik={{ request.GET.pemilik|urlencode }}{% endif %}{% if request.GET.kategori %}&kategori={{ request.GET.kategori }}{% endif %}"
                 >
                     Export Excel RCC
                 </a>
@@ -499,24 +689,353 @@
             <div class="stat-value" style="font-size: 24px;">{{ mode_label }}</div>
         </div>
         <div class="panel stat-card">
-            <div class="stat-label">Total Risiko</div>
+            <div class="stat-label">Profil Risiko Korporat</div>
+            <div class="stat-value">{{ corporate_profile_count }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Profil Unit/Bidang</div>
+            <div class="stat-value">{{ unit_profile_count }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Unit Melapor</div>
+            <div class="stat-value">{{ unit_report_count }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Total Risiko RCC</div>
             <div class="stat-value">{{ total_risks }}</div>
         </div>
         <div class="panel stat-card">
-            <div class="stat-label">High</div>
-            <div class="stat-value">{{ level_counts.high }}</div>
+            <div class="stat-label">Sudah Dipetakan</div>
+            <div class="stat-value">{{ mapped_risks }}</div>
         </div>
         <div class="panel stat-card">
-            <div class="stat-label">Moderate to High</div>
-            <div class="stat-value">{{ level_counts.moderate_to_high }}</div>
+            <div class="stat-label">Belum Dipetakan</div>
+            <div class="stat-value">{{ unmapped_risks }}</div>
         </div>
         <div class="panel stat-card">
-            <div class="stat-label">Moderate</div>
-            <div class="stat-value">{{ level_counts.moderate }}</div>
+            <div class="stat-label">Unit KPMR</div>
+            <div class="stat-value">{{ kpmr_summary.count }}</div>
         </div>
         <div class="panel stat-card">
-            <div class="stat-label">Low / Low to Moderate</div>
-            <div class="stat-value">{{ level_counts.low|add:level_counts.low_to_moderate }}</div>
+            <div class="stat-label">Rata-rata KPMR</div>
+            <div class="stat-value">{{ kpmr_summary.avg_score }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">KPMR Perlu Atensi</div>
+            <div class="stat-value">{{ kpmr_summary.needs_attention }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Kontrak Manajemen</div>
+            <div class="stat-value">{{ kontrak_manajemen_count }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Item KM</div>
+            <div class="stat-value">{{ kontrak_manajemen_item_count }}</div>
+        </div>
+    </section>
+
+    <form method="get" class="tabs">
+        <input type="hidden" name="mode" value="{{ request.GET.mode|default:mode }}">
+        <input type="hidden" name="summary" value="{{ request.GET.summary }}">
+        <input type="hidden" name="tahun" value="{{ request.GET.tahun|default:filters.selected_year }}">
+        <input type="hidden" name="bulan" value="{{ request.GET.bulan }}">
+        <input type="hidden" name="status" value="{{ request.GET.status }}">
+        <input type="hidden" name="pemilik" value="{{ request.GET.pemilik }}">
+        <input type="hidden" name="kategori" value="{{ request.GET.kategori }}">
+        <input type="hidden" name="km" value="{{ request.GET.km|default:selected_kontrak.id }}">
+        <button class="tab-button {% if active_tab == 'profil' %}active{% endif %}" type="submit" name="tab" value="profil">
+            Profil Risiko
+        </button>
+        <button class="tab-button {% if active_tab == 'kpmr' %}active{% endif %}" type="submit" name="tab" value="kpmr">
+            KPMR
+        </button>
+        <button class="tab-button {% if active_tab == 'km' %}active{% endif %}" type="submit" name="tab" value="km">
+            Kontrak Manajemen
+        </button>
+    </form>
+
+    <div class="tab-panel" {% if active_tab != 'kpmr' %}hidden{% endif %}>
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Dashboard KPMR Otomatis</h2>
+            <span>{{ selected_period_label }} · dihitung dari laporan risiko bulanan sesuai formula KPMR Excel.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Unit/Bidang</th>
+                        <th>Periode</th>
+                        <th>Laporan</th>
+                        <th>Item</th>
+                        <th>Skor KPMR</th>
+                        <th>Rating</th>
+                        <th>I1-I4</th>
+                        <th>Catatan Data</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in kpmr_rows %}
+                        <tr>
+                            <td>{{ row.unit }}</td>
+                            <td>{{ row.tahun }} {{ row.triwulan }}</td>
+                            <td>{{ row.report_count }}</td>
+                            <td>{{ row.item_count }}</td>
+                            <td><span class="score-pill">{{ row.skor_total }}</span></td>
+                            <td>{{ row.rating }}</td>
+                            <td>
+                                <div class="indicator-grid">
+                                    {% for indicator in row.indicators %}
+                                        <div class="indicator-line" title="{{ indicator.keterangan }}">
+                                            <span class="indicator-code">{{ indicator.kode }}</span>
+                                            <span class="indicator-score">{{ indicator.skor }}</span>
+                                            <span class="muted">hasil {{ indicator.hasil|default:"-" }}</span>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td>
+                                {% if row.notes %}
+                                    <ul class="note-list">
+                                        {% for note in row.notes %}
+                                            <li>{{ note }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    <span class="muted">Data cukup untuk hitung otomatis.</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="8"><div class="empty-state">Belum ada data laporan bulanan untuk menghitung KPMR pada filter ini.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    </div>
+
+    <div class="tab-panel" {% if active_tab != 'km' %}hidden{% endif %}>
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Detail Kontrak Manajemen</h2>
+            <span>
+                {% if selected_kontrak %}
+                    {{ selected_kontrak.unit_bisnis.name }} · {{ selected_kontrak.judul }} · {{ selected_period_label }}
+                {% else %}
+                    Belum ada kontrak yang dapat ditampilkan.
+                {% endif %}
+            </span>
+        </div>
+
+        <form method="get" class="km-toolbar">
+            <input type="hidden" name="tab" value="km">
+            <input type="hidden" name="mode" value="{{ request.GET.mode|default:mode }}">
+            <input type="hidden" name="summary" value="{{ request.GET.summary }}">
+            <input type="hidden" name="tahun" value="{{ request.GET.tahun|default:filters.selected_year }}">
+            <input type="hidden" name="bulan" value="{{ request.GET.bulan }}">
+            <input type="hidden" name="status" value="{{ request.GET.status }}">
+            <input type="hidden" name="pemilik" value="{{ request.GET.pemilik }}">
+            <input type="hidden" name="kategori" value="{{ request.GET.kategori }}">
+            <div>
+                <label for="km">Kontrak Manajemen</label>
+                <select name="km" id="km">
+                    {% for contract in kontrak_options %}
+                        <option value="{{ contract.id }}" {% if selected_kontrak and selected_kontrak.id == contract.id %}selected{% endif %}>
+                            {{ contract.unit_bisnis.name }} - {{ contract.judul }} ({{ contract.tahun }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="button primary" type="submit">Tampilkan KM</button>
+        </form>
+
+        <div class="table-responsive">
+            <table class="km-table">
+                <thead>
+                    <tr>
+                        <th rowspan="2">NO</th>
+                        <th rowspan="2">INDIKATOR KINERJA KUNCI</th>
+                        <th rowspan="2">FORMULA</th>
+                        <th rowspan="2">SATUAN</th>
+                        <th rowspan="2">BOBOT</th>
+                        <th rowspan="2">TARGET {{ filters.selected_year|default:"" }}</th>
+                        <th colspan="6">S.D {{ selected_period_label|upper }}</th>
+                    </tr>
+                    <tr class="subhead">
+                        <th>TARGET</th>
+                        <th>REALISASI</th>
+                        <th>PENCAPAIAN</th>
+                        <th>NILAI</th>
+                        <th>INDIKATOR</th>
+                        <th>KETERANGAN</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in kontrak_manajemen_detail.groups %}
+                        <tr class="km-section-row">
+                            <td class="km-center">{{ group.kode }}</td>
+                            <td colspan="3">{{ group.nama }}</td>
+                            <td class="km-center">{{ group.bobot_display }}</td>
+                            <td colspan="3"></td>
+                            <td></td>
+                            <td class="km-center">{{ group.nilai_display }}</td>
+                            <td colspan="2"></td>
+                        </tr>
+                        {% for item in group.items %}
+                            <tr>
+                                <td class="km-number">{{ item.no }}</td>
+                                <td>{{ item.indikator }}</td>
+                                <td>{{ item.formula }}</td>
+                                <td class="km-center">{{ item.satuan }}</td>
+                                <td class="km-center">{{ item.bobot }}</td>
+                                <td class="km-center">{{ item.target_tahunan }}</td>
+                                <td class="km-center">{{ item.target_bulanan }}</td>
+                                <td class="km-center">{{ item.realisasi }}</td>
+                                <td class="km-center">{{ item.pencapaian }}</td>
+                                <td class="km-center">{{ item.nilai }}</td>
+                                <td class="km-center">
+                                    {% if item.indicator %}
+                                        <span class="km-indicator {{ item.indicator }}"></span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.keterangan }}</td>
+                            </tr>
+                        {% endfor %}
+                    {% empty %}
+                        <tr><td colspan="12"><div class="empty-state">Belum ada item Kontrak Manajemen untuk kontrak ini.</div></td></tr>
+                    {% endfor %}
+                    <tr class="km-total-row">
+                        <td></td>
+                        <td class="km-center">TOTAL</td>
+                        <td colspan="2"></td>
+                        <td class="km-center">{{ kontrak_manajemen_detail.total_bobot }}</td>
+                        <td colspan="4"></td>
+                        <td class="km-center">{{ kontrak_manajemen_detail.total_nilai }}</td>
+                        <td colspan="2"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Kontrak Manajemen</h2>
+            <span>{{ selected_period_label }} · relasi KM ke RKM, profil risiko, dan laporan bulanan.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Unit/Bidang</th>
+                        <th>Kontrak Manajemen</th>
+                        <th>Tahun</th>
+                        <th>Status</th>
+                        <th>Item KM</th>
+                        <th>RKM</th>
+                        <th>Profil Risiko</th>
+                        <th>Laporan Bulanan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in kontrak_manajemen_rows %}
+                        <tr>
+                            <td>{{ row.unit }}</td>
+                            <td>{{ row.judul }}</td>
+                            <td>{{ row.tahun }}</td>
+                            <td>{{ row.status }}</td>
+                            <td>{{ row.total_items }}</td>
+                            <td>{{ row.rkm_count }}</td>
+                            <td>{{ row.profile_count }}</td>
+                            <td>{{ row.monthly_report_count }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="8"><div class="empty-state">Belum ada Kontrak Manajemen untuk filter ini.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    </div>
+
+    <div class="tab-panel" {% if active_tab != 'profil' %}hidden{% endif %}>
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Profil Risiko Korporat</h2>
+            <span>{{ selected_period_label }} · seluruh item tetap tampil walaupun belum punya nilai dampak/kemungkinan.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Profil</th>
+                        <th>Tahun</th>
+                        <th>Status</th>
+                        <th>Total Item</th>
+                        <th>Mapped Inheren</th>
+                        <th>Mapped Residual</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in corporate_profile_rows %}
+                        <tr>
+                            <td>{{ row.judul }}</td>
+                            <td>{{ row.tahun }}</td>
+                            <td>{{ row.status }}</td>
+                            <td>{{ row.total }}</td>
+                            <td>{{ row.mapped_inherent }}</td>
+                            <td>{{ row.mapped_residual }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="6"><div class="empty-state">Belum ada Profil Risiko Korporat untuk filter ini.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Monitoring Profil Risiko Bidang/Unit Bisnis</h2>
+            <span>{{ selected_period_label }} · laporan bulan terpilih atau laporan terakhir jika bulan tidak dipilih.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Unit/Bidang</th>
+                        <th>Profil Risiko</th>
+                        <th>Item Profil</th>
+                        <th>Bulan Laporan</th>
+                        <th>Item Dilaporkan</th>
+                        <th>Coverage</th>
+                        <th>Status</th>
+                        <th>High</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in unit_profile_rows %}
+                        <tr>
+                            <td>{{ row.unit }}</td>
+                            <td>{{ row.judul }}</td>
+                            <td>{{ row.profile_items }}</td>
+                            <td>{{ row.bulan }}</td>
+                            <td>{{ row.reported_items }}</td>
+                            <td>
+                                <div class="progress-track" title="{{ row.coverage }}%">
+                                    <div class="progress-bar" style="width: {{ row.coverage }}%;"></div>
+                                </div>
+                                <span class="muted">{{ row.coverage }}%</span>
+                            </td>
+                            <td>{% if row.report %}{{ row.report.get_status_display }}{% else %}Belum ada laporan{% endif %}</td>
+                            <td>{{ row.high_items }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="8"><div class="empty-state">Belum ada Profil Risiko Bidang/Unit Bisnis untuk filter ini.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </section>
 
@@ -649,6 +1168,7 @@
             </table>
         </div>
     </section>
+    </div>
 </div>
 
 <script>

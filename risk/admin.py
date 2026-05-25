@@ -1,6 +1,7 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin, UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group, User
+from django.conf import settings
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -8,15 +9,20 @@ from django.utils.html import format_html
 from django.http import HttpResponse
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import Image, SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.styles import ParagraphStyle
 from masterdata.models import MasterBUMN, TahunBuku, PeriodeLaporan
 
 from django.contrib.auth import get_user_model
 from django.db import models
 from decimal import Decimal
+from pathlib import Path
+from xml.sax.saxutils import escape
 
 from .models import (
+    AppSetting,
     KontrakManajemen,
     BagianKontrakManajemen,
     ItemKontrakManajemen,
@@ -75,6 +81,24 @@ admin.site.index_title = "Dashboard Manajemen Risiko"
 # AUTH / GROUP
 # =========================================================
 
+def assigned_unit_businesses_for_user(user):
+    if not user.is_authenticated:
+        return Group.objects.none()
+    if user.is_superuser:
+        return Group.objects.all()
+    return Group.objects.filter(
+        penugasan_pengguna__user=user,
+        penugasan_pengguna__aktif=True,
+    ).distinct()
+
+
+def user_can_access_unit(request, unit_id):
+    if request.user.is_superuser:
+        return True
+    if not unit_id:
+        return False
+    return assigned_unit_businesses_for_user(request.user).filter(pk=unit_id).exists()
+
 try:
     admin.site.unregister(Group)
 except admin.sites.NotRegistered:
@@ -116,6 +140,29 @@ class CustomGroupAdmin(BaseGroupAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).order_by("name")
+
+
+@admin.register(AppSetting)
+class AppSettingAdmin(admin.ModelAdmin):
+    list_display = ("nama_aplikasi", "logo_preview", "diperbarui_pada")
+    fields = ("nama_aplikasi", "logo", "logo_preview", "diperbarui_pada")
+    readonly_fields = ("logo_preview", "diperbarui_pada")
+
+    def has_add_permission(self, request):
+        return not AppSetting.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def logo_preview(self, obj):
+        if obj and obj.logo:
+            return format_html(
+                '<img src="{}" style="max-width: 220px; max-height: 80px;" />',
+                obj.logo.url,
+            )
+        return "-"
+
+    logo_preview.short_description = "Preview Logo"
 
 
 @admin.register(User)
@@ -507,6 +554,78 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
 
         return riwayat.jabatan if riwayat else "-"
 
+    def bulan_indonesia(self, nomor_bulan):
+        bulan = [
+            "",
+            "Januari",
+            "Februari",
+            "Maret",
+            "April",
+            "Mei",
+            "Juni",
+            "Juli",
+            "Agustus",
+            "September",
+            "Oktober",
+            "November",
+            "Desember",
+        ]
+        if 1 <= nomor_bulan <= 12:
+            return bulan[nomor_bulan]
+        return "-"
+
+    def format_angka_km(self, nilai):
+        if nilai in (None, ""):
+            return ""
+        try:
+            angka = Decimal(str(nilai))
+        except Exception:
+            return str(nilai)
+
+        if angka == angka.to_integral_value():
+            return str(int(angka))
+        return f"{angka:.2f}".rstrip("0").rstrip(".")
+
+    def paragraph_km(self, text, style):
+        return Paragraph(escape(str(text or "")), style)
+
+    def km_logo_flowable(self):
+        logo_path = None
+        app_setting = AppSetting.objects.first()
+        if app_setting and app_setting.logo:
+            candidate = Path(app_setting.logo.path)
+            if candidate.exists():
+                logo_path = candidate
+
+        if not logo_path:
+            candidate = Path(settings.MEDIA_ROOT) / "system/logo/pln_batam_logo.png"
+            if candidate.exists():
+                logo_path = candidate
+
+        if logo_path:
+            return Image(str(logo_path), width=100, height=50)
+
+        return Table(
+            [[
+                Paragraph("<b>PLN</b>", ParagraphStyle(
+                    "KMLogoPLN",
+                    parent=getSampleStyleSheet()["Normal"],
+                    fontName="Helvetica-Bold",
+                    fontSize=11,
+                    leading=12,
+                    alignment=TA_CENTER,
+                )),
+                Paragraph("Batam", ParagraphStyle(
+                    "KMLogoBatam",
+                    parent=getSampleStyleSheet()["Normal"],
+                    fontName="Helvetica-Bold",
+                    fontSize=10,
+                    leading=11,
+                )),
+            ]],
+            colWidths=[34, 58],
+        )
+
     def pdf_view(self, request, kontrak_id):
         kontrak = get_object_or_404(KontrakManajemen, pk=kontrak_id)
 
@@ -518,42 +637,110 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
         doc = SimpleDocTemplate(
             response,
             pagesize=landscape(A4),
-            rightMargin=20,
-            leftMargin=20,
-            topMargin=20,
-            bottomMargin=20,
+            rightMargin=14,
+            leftMargin=14,
+            topMargin=14,
+            bottomMargin=14,
         )
 
         styles = getSampleStyleSheet()
-        normal = styles["Normal"]
-        title = styles["Title"]
+        normal = ParagraphStyle(
+            "KMNormal",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=5.8,
+            leading=6.8,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        )
+        normal_center = ParagraphStyle(
+            "KMNormalCenter",
+            parent=normal,
+            alignment=TA_CENTER,
+        )
+        header_style = ParagraphStyle(
+            "KMHeader",
+            parent=normal_center,
+            fontName="Helvetica-Bold",
+            textColor=colors.white,
+        )
+        section_style = ParagraphStyle(
+            "KMSection",
+            parent=normal,
+            fontName="Helvetica-Bold",
+        )
+        title_style = ParagraphStyle(
+            "KMTitle",
+            parent=styles["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=13,
+            alignment=TA_CENTER,
+            spaceAfter=2,
+        )
 
         elements = []
 
-        elements.append(
-            Paragraph(
-                "KONTRAK MANAJEMEN TAHUN {}".format(kontrak.tahun),
-                title,
-            )
-        )
-        elements.append(Paragraph(str(kontrak.judul), styles["Heading2"]))
-        elements.append(
-            Paragraph(
-                "Bidang / Unit Bisnis: {}".format(kontrak.unit_bisnis),
-                normal,
-            )
-        )
-        elements.append(Spacer(1, 12))
+        tanggal = kontrak.tanggal_kontrak
+        bulan_label = self.bulan_indonesia(tanggal.month if tanggal else 1)
+        tahun_label = tanggal.year if tanggal else kontrak.tahun
+        periode_label = f"S.D {bulan_label.upper()} {tahun_label}"
+        unit_label = str(kontrak.unit_bisnis or kontrak.judul or "").upper()
 
-        data = [[
-            "NO",
-            "INDIKATOR KINERJA KUNCI",
-            "FORMULA",
-            "SATUAN",
-            "BOBOT",
-            "TARGET",
-            "POLARITAS",
-        ]]
+        header_table = Table(
+            [[
+                self.km_logo_flowable(),
+                [
+                    Paragraph(
+                        f"PENCAPAIAN KONTRAK MANAJEMEN TAHUN {kontrak.tahun}",
+                        title_style,
+                    ),
+                    Paragraph(unit_label, title_style),
+                    Paragraph(periode_label, title_style),
+                ],
+                "",
+            ]],
+            colWidths=[110, 590, 110],
+        )
+        header_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "LEFT"),
+            ("ALIGN", (1, 0), (1, 0), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(header_table)
+
+        data = [
+            [
+                self.paragraph_km("NO", header_style),
+                self.paragraph_km("INDIKATOR KINERJA KUNCI", header_style),
+                self.paragraph_km("FORMULA", header_style),
+                self.paragraph_km("SATUAN", header_style),
+                self.paragraph_km("BOBOT", header_style),
+                self.paragraph_km(f"TARGET {kontrak.tahun}", header_style),
+                self.paragraph_km(periode_label, header_style),
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            [
+                self.paragraph_km("1", header_style),
+                self.paragraph_km("2", header_style),
+                self.paragraph_km("3", header_style),
+                self.paragraph_km("4", header_style),
+                self.paragraph_km("5", header_style),
+                self.paragraph_km("6", header_style),
+                self.paragraph_km("TARGET", header_style),
+                self.paragraph_km("REALISASI", header_style),
+                self.paragraph_km("PENCAPAIAN", header_style),
+                self.paragraph_km("NILAI", header_style),
+                self.paragraph_km("INDIKATOR", header_style),
+                self.paragraph_km("KETERANGAN", header_style),
+            ],
+        ]
 
         items = (
             ItemKontrakManajemen.objects
@@ -563,13 +750,41 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
         )
 
         current_bagian = None
+        section_rows = []
+        total_bobot = Decimal("0")
+        items_list = list(items)
 
-        for item in items:
+        for item in items_list:
+            if not (
+                item.indikator_kinerja_kunci
+                or item.formula
+                or item.target
+                or item.bobot
+            ):
+                continue
+
             if item.master_bagian_id and item.master_bagian != current_bagian:
                 current_bagian = item.master_bagian
+                subtotal_bobot = sum(
+                    Decimal(str(i.bobot or 0))
+                    for i in items_list
+                    if i.master_bagian_id == current_bagian.id
+                    and (
+                        i.indikator_kinerja_kunci
+                        or i.formula
+                        or i.target
+                        or i.bobot
+                    )
+                )
+                section_rows.append(len(data))
                 data.append([
-                    current_bagian.kode_bagian,
-                    Paragraph(f"<b>{current_bagian.nama_bagian}</b>", normal),
+                    self.paragraph_km(current_bagian.kode_bagian, section_style),
+                    self.paragraph_km(current_bagian.nama_bagian, section_style),
+                    "",
+                    "",
+                    self.paragraph_km(self.format_angka_km(subtotal_bobot), section_style),
+                    "",
+                    "",
                     "",
                     "",
                     "",
@@ -577,74 +792,165 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
                     "",
                 ])
 
-            data.append([
-                item.no_urut,
-                Paragraph(item.indikator_kinerja_kunci or "", normal),
-                Paragraph(item.formula or "", normal),
-                item.satuan or "",
-                item.bobot or "",
-                item.target or "",
+            total_bobot += Decimal(str(item.bobot or 0))
+            polaritas = (
                 item.get_polaritas_display()
                 if hasattr(item, "get_polaritas_display")
-                else item.polaritas,
+                else item.polaritas
+            )
+            indikator = item.indikator_kinerja_kunci or ""
+            if polaritas:
+                indikator = f"{indikator}\n({polaritas})"
+
+            data.append([
+                self.paragraph_km(item.no_urut, normal_center),
+                self.paragraph_km(indikator, normal),
+                self.paragraph_km(item.formula or "", normal),
+                self.paragraph_km(item.satuan or "", normal_center),
+                self.paragraph_km(self.format_angka_km(item.bobot), normal_center),
+                self.paragraph_km(item.target or "", normal_center),
+                self.paragraph_km(item.target or "", normal_center),
+                "",
+                "",
+                "",
+                "",
+                "",
             ])
+
+        total_row_index = len(data)
+        data.append([
+            "",
+            self.paragraph_km("TOTAL", section_style),
+            "",
+            "",
+            self.paragraph_km(self.format_angka_km(total_bobot), section_style),
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ])
 
         table = Table(
             data,
-            colWidths=[35, 230, 270, 60, 50, 70, 70],
-            repeatRows=1,
+            colWidths=[28, 150, 190, 42, 36, 52, 52, 52, 52, 42, 44, 70],
+            repeatRows=2,
         )
 
-        table.setStyle(TableStyle([
+        table_style = TableStyle([
             ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("SPAN", (6, 0), (11, 0)),
+            ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#0070C0")),
+            ("TEXTCOLOR", (0, 0), (-1, 1), colors.white),
+            ("FONTNAME", (0, 0), (-1, 1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 5.8),
+            ("LEADING", (0, 0), (-1, -1), 6.8),
+            ("ALIGN", (0, 0), (-1, 1), "CENTER"),
+            ("ALIGN", (0, 2), (0, -1), "CENTER"),
+            ("ALIGN", (3, 2), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("BACKGROUND", (0, 1), (-1, -1), colors.white),
-        ]))
+            ("BACKGROUND", (0, 2), (-1, -1), colors.white),
+            ("BACKGROUND", (0, total_row_index), (-1, total_row_index), colors.HexColor("#D9EAF7")),
+            ("FONTNAME", (0, total_row_index), (-1, total_row_index), "Helvetica-Bold"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ])
+        for row_index in section_rows:
+            table_style.add(
+                "BACKGROUND",
+                (0, row_index),
+                (-1, row_index),
+                colors.HexColor("#FFC000"),
+            )
+            table_style.add("FONTNAME", (0, row_index), (-1, row_index), "Helvetica-Bold")
+
+        table.setStyle(table_style)
 
         elements.append(table)
-        elements.append(Spacer(1, 20))
+        elements.append(Spacer(1, 8))
 
-        elements.append(Paragraph("TOTAL", styles["Heading3"]))
-        elements.append(Spacer(1, 30))
+        legend_data = [
+            ["-", "Belum dilakukan proses pengukuran"],
+            ["", "Tercapai (NKO >= 100)"],
+            ["", "Hampir Tercapai (95 <= NKO < 100)"],
+            ["", "Perlu Peningkatan (NKO < 95)"],
+        ]
+        legend_table = Table(legend_data, colWidths=[16, 170])
+        legend_table.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("LEADING", (0, 0), (-1, -1), 8),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, 1), (0, 1), colors.HexColor("#00B050")),
+            ("BACKGROUND", (0, 2), (0, 2), colors.HexColor("#FFFF00")),
+            ("BACKGROUND", (0, 3), (0, 3), colors.HexColor("#FF0000")),
+            ("BOX", (0, 1), (0, 3), 0.25, colors.black),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ]))
 
-        nama_p1 = self.nama_user(kontrak.pihak_pertama)
-        nama_p2 = self.nama_user(kontrak.pihak_kedua)
+        nama_p2 = self.nama_user(kontrak.pihak_kedua) if kontrak.pihak_kedua else ""
 
-        jabatan_p1 = self.jabatan_user(
-            kontrak.pihak_pertama,
-            kontrak.tanggal_kontrak,
-        )
         jabatan_p2 = self.jabatan_user(
             kontrak.pihak_kedua,
             kontrak.tanggal_kontrak,
         )
+        if jabatan_p2 == "-":
+            jabatan_p2 = ""
 
-        elements.append(
-            Paragraph(
-                "Batam, Februari {}".format(kontrak.tahun),
-                normal,
-            )
+        tanggal_text = (
+            f"{tanggal.day:02d} {self.bulan_indonesia(tanggal.month)} {tanggal.year}"
+            if tanggal
+            else f"{self.bulan_indonesia(2)} {kontrak.tahun}"
         )
-        elements.append(Spacer(1, 40))
-
-        ttd_data = [
-            ["PIHAK PERTAMA", "PIHAK KEDUA"],
-            ["", ""],
-            [f"<u>({nama_p1})</u>", f"<u>({nama_p2})</u>"],
-            [jabatan_p1, jabatan_p2],
-        ]
-
-        ttd_table = Table(ttd_data, colWidths=[380, 380])
-        ttd_table.setStyle(TableStyle([
+        sign_style = ParagraphStyle(
+            "KMSign",
+            parent=normal_center,
+            fontSize=7,
+            leading=8,
+        )
+        sign_bold = ParagraphStyle(
+            "KMSignBold",
+            parent=sign_style,
+            fontName="Helvetica-Bold",
+        )
+        signature_table = Table(
+            [
+                [Paragraph(f"Batam, {tanggal_text}", sign_style)],
+                [Paragraph(escape(jabatan_p2), sign_style)],
+                [""],
+                [Paragraph(f"<u>{escape(nama_p2)}</u>", sign_bold) if nama_p2 else ""],
+            ],
+            colWidths=[220],
+            rowHeights=[12, 18, 30, 14],
+        )
+        signature_table.setStyle(TableStyle([
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 1), (-1, 1), 60),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
         ]))
 
-        elements.append(ttd_table)
+        footer_table = Table(
+            [[legend_table, "", signature_table]],
+            colWidths=[230, 360, 220],
+        )
+        footer_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("ALIGN", (0, 0), (0, 0), "LEFT"),
+            ("ALIGN", (2, 0), (2, 0), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+
+        elements.append(footer_table)
 
         doc.build(elements)
         return response
@@ -932,6 +1238,40 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
 
     inlines = [ReAssessmentItemInline]
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser:
+            if db_field.name == "unit_bisnis":
+                kwargs["queryset"] = assigned_unit_businesses_for_user(request.user)
+            elif db_field.name == "kontrak_manajemen":
+                kwargs["queryset"] = KontrakManajemen.objects.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+                )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
 class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
     model = ProfilRisikoKorporatSumber
     fk_name = "reassessment_item"
@@ -1101,6 +1441,32 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     )
     inlines = [ProfilRisikoKorporatSumberByReassessmentInline]
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(
+            summary__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+        )
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
     def unit_bisnis_summary(self, obj):
         return obj.summary.unit_bisnis if obj.summary_id else "-"
     unit_bisnis_summary.short_description = "Bidang / Unit Bisnis"
@@ -1110,6 +1476,11 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     jumlah_relasi_korporat.short_description = "Relasi Korporat"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser and db_field.name == "summary":
+            kwargs["queryset"] = ReAssessmentSummary.objects.filter(
+                unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+            )
+
         if db_field.name == "km_item":
             object_id = request.resolver_match.kwargs.get("object_id")
 
@@ -1743,6 +2114,11 @@ except Exception:
 try:
     risk_admin_site.register(Group, CustomGroupAdmin)
 except Exception:
+    pass
+
+try:
+    risk_admin_site.register(AppSetting, AppSettingAdmin)
+except admin.sites.AlreadyRegistered:
     pass
 
 risk_admin_site.register(BagianKontrakManajemen, BagianKontrakManajemenAdmin)

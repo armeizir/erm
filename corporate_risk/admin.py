@@ -76,7 +76,7 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def run_button(self, obj):
-        url = reverse("admin:corporate_risk_montecarlo_run", args=[obj.pk])
+        url = reverse(f"{self.admin_site.name}:corporate_risk_montecarlo_run", args=[obj.pk])
         return format_html('<a class="button" href="{}">Jalankan Monte Carlo</a>', url)
     run_button.short_description = "Proses"
 
@@ -95,7 +95,7 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
                 level=messages.ERROR,
             )
             return redirect(
-                reverse("admin:corporate_risk_montecarlokorporatconfig_change", args=[config.pk])
+                reverse(f"{self.admin_site.name}:corporate_risk_montecarlokorporatconfig_change", args=[config.pk])
             )
 
         forecast_periode = histories.last().periode
@@ -112,7 +112,7 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
                 level=messages.SUCCESS,
             )
             return redirect(
-                reverse("admin:corporate_risk_montecarlokorporatresult_change", args=[result.pk])
+                reverse(f"{self.admin_site.name}:corporate_risk_montecarlokorporatresult_change", args=[result.pk])
             )
         except Exception as exc:
             self.message_user(
@@ -121,7 +121,7 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
                 level=messages.ERROR,
             )
             return redirect(
-                reverse("admin:corporate_risk_montecarlokorporatconfig_change", args=[config.pk])
+                reverse(f"{self.admin_site.name}:corporate_risk_montecarlokorporatconfig_change", args=[config.pk])
             )
 
 @admin.register(MonteCarloKorporatHistory)
@@ -172,7 +172,6 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         "status_hasil",
         "created_at",
         "generate_ai_button",
-        "generate_ai_insight_button",
     )
     list_filter = ("forecast_periode", "metric_name", "status_hasil")
     search_fields = (
@@ -629,7 +628,7 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def generate_ai_button(self, obj):
-        url = reverse("admin:corporate_risk_generate_ai_insight", args=[obj.pk])
+        url = reverse(f"{self.admin_site.name}:corporate_risk_generate_ai_insight", args=[obj.pk])
         return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
     generate_ai_button.short_description = "AI Insight"
 
@@ -649,7 +648,7 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
                 level=messages.ERROR,
             )
         return redirect(
-            reverse("admin:corporate_risk_montecarlokorporatresult_change", args=[result.pk])
+            reverse(f"{self.admin_site.name}:corporate_risk_montecarlokorporatresult_change", args=[result.pk])
         )
 
     
@@ -677,53 +676,6 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         return mark_safe(html)
 
     ai_insight_html.short_description = "AI Insight Korporat"
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "<int:result_id>/generate-ai-insight-multi-metric/",
-                self.admin_site.admin_view(self.generate_ai_insight_multi_metric_view),
-                name="corporate_risk_generate_ai_insight_multi_metric",
-            ),
-        ]
-        return custom_urls + urls
-
-
-    def generate_ai_insight_button(self, obj):
-        url = reverse(
-            "admin:corporate_risk_generate_ai_insight_multi_metric",
-            args=[obj.pk],
-        )
-        return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
-
-    generate_ai_insight_button.short_description = "AI Insight"
-
-
-    def generate_ai_insight_multi_metric_view(self, request, result_id, *args, **kwargs):
-        result = get_object_or_404(MultiMetricMonteCarloResult, pk=result_id)
-
-        try:
-            insight = generate_rule_based_ai_insight_for_multi_metric_result(result)
-            self.message_user(
-                request,
-                f"AI Insight Multi Metric berhasil dibuat. Insight ID: {insight.pk}",
-                level=messages.SUCCESS,
-            )
-        except Exception as exc:
-            self.message_user(
-                request,
-                f"Gagal generate AI Insight Multi Metric: {exc}",
-                level=messages.ERROR,
-            )
-
-        return redirect(
-            reverse(
-                "admin:corporate_risk_multimetricmontecarloresult_change",
-                args=[result.pk],
-            )
-        )
-
 
 @admin.register(AIInsightKorporat)
 class AIInsightKorporatAdmin(admin.ModelAdmin):
@@ -918,6 +870,41 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return True
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:result_id>/generate-ai-insight-multi-metric/",
+                self.admin_site.admin_view(self.generate_ai_insight_multi_metric_view),
+                name="corporate_risk_generate_ai_insight_multi_metric",
+            ),
+        ]
+        return custom_urls + urls
+
+    def generate_ai_insight_multi_metric_view(self, request, result_id, *args, **kwargs):
+        result = get_object_or_404(MultiMetricMonteCarloResult, pk=result_id)
+
+        try:
+            insight = generate_rule_based_ai_insight_for_multi_metric_result(result)
+            self.message_user(
+                request,
+                f"AI Insight Multi Metric berhasil dibuat. Insight ID: {insight.pk}",
+                level=messages.SUCCESS,
+            )
+        except Exception as exc:
+            self.message_user(
+                request,
+                f"Gagal generate AI Insight Multi Metric: {exc}",
+                level=messages.ERROR,
+            )
+
+        return redirect(
+            reverse(
+                f"{self.admin_site.name}:corporate_risk_multimetricmontecarloresult_change",
+                args=[result.pk],
+            )
+        )
 
     def _fmt(self, value, digits=2):
         try:
@@ -1408,7 +1395,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
     def generate_ai_insight_button(self, obj):
         url = reverse(
-            "admin:corporate_risk_generate_ai_insight_multi_metric",
+            f"{self.admin_site.name}:corporate_risk_generate_ai_insight_multi_metric",
             args=[obj.pk],
         )
         return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
@@ -1433,26 +1420,6 @@ class MultiMetricAIInsightKorporatAdmin(admin.ModelAdmin):
     readonly_fields = (
         "created_at",
     )
-
-try:
-    risk_admin_site.register(MonteCarloKorporatConfig, MonteCarloKorporatConfigAdmin)
-except Exception:
-    pass
-
-try:
-    risk_admin_site.register(MonteCarloKorporatHistory, MonteCarloKorporatHistoryAdmin)
-except Exception:
-    pass
-
-try:
-    risk_admin_site.register(MonteCarloKorporatResult, MonteCarloKorporatResultAdmin)
-except Exception:
-    pass
-
-try:
-    risk_admin_site.register(AIInsightKorporat, AIInsightKorporatAdmin)
-except Exception:
-    pass
 
 try:
     risk_admin_site.register(MonteCarloMetricHistory, MonteCarloMetricHistoryAdmin)
