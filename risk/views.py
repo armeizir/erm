@@ -3,6 +3,7 @@ import calendar
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 import json
+from statistics import mean, median, pstdev
 
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -11,6 +12,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from monthly_report.models import MonthlyRiskReport
+from corporate_risk.models import MonteCarloMetricHistory, MultiMetricMonteCarloResult, RiskMetric
 
 from .services.kpmr_automation import kpmr_dashboard_rows, kpmr_dashboard_summary
 from .models import (
@@ -382,7 +384,7 @@ def _selected_month(request):
 
 def _selected_tab(request):
     tab = request.GET.get("tab", "profil")
-    return tab if tab in {"profil", "kpmr", "km"} else "profil"
+    return tab if tab in {"profil", "prediksi", "kpmr", "km"} else "profil"
 
 
 def _decimal_or_none(value):
@@ -625,6 +627,221 @@ def _kontrak_manajemen_detail(selected_contract, year, month):
     }
 
 
+def _selected_prediction_risk(request):
+    risk_id = request.GET.get("prediksi_risiko")
+    if not risk_id:
+        return None
+    try:
+        return int(risk_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _risk_prediction_options(year, selected_summary):
+    items = ProfilRisikoKorporatItem.objects.select_related("summary").order_by("summary__tahun", "no_item")
+    if year:
+        items = items.filter(summary__tahun=year)
+    if selected_summary:
+        items = items.filter(summary=selected_summary)
+    return items
+
+
+def _risk_prediction_rows(year, selected_risk_id=None):
+    queryset = (
+        MultiMetricMonteCarloResult.objects
+        .select_related("corporate_risk_item", "forecast_periode")
+        .order_by("-created_at")
+    )
+    if year:
+        queryset = queryset.filter(forecast_periode__tahun_buku__tahun=year)
+    if selected_risk_id:
+        queryset = queryset.filter(corporate_risk_item_id=selected_risk_id)
+
+    rows = []
+    for result in queryset[:25]:
+        rows.append(
+            {
+                "id": result.id,
+                "risk": result.corporate_risk_item,
+                "periode": result.forecast_periode,
+                "target": result.target_value,
+                "actual_ytd": (result.simulation_snapshot or {}).get("target_analysis", {}).get("actual_total"),
+                "forecast_total": result.forecast_total,
+                "gap": result.target_gap,
+                "potential_loss": result.potential_loss,
+                "prob_achieve": result.probability_achieve_target,
+                "prob_not_achieve": result.probability_not_achieve_target,
+                "worst_case": result.worst_case_value,
+                "baseline": result.baseline_value,
+                "best_case": result.best_case_value,
+                "var_95": result.var_95,
+                "target_status": result.target_status or "-",
+                "risk_status": result.risk_status or "-",
+                "requires_mitigation": result.requires_mitigation,
+            }
+        )
+    return rows
+
+
+def _metric_statistics(values):
+    values = [float(value) for value in values if value not in (None, "")]
+    if not values:
+        return None
+
+    growth_rates = []
+    for idx in range(1, len(values)):
+        previous = values[idx - 1]
+        current = values[idx]
+        if previous:
+            growth_rates.append((current - previous) / previous * 100)
+
+    avg_value = mean(values)
+    std_value = pstdev(values) if len(values) > 1 else 0
+    coefficient_variation = (std_value / avg_value * 100) if avg_value else 0
+
+    trend = "Stabil"
+    if len(values) > 1:
+        first_value = values[0]
+        last_value = values[-1]
+        if last_value > first_value * 1.05:
+            trend = "Meningkat"
+        elif last_value < first_value * 0.95:
+            trend = "Menurun"
+
+    volatility = "Rendah"
+    if coefficient_variation > 20:
+        volatility = "Tinggi"
+    elif coefficient_variation > 10:
+        volatility = "Sedang"
+
+    return {
+        "count": len(values),
+        "min": min(values),
+        "max": max(values),
+        "mean": avg_value,
+        "median": median(values),
+        "std_dev": std_value,
+        "coefficient_variation": coefficient_variation,
+        "avg_growth": mean(growth_rates) if growth_rates else 0,
+        "min_growth": min(growth_rates) if growth_rates else 0,
+        "max_growth": max(growth_rates) if growth_rates else 0,
+        "trend": trend,
+        "volatility": volatility,
+    }
+
+
+def _risk_prediction_history(selected_risk_id):
+    if not selected_risk_id:
+        return {"selected_item": None, "metrics": [], "histories": []}
+
+    selected_item = (
+        ProfilRisikoKorporatItem.objects
+        .select_related("summary")
+        .filter(pk=selected_risk_id)
+        .first()
+    )
+    if not selected_item:
+        return {"selected_item": None, "metrics": [], "histories": []}
+
+    metrics = list(
+        RiskMetric.objects
+        .filter(corporate_risk_item=selected_item, is_active=True)
+        .order_by("-is_target_metric", "name")
+    )
+    histories = []
+    for metric in metrics:
+        metric_histories = (
+            MonteCarloMetricHistory.objects
+            .filter(metric=metric)
+            .select_related("periode")
+            .order_by("tanggal_data", "id")
+        )
+        history_rows = list(metric_histories)
+        histories.append(
+            {
+                "metric": metric,
+                "rows": history_rows,
+                "count": len(history_rows),
+                "statistics": _metric_statistics([row.metric_value for row in history_rows]),
+            }
+        )
+    return {
+        "selected_item": selected_item,
+        "metrics": metrics,
+        "histories": histories,
+    }
+
+
+def _risk_prediction_summary(rows):
+    total = len(rows)
+    need_mitigation = len([row for row in rows if row["requires_mitigation"]])
+    not_achieved = len([row for row in rows if row["target_status"] == "Tidak Tercapai"])
+    avg_probability = Decimal("0")
+    probabilities = [
+        Decimal(str(row["prob_not_achieve"]))
+        for row in rows
+        if row["prob_not_achieve"] not in (None, "")
+    ]
+    if probabilities:
+        avg_probability = sum(probabilities, Decimal("0")) / Decimal(str(len(probabilities)))
+    return {
+        "total": total,
+        "need_mitigation": need_mitigation,
+        "not_achieved": not_achieved,
+        "avg_probability_not_achieve": avg_probability,
+    }
+
+
+def _risk_prediction_detail(selected_risk_id, year):
+    if not selected_risk_id:
+        return {}
+
+    queryset = (
+        MultiMetricMonteCarloResult.objects
+        .filter(corporate_risk_item_id=selected_risk_id)
+        .select_related("corporate_risk_item", "forecast_periode")
+        .order_by("-created_at")
+    )
+    if year:
+        queryset = queryset.filter(forecast_periode__tahun_buku__tahun=year)
+
+    result = queryset.first()
+    if not result:
+        return {}
+
+    snapshot = result.simulation_snapshot or {}
+    target_analysis = snapshot.get("target_analysis") or {}
+    metrics = (result.metric_snapshot or {}).get("metrics", [])
+    simulation_count = (
+        target_analysis.get("total_simulation")
+        or snapshot.get("n_simulations")
+        or 0
+    )
+    projection_rows = snapshot.get("projection_rows") or []
+    target_projection_rows = snapshot.get("target_projection_rows") or []
+    chart_series = snapshot.get("chart_series") or {}
+    distribution = sorted(float(value) for value in target_analysis.get("distribution_sample", []) if value is not None)
+    target_value = float(result.target_value or target_analysis.get("target_value") or 0)
+
+    return {
+        "result": result,
+        "target_analysis": target_analysis,
+        "metrics": metrics,
+        "simulation_count": simulation_count,
+        "projection_rows": projection_rows,
+        "target_projection_rows": target_projection_rows,
+        "distribution_labels_json": json.dumps(list(range(1, len(distribution) + 1))),
+        "distribution_values_json": json.dumps(distribution),
+        "distribution_target_json": json.dumps([target_value] * len(distribution)),
+        "multi_metric_labels_json": json.dumps(chart_series.get("labels", [])),
+        "multi_metric_mean_json": json.dumps(chart_series.get("mean", [])),
+        "multi_metric_p20_json": json.dumps(chart_series.get("p20", [])),
+        "multi_metric_p40_json": json.dumps(chart_series.get("p40", [])),
+        "multi_metric_p60_json": json.dumps(chart_series.get("p60", [])),
+        "multi_metric_p80_json": json.dumps(chart_series.get("p80", [])),
+    }
+
+
 def _export_workbook(context, params):
     workbook = Workbook()
     sheet = workbook.active
@@ -755,6 +972,7 @@ def dashboard(request):
     selected_year = _selected_year(request)
     selected_month = _selected_month(request)
     active_tab = _selected_tab(request)
+    selected_prediction_risk_id = _selected_prediction_risk(request)
     selected_kontrak, kontrak_options = _selected_kontrak(request, selected_year)
     corporate_profile_rows = _corporate_profile_rows(selected_year)
     unit_profile_rows = _unit_profile_rows(selected_year, selected_month)
@@ -762,6 +980,11 @@ def dashboard(request):
     kontrak_manajemen_detail = _kontrak_manajemen_detail(selected_kontrak, selected_year, selected_month)
     kpmr_rows = kpmr_dashboard_rows(selected_year, selected_month)
     kpmr_summary = kpmr_dashboard_summary(kpmr_rows)
+    risk_prediction_options = _risk_prediction_options(selected_year, selected_summary)
+    risk_prediction_history = _risk_prediction_history(selected_prediction_risk_id)
+    risk_prediction_rows = _risk_prediction_rows(selected_year, selected_prediction_risk_id)
+    risk_prediction_summary = _risk_prediction_summary(risk_prediction_rows)
+    risk_prediction_detail = _risk_prediction_detail(selected_prediction_risk_id, selected_year)
 
     context["active_tab"] = active_tab
     context["selected_kontrak"] = selected_kontrak
@@ -779,6 +1002,12 @@ def dashboard(request):
     context["kontrak_manajemen_item_count"] = sum(row["total_items"] for row in kontrak_manajemen_rows)
     context["kpmr_rows"] = kpmr_rows
     context["kpmr_summary"] = kpmr_summary
+    context["risk_prediction_rows"] = risk_prediction_rows
+    context["risk_prediction_summary"] = risk_prediction_summary
+    context["risk_prediction_options"] = risk_prediction_options
+    context["risk_prediction_history"] = risk_prediction_history
+    context["risk_prediction_detail"] = risk_prediction_detail
+    context["selected_prediction_risk_id"] = selected_prediction_risk_id
     context["selected_period_label"] = (
         f"{BULAN_LABELS[selected_month]} {selected_year}"
         if selected_month and selected_year

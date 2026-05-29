@@ -163,6 +163,138 @@
             display: none;
         }
 
+        .prediction-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .process-marker {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+            padding: 8px 0;
+        }
+
+        .process-marker-heading {
+            margin-bottom: 0;
+            padding: 0;
+            vertical-align: middle;
+        }
+
+        .process-marker-stack {
+            display: grid;
+            gap: 14px;
+            margin: 8px 0 14px;
+        }
+
+        .process-marker-stack .process-marker {
+            margin-bottom: 0;
+            padding: 0;
+        }
+
+        .process-marker-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: var(--navy);
+            color: #fff;
+            font-weight: 800;
+            font-size: 20px;
+            line-height: 1;
+        }
+
+        .process-marker-label {
+            display: inline-block;
+            background: transparent;
+            color: #111827;
+            font-size: 26px;
+            font-weight: 700;
+            line-height: 1.1;
+            padding: 2px 0;
+        }
+
+        .section-title .process-marker-number {
+            color: #fff;
+            font-size: 20px;
+        }
+
+        .section-title .process-marker-label {
+            color: #111827;
+            font-size: 26px;
+            font-weight: 700;
+        }
+
+        .chart-box {
+            height: 380px;
+            min-width: 720px;
+        }
+
+        .result-table {
+            border-collapse: separate !important;
+            border-spacing: 0;
+        }
+
+        .result-table th {
+            background: #f7faff;
+            border-top: 1px solid var(--border);
+            border-bottom: 2px solid #b7c7dc;
+            color: #53647a;
+            font-size: 13px;
+        }
+
+        .result-table td {
+            font-size: 16px;
+            color: #102a4c;
+            background: #fff;
+        }
+
+        .result-value-strong {
+            display: inline-block;
+            font-size: 20px;
+            font-weight: 900;
+            color: var(--navy);
+        }
+
+        .result-value-danger {
+            color: #b42318;
+        }
+
+        .result-value-success {
+            color: #166534;
+        }
+
+        .result-chip {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 7px 10px;
+            font-weight: 800;
+            background: #eef3f8;
+            color: var(--navy);
+            white-space: nowrap;
+        }
+
+        .result-chip.danger {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .result-chip.success {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .chart-box canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
         .stat-card {
             padding: 18px;
         }
@@ -743,8 +875,12 @@
         <input type="hidden" name="pemilik" value="{{ request.GET.pemilik }}">
         <input type="hidden" name="kategori" value="{{ request.GET.kategori }}">
         <input type="hidden" name="km" value="{{ request.GET.km|default:selected_kontrak.id }}">
+        <input type="hidden" name="prediksi_risiko" value="{{ request.GET.prediksi_risiko }}">
         <button class="tab-button {% if active_tab == 'profil' %}active{% endif %}" type="submit" name="tab" value="profil">
             Profil Risiko
+        </button>
+        <button class="tab-button {% if active_tab == 'prediksi' %}active{% endif %}" type="submit" name="tab" value="prediksi">
+            Prediksi Risiko
         </button>
         <button class="tab-button {% if active_tab == 'kpmr' %}active{% endif %}" type="submit" name="tab" value="kpmr">
             KPMR
@@ -753,6 +889,707 @@
             Kontrak Manajemen
         </button>
     </form>
+
+    <div class="tab-panel" {% if active_tab != 'prediksi' %}hidden{% endif %}>
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Pilih Risiko Prediksi</h2>
+            <span>Daftar risiko mengikuti filter Profil Risiko Korporat dan Tahun di atas.</span>
+        </div>
+        <form method="get" class="km-toolbar">
+            <input type="hidden" name="tab" value="prediksi">
+            <input type="hidden" name="mode" value="{{ request.GET.mode|default:mode }}">
+            <input type="hidden" name="summary" value="{{ request.GET.summary }}">
+            <input type="hidden" name="tahun" value="{{ request.GET.tahun|default:filters.selected_year }}">
+            <input type="hidden" name="bulan" value="{{ request.GET.bulan }}">
+            <input type="hidden" name="status" value="{{ request.GET.status }}">
+            <input type="hidden" name="pemilik" value="{{ request.GET.pemilik }}">
+            <input type="hidden" name="kategori" value="{{ request.GET.kategori }}">
+            <input type="hidden" name="km" value="{{ request.GET.km|default:selected_kontrak.id }}">
+            <div>
+                <label for="prediksi_risiko">Item Risiko</label>
+                <select name="prediksi_risiko" id="prediksi_risiko">
+                    <option value="">Semua Risiko</option>
+                    {% for item in risk_prediction_options %}
+                        <option value="{{ item.id }}" {% if selected_prediction_risk_id == item.id %}selected{% endif %}>
+                            {{ item.summary.tahun }} - {{ item.no_item }}. {{ item.peristiwa_risiko|truncatechars:100 }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="button primary" type="submit">Tampilkan Data</button>
+        </form>
+    </section>
+
+    {% if risk_prediction_history.selected_item %}
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Alur Prediksi Risiko</h2>
+            <span>Urutan kerja dari data historis sampai monitoring hasil mitigasi.</span>
+        </div>
+        <div class="process-marker-stack" aria-label="Alur lengkap prediksi risiko">
+            <div class="process-marker" aria-label="Point 3 Kumpulkan data historis">
+                <span class="process-marker-number">3</span>
+                <span class="process-marker-label">Kumpulkan data historis</span>
+            </div>
+            <div class="process-marker" aria-label="Point 4 Analisis statistik">
+                <span class="process-marker-number">4</span>
+                <span class="process-marker-label">Analisis statistik</span>
+            </div>
+            <div class="process-marker" aria-label="Point 5 Tentukan distribusi">
+                <span class="process-marker-number">5</span>
+                <span class="process-marker-label">Tentukan distribusi</span>
+            </div>
+            <div class="process-marker" aria-label="Point 6 Bangun mathematical model">
+                <span class="process-marker-number">6</span>
+                <span class="process-marker-label">Bangun mathematical model</span>
+            </div>
+            <div class="process-marker" aria-label="Point 7 Monte Carlo Simulation">
+                <span class="process-marker-number">7</span>
+                <span class="process-marker-label">Monte Carlo Simulation</span>
+            </div>
+            <div class="process-marker" aria-label="Point 8 Distribusi output">
+                <span class="process-marker-number">8</span>
+                <span class="process-marker-label">Distribusi output</span>
+            </div>
+            <div class="process-marker" aria-label="Point 9 Hitung VaR">
+                <span class="process-marker-number">9</span>
+                <span class="process-marker-label">Hitung VaR</span>
+            </div>
+            <div class="process-marker" aria-label="Point 13 Monitoring and improvement">
+                <span class="process-marker-number">13</span>
+                <span class="process-marker-label">Monitoring &amp; improvement</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 3 Kumpulkan data historis">
+                    <span class="process-marker-number">3</span>
+                    <span class="process-marker-label">Kumpulkan data historis</span>
+                </span>
+            </h2>
+            <span>{{ risk_prediction_history.selected_item.summary.tahun }} · {{ risk_prediction_history.selected_item.no_item }}. {{ risk_prediction_history.selected_item.peristiwa_risiko }}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Target Utama</th>
+                        <th>Target RKAP</th>
+                        <th>Harga Jual Rata-rata</th>
+                        <th>Risk Appetite</th>
+                        <th>Periode</th>
+                        <th>Tanggal Data</th>
+                        <th>Nilai Aktual</th>
+                        <th>Target Histori</th>
+                        <th>Keterangan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in risk_prediction_history.histories %}
+                        {% for history in group.rows %}
+                            <tr>
+                                <td>{{ group.metric.name }}</td>
+                                <td>{% if group.metric.is_target_metric %}Ya{% else %}Tidak{% endif %}</td>
+                                <td>{% if group.metric.target_value %}{{ group.metric.target_value|floatformat:"0g" }}{% else %}-{% endif %}</td>
+                                <td>{{ group.metric.average_selling_price|floatformat:"0g" }}</td>
+                                <td>{{ group.metric.risk_appetite_threshold }}%</td>
+                                <td>{{ history.periode }}</td>
+                                <td>{{ history.tanggal_data }}</td>
+                                <td>{{ history.metric_value|floatformat:"2g" }}</td>
+                                <td>{% if history.target_value %}{{ history.target_value|floatformat:"0g" }}{% else %}-{% endif %}</td>
+                                <td>{{ history.keterangan }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td>{{ group.metric.name }}</td>
+                                <td>{% if group.metric.is_target_metric %}Ya{% else %}Tidak{% endif %}</td>
+                                <td>{% if group.metric.target_value %}{{ group.metric.target_value|floatformat:"0g" }}{% else %}-{% endif %}</td>
+                                <td>{{ group.metric.average_selling_price|floatformat:"0g" }}</td>
+                                <td>{{ group.metric.risk_appetite_threshold }}%</td>
+                                <td colspan="5"><div class="empty-state">Belum ada data historis untuk metric ini.</div></td>
+                            </tr>
+                        {% endfor %}
+                    {% empty %}
+                        <tr><td colspan="10"><div class="empty-state">Belum ada Risk Metric aktif untuk risiko ini.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 4 Analisis statistik">
+                    <span class="process-marker-number">4</span>
+                    <span class="process-marker-label">Analisis statistik</span>
+                </span>
+            </h2>
+            <span>Ringkasan statistik dari data historis yang sudah diinput.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Jumlah Data</th>
+                        <th>Minimum</th>
+                        <th>Maksimum</th>
+                        <th>Rata-rata</th>
+                        <th>Median</th>
+                        <th>Std Dev</th>
+                        <th>Koef. Variasi</th>
+                        <th>Avg Growth</th>
+                        <th>Min Growth</th>
+                        <th>Max Growth</th>
+                        <th>Tren</th>
+                        <th>Volatilitas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in risk_prediction_history.histories %}
+                        {% if group.statistics %}
+                            <tr>
+                                <td>{{ group.metric.name }}</td>
+                                <td>{{ group.statistics.count }}</td>
+                                <td>{{ group.statistics.min|floatformat:"2g" }}</td>
+                                <td>{{ group.statistics.max|floatformat:"2g" }}</td>
+                                <td>{{ group.statistics.mean|floatformat:"2g" }}</td>
+                                <td>{{ group.statistics.median|floatformat:"2g" }}</td>
+                                <td>{{ group.statistics.std_dev|floatformat:"2g" }}</td>
+                                <td>{{ group.statistics.coefficient_variation|floatformat:2 }}%</td>
+                                <td>{{ group.statistics.avg_growth|floatformat:2 }}%</td>
+                                <td>{{ group.statistics.min_growth|floatformat:2 }}%</td>
+                                <td>{{ group.statistics.max_growth|floatformat:2 }}%</td>
+                                <td>{{ group.statistics.trend }}</td>
+                                <td>{{ group.statistics.volatility }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td>{{ group.metric.name }}</td>
+                                <td colspan="12"><div class="empty-state">Belum ada data historis untuk dianalisis.</div></td>
+                            </tr>
+                        {% endif %}
+                    {% empty %}
+                        <tr><td colspan="13"><div class="empty-state">Belum ada Risk Metric aktif untuk risiko ini.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if risk_prediction_history.selected_item %}
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 5 Tentukan distribusi">
+                    <span class="process-marker-number">5</span>
+                    <span class="process-marker-label">Tentukan distribusi</span>
+                </span>
+            </h2>
+            <span>Distribusi random ditentukan dari pola growth historis setiap metric.</span>
+        </div>
+        <div class="empty-state" style="margin-bottom:14px;text-align:left;">
+            <strong>Distribusi yang digunakan:</strong>
+            <code>Normal(mean_growth, std_growth)</code>. Nilai <code>mean_growth</code> dan
+            <code>std_growth</code> dihitung dari data historis bulanan pada point 3 dan 4.
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 6 Bangun Mathematical Model">
+                    <span class="process-marker-number">6</span>
+                    <span class="process-marker-label">Bangun Mathematical Model</span>
+                </span>
+            </h2>
+            <span>Model ini menjadi dasar simulasi Monte Carlo untuk risiko yang dipilih. Distribusi random yang digunakan: Normal.</span>
+        </div>
+        <div class="empty-state" style="margin-bottom:14px;text-align:left;border-left:6px solid #0d2e5e;">
+            <strong>Penanda Bangun Mathematical Model:</strong>
+            bagian ini adalah titik aplikasi mengubah data historis menjadi model matematis.
+            Model tersebut kemudian dipakai untuk menjalankan Monte Carlo Simulation, menghitung distribusi output,
+            probabilitas target, gap, potential loss, dan VaR.
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tahap Model</th>
+                        <th>Rumus / Logika</th>
+                        <th>Output</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Bangun Mathematical Model</strong></td>
+                        <td><code>model = actual_ytd + sum(forecast_bulanan_random)</code></td>
+                        <td>Data historis diubah menjadi mesin forecast berbasis simulasi.</td>
+                    </tr>
+                    <tr>
+                        <td>Growth historis bulanan</td>
+                        <td><code>growth_t = (nilai_t / nilai_t-1) - 1</code></td>
+                        <td>Mean growth dan standar deviasi growth dari data historis.</td>
+                    </tr>
+                    <tr>
+                        <td>Forecast bulanan simulasi</td>
+                        <td><code>forecast_t = max(forecast_t-1 * (1 + random_growth), 0)</code></td>
+                        <td>{{ risk_prediction_detail.simulation_count|default:"10.000" }} skenario nilai bulanan ke depan.</td>
+                    </tr>
+                    <tr>
+                        <td>Monte Carlo Simulation</td>
+                        <td><strong>Simulasi diulang:</strong><br><code>for i in range(n_simulations)</code></td>
+                        <td>
+                            Jumlah simulasi hasil terakhir:
+                            <strong>{{ risk_prediction_detail.simulation_count|default:"10.000" }}</strong> kali.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Distribusi random</td>
+                        <td><strong>Distribusi Normal:</strong><br><code>random_growth = Normal(mean_growth, std_growth)</code></td>
+                        <td>Variasi naik/turun mengikuti pola volatilitas historis.</td>
+                    </tr>
+                    <tr>
+                        <td>Total simulasi tahunan</td>
+                        <td><code>simulated_total = actual_ytd + sum(forecast_bulanan)</code></td>
+                        <td>Total forecast sampai akhir tahun untuk setiap simulasi.</td>
+                    </tr>
+                    <tr>
+                        <td>Forecast utama</td>
+                        <td><code>forecast_total = P50(simulated_total)</code></td>
+                        <td>Baseline / median, bukan rata-rata tunggal.</td>
+                    </tr>
+                    <tr>
+                        <td>STDEV F Excel</td>
+                        <td><code>STDEV_F = P50(forecast_bulanan) - P15,8655254(forecast_bulanan)</code></td>
+                        <td>Dipakai untuk tabel forecast bulanan seperti contoh Excel.</td>
+                    </tr>
+                    <tr>
+                        <td>Status target</td>
+                        <td><code>simulated_total &gt;= target_rkap</code></td>
+                        <td>Target tercapai jika simulasi total minimal sama dengan target.</td>
+                    </tr>
+                    <tr>
+                        <td>Gap dan potential loss</td>
+                        <td><code>gap = max(target_rkap - forecast_total, 0)</code><br><code>potential_loss = gap * harga_jual_rata_rata</code></td>
+                        <td>Estimasi selisih target dan dampak finansial.</td>
+                    </tr>
+                    <tr>
+                        <td>VaR 95%</td>
+                        <td><strong>Hitung VaR:</strong><br><code>VaR95 = max(target_rkap - P5(simulated_total), 0)</code></td>
+                        <td>Estimasi downside pada skenario 5% terburuk.</td>
+                    </tr>
+                    <tr>
+                        <td>Keputusan mitigasi</td>
+                        <td><code>prob_tidak_tercapai &gt;= risk_appetite</code></td>
+                        <td>Jika melewati appetite, risiko perlu mitigasi.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="table-responsive" style="margin-top:14px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Metric Aktif</th>
+                        <th>Arah Risiko</th>
+                        <th>Target Utama</th>
+                        <th>Target RKAP</th>
+                        <th>Risk Appetite</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for metric in risk_prediction_history.metrics %}
+                        <tr>
+                            <td>{{ metric.name }}</td>
+                            <td>{{ metric.get_direction_display }}</td>
+                            <td>{% if metric.is_target_metric %}Ya{% else %}Tidak{% endif %}</td>
+                            <td>{% if metric.target_value %}{{ metric.target_value|floatformat:"0g" }}{% else %}-{% endif %}</td>
+                            <td>{{ metric.risk_appetite_threshold }}%</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="5"><div class="empty-state">Belum ada metric untuk membangun model.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if risk_prediction_detail.result %}
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Tabel Hasil Prediksi</h2>
+            <span>{{ risk_prediction_detail.result.forecast_periode }} · hasil simulasi terakhir untuk risiko terpilih.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table result-table">
+                <thead>
+                    <tr>
+                        <th>Target RKAP</th>
+                        <th>Realisasi YTD</th>
+                        <th>Forecast Total</th>
+                        <th>Gap</th>
+                        <th>Potential Loss</th>
+                        <th>Prob. Tercapai</th>
+                        <th>Prob. Tidak Tercapai</th>
+                        <th>Worst</th>
+                        <th>Baseline</th>
+                        <th>Best</th>
+                        <th>VaR 95%</th>
+                        <th>Status</th>
+                        <th>Mitigasi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="result-value-strong">{{ risk_prediction_detail.result.target_value|floatformat:"0g" }}</span></td>
+                        <td><span class="result-value-strong">{{ risk_prediction_detail.target_analysis.actual_total|floatformat:"0g" }}</span></td>
+                        <td><span class="result-value-strong">{{ risk_prediction_detail.result.forecast_total|floatformat:"0g" }}</span></td>
+                        <td><span class="result-value-strong result-value-danger">{{ risk_prediction_detail.result.target_gap|floatformat:"0g" }}</span></td>
+                        <td><span class="result-value-strong result-value-danger">{{ risk_prediction_detail.result.potential_loss|floatformat:"0g" }}</span></td>
+                        <td><span class="result-chip success">{{ risk_prediction_detail.result.probability_achieve_target|floatformat:2 }}%</span></td>
+                        <td><span class="result-chip danger">{{ risk_prediction_detail.result.probability_not_achieve_target|floatformat:2 }}%</span></td>
+                        <td>{{ risk_prediction_detail.result.worst_case_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.baseline_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.best_case_value|floatformat:"0g" }}</td>
+                        <td><span class="result-value-strong">{{ risk_prediction_detail.result.var_95|floatformat:"0g" }}</span><br><span class="muted">Hitung VaR</span></td>
+                        <td>
+                            <span class="result-chip {% if risk_prediction_detail.result.risk_status == 'Aman' %}success{% else %}danger{% endif %}">
+                                {{ risk_prediction_detail.result.target_status }}
+                            </span>
+                            <br><span class="muted">{{ risk_prediction_detail.result.risk_status }}</span>
+                        </td>
+                        <td><span class="result-chip {% if risk_prediction_detail.result.requires_mitigation %}danger{% else %}success{% endif %}">{% if risk_prediction_detail.result.requires_mitigation %}Perlu{% else %}Monitor{% endif %}</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 7 Monte Carlo Simulation">
+                    <span class="process-marker-number">7</span>
+                    <span class="process-marker-label">Monte Carlo Simulation</span>
+                </span>
+            </h2>
+            <span>Perbandingan mean dan percentile composite score per bulan.</span>
+        </div>
+        <div class="empty-state" style="margin-bottom:14px;text-align:left;">
+            Grafik composite score dapat terlihat lurus jika seluruh hasil normalisasi sudah mencapai batas maksimum 100.
+            Untuk melihat sebaran hasil simulasi yang naik turun, gunakan grafik distribusi output di bawah.
+        </div>
+        <div class="table-responsive">
+            <div class="chart-box">
+                <canvas id="riskPredictionMultiMetricChart"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 8 Distribusi output">
+                    <span class="process-marker-number">8</span>
+                    <span class="process-marker-label">Distribusi output</span>
+                </span>
+            </h2>
+            <span>Output berasal dari simulasi Monte Carlo dengan random growth berdistribusi Normal.</span>
+        </div>
+        <div class="empty-state" style="margin-bottom:14px;text-align:left;">
+            <strong>Monte Carlo Simulation:</strong>
+            sistem men-generate
+            <strong>{{ risk_prediction_detail.simulation_count|default:"10.000" }}</strong>
+            skenario growth bulanan dari
+            <code>Normal(mean_growth, std_growth)</code>, lalu menjumlahkannya menjadi
+            <code>simulated_total</code>. Grafik di bawah adalah distribusi output dari seluruh hasil simulasi tersebut.
+        </div>
+        <div class="table-responsive" style="margin-bottom:14px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Worst Case / P5</th>
+                        <th>Baseline / P50</th>
+                        <th>Best Case / P95</th>
+                        <th>Target RKAP</th>
+                        <th>Total Simulasi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ risk_prediction_detail.result.worst_case_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.baseline_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.best_case_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.target_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.simulation_count|floatformat:"0g" }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="table-responsive">
+            <div class="chart-box">
+                <canvas id="riskPredictionDistributionChart"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 9 Hitung VaR">
+                    <span class="process-marker-number">9</span>
+                    <span class="process-marker-label">Hitung VaR</span>
+                </span>
+            </h2>
+            <span>VaR 95% menunjukkan potensi gap pada skenario 5% terburuk.</span>
+        </div>
+        <div class="empty-state" style="margin-bottom:14px;text-align:left;">
+            <strong>Rumus:</strong>
+            <code>VaR95 = max(target_rkap - P5(simulated_total), 0)</code>.
+            Jika nilai VaR besar, artinya pada skenario buruk target berpotensi meleset cukup jauh.
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Target RKAP</th>
+                        <th>Worst Case / P5</th>
+                        <th>Baseline / P50</th>
+                        <th>Best Case / P95</th>
+                        <th>VaR 95%</th>
+                        <th>Interpretasi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ risk_prediction_detail.result.target_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.worst_case_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.baseline_value|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.best_case_value|floatformat:"0g" }}</td>
+                        <td><strong>{{ risk_prediction_detail.result.var_95|floatformat:"0g" }}</strong></td>
+                        <td>
+                            {% if risk_prediction_detail.result.var_95 %}
+                                Pada 5% skenario terburuk, potensi gap terhadap target sebesar nilai VaR tersebut.
+                            {% else %}
+                                Pada skenario P5, forecast masih tidak menunjukkan gap terhadap target.
+                            {% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 10 Analisis probabilitas">
+                    <span class="process-marker-number">10</span>
+                    <span class="process-marker-label">Analisis probabilitas</span>
+                </span>
+            </h2>
+            <span>Probabilitas dihitung dari seluruh hasil simulasi, bukan dari mean.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Total Simulasi</th>
+                        <th>Jumlah Tercapai</th>
+                        <th>Jumlah Tidak Tercapai</th>
+                        <th>Prob. Tercapai</th>
+                        <th>Prob. Tidak Tercapai</th>
+                        <th>Risk Appetite</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ risk_prediction_detail.target_analysis.total_simulation|default:risk_prediction_detail.simulation_count|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.target_analysis.achieved_count|default:"-" }}</td>
+                        <td>{{ risk_prediction_detail.target_analysis.not_achieved_count|default:"-" }}</td>
+                        <td>{{ risk_prediction_detail.result.probability_achieve_target|floatformat:2 }}%</td>
+                        <td>{{ risk_prediction_detail.result.probability_not_achieve_target|floatformat:2 }}%</td>
+                        <td>{{ risk_prediction_detail.target_analysis.risk_appetite_threshold|default:"-" }}%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 11 Sensitivity analysis">
+                    <span class="process-marker-number">11</span>
+                    <span class="process-marker-label">Sensitivity analysis</span>
+                </span>
+            </h2>
+            <span>Metric dengan score dan bobot terbesar menjadi driver utama risiko.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Bobot</th>
+                        <th>Mean Score</th>
+                        <th>P80 Score</th>
+                        <th>Scenario Score</th>
+                        <th>Actual YTD</th>
+                        <th>Forecast P50</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for metric in risk_prediction_detail.metrics %}
+                        <tr>
+                            <td>{{ metric.metric_name }}</td>
+                            <td>{{ metric.weight_ratio|floatformat:2 }}</td>
+                            <td>{{ metric.mean_score|floatformat:2 }}</td>
+                            <td>{{ metric.p80_score|floatformat:2 }}</td>
+                            <td>{{ metric.scenario_score|floatformat:2 }}</td>
+                            <td>{{ metric.actual_total|floatformat:"0g" }}</td>
+                            <td>{{ metric.p50_total|floatformat:"0g" }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="7"><div class="empty-state">Belum ada metric snapshot untuk sensitivity analysis. Generate ulang hasil Monte Carlo.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 12 Mitigasi risiko">
+                    <span class="process-marker-number">12</span>
+                    <span class="process-marker-label">Mitigasi risiko</span>
+                </span>
+            </h2>
+            <span>Keputusan mitigasi dibandingkan dengan risk appetite.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Status Target</th>
+                        <th>Status Risiko</th>
+                        <th>Perlu Mitigasi</th>
+                        <th>Potential Loss</th>
+                        <th>Rekomendasi Otomatis</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ risk_prediction_detail.result.target_status|default:"-" }}</td>
+                        <td>{{ risk_prediction_detail.result.risk_status|default:"-" }}</td>
+                        <td>{% if risk_prediction_detail.result.requires_mitigation %}Ya{% else %}Tidak{% endif %}</td>
+                        <td>{{ risk_prediction_detail.result.potential_loss|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.target_analysis.recommendation|default:"Tetap lakukan monitoring bulanan dan update data aktual." }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>
+                <span class="process-marker process-marker-heading" aria-label="Point 13 Monitoring and improvement">
+                    <span class="process-marker-number">13</span>
+                    <span class="process-marker-label">Monitoring &amp; improvement</span>
+                </span>
+            </h2>
+            <span>Output ini menjadi dasar pemantauan periode berikutnya.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Periode Forecast</th>
+                        <th>Realisasi YTD</th>
+                        <th>Forecast Total</th>
+                        <th>Gap</th>
+                        <th>Tindak Lanjut Monitoring</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ risk_prediction_detail.result.forecast_periode }}</td>
+                        <td>{{ risk_prediction_detail.target_analysis.actual_total|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.forecast_total|floatformat:"0g" }}</td>
+                        <td>{{ risk_prediction_detail.result.target_gap|floatformat:"0g" }}</td>
+                        <td>Update data aktual bulan berikutnya, generate ulang Monte Carlo, lalu bandingkan perubahan probabilitas dan VaR.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
+            <h2>Proyeksi Bulanan Multi Metric</h2>
+            <span>Forecast mengikuti contoh Excel: P50/median, P15,8655254, dan STDEV F = P50 - P15,8655254.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Bulan</th>
+                        <th>Forecast Penjualan Bulanan (Median/P50)</th>
+                        <th>Forecast Penjualan Bulanan (P15,8655254)</th>
+                        <th>STDEV F Penjualan</th>
+                        <th>Metric</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in risk_prediction_detail.target_projection_rows %}
+                        <tr>
+                            <td>{% if row.bulan %}{{ row.bulan }}{% else %}Bulan-{{ row.bulan_index }}{% endif %}</td>
+                            <td>{{ row.forecast_median|floatformat:"0g" }}</td>
+                            <td>{{ row.forecast_p15|floatformat:"0g" }}</td>
+                            <td>{{ row.stdev_f|floatformat:"0g" }}</td>
+                            <td>{{ row.metric_name }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="5"><div class="empty-state">Belum ada proyeksi bulanan target. Generate ulang Multi Metric Monte Carlo Result.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% endif %}
+
+    <section class="prediction-cards">
+        <div class="panel stat-card">
+            <div class="stat-label">Hasil Prediksi</div>
+            <div class="stat-value">{{ risk_prediction_summary.total }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Target Tidak Tercapai</div>
+            <div class="stat-value">{{ risk_prediction_summary.not_achieved }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Perlu Mitigasi</div>
+            <div class="stat-value">{{ risk_prediction_summary.need_mitigation }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Rata-rata Prob. Tidak Tercapai</div>
+            <div class="stat-value">{{ risk_prediction_summary.avg_probability_not_achieve|floatformat:1 }}%</div>
+        </div>
+    </section>
+
+    </div>
 
     <div class="tab-panel" {% if active_tab != 'kpmr' %}hidden{% endif %}>
     <section class="panel table-card" style="margin-bottom:20px;">
@@ -1171,7 +2008,97 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+    function renderRiskPredictionCharts() {
+        if (typeof Chart === 'undefined') {
+            return;
+        }
+
+        const distributionCanvas = document.getElementById('riskPredictionDistributionChart');
+        if (distributionCanvas) {
+            const labels = {{ risk_prediction_detail.distribution_labels_json|default:"[]"|safe }};
+            const values = {{ risk_prediction_detail.distribution_values_json|default:"[]"|safe }};
+            const targetLine = {{ risk_prediction_detail.distribution_target_json|default:"[]"|safe }};
+            if (labels.length && values.length) {
+                new Chart(distributionCanvas, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                label: 'Simulated Total',
+                                data: values,
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                tension: 0.15
+                            },
+                            {
+                                label: 'Target RKAP',
+                                data: targetLine,
+                                borderWidth: 2,
+                                borderDash: [8, 4],
+                                pointRadius: 0
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        },
+                        scales: {
+                            x: { title: { display: true, text: 'Simulasi ke-' } },
+                            y: { title: { display: true, text: 'Total Forecast' } }
+                        }
+                    }
+                });
+            }
+        }
+
+        const multiMetricCanvas = document.getElementById('riskPredictionMultiMetricChart');
+        if (multiMetricCanvas) {
+            const labels = {{ risk_prediction_detail.multi_metric_labels_json|default:"[]"|safe }};
+            const meanValues = {{ risk_prediction_detail.multi_metric_mean_json|default:"[]"|safe }};
+            const p20Values = {{ risk_prediction_detail.multi_metric_p20_json|default:"[]"|safe }};
+            const p40Values = {{ risk_prediction_detail.multi_metric_p40_json|default:"[]"|safe }};
+            const p60Values = {{ risk_prediction_detail.multi_metric_p60_json|default:"[]"|safe }};
+            const p80Values = {{ risk_prediction_detail.multi_metric_p80_json|default:"[]"|safe }};
+            if (labels.length) {
+                new Chart(multiMetricCanvas, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: 'P80', data: p80Values, borderWidth: 2, borderDash: [6, 4], tension: 0.25 },
+                            { label: 'P60', data: p60Values, borderWidth: 2, borderDash: [4, 4], tension: 0.25 },
+                            { label: 'Mean Score', data: meanValues, borderWidth: 3, tension: 0.25 },
+                            { label: 'P40', data: p40Values, borderWidth: 2, borderDash: [4, 4], tension: 0.25 },
+                            { label: 'P20', data: p20Values, borderWidth: 2, borderDash: [6, 4], tension: 0.25 }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        },
+                        scales: {
+                            y: { title: { display: true, text: 'Composite Risk Score' } }
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    renderRiskPredictionCharts();
+
     const buttons = document.querySelectorAll('.cell-button');
     const detailBody = document.getElementById('detail-body');
     const detailSubtitle = document.getElementById('detail-subtitle');

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Input Histori Metric Monte Carlo</title>
+    <style>
+        :root {
+            --navy: #28596a;
+            --border: #d7e0ea;
+            --text: #17324d;
+            --muted: #64748b;
+            --soft: #f6f9fc;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #eef3f8;
+            color: var(--text);
+            font-family: Arial, sans-serif;
+        }
+
+        .page {
+            padding: 24px;
+        }
+
+        .header {
+            align-items: flex-start;
+            display: flex;
+            gap: 16px;
+            justify-content: space-between;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            color: var(--navy);
+            font-size: 28px;
+            margin: 0 0 8px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .button {
+            background: var(--navy);
+            border: 1px solid var(--navy);
+            border-radius: 8px;
+            color: #fff;
+            display: inline-block;
+            font-weight: 700;
+            padding: 9px 12px;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .button.secondary {
+            background: #fff;
+            color: var(--navy);
+        }
+
+        .card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: 0 14px 30px rgba(15, 23, 42, .08);
+            overflow: hidden;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th,
+        td {
+            border-bottom: 1px solid var(--border);
+            padding: 12px 14px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: var(--navy);
+            color: #fff;
+            font-size: 13px;
+        }
+
+        tr:nth-child(even) td {
+            background: var(--soft);
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .badge {
+            background: #e8f1f7;
+            border-radius: 999px;
+            color: var(--navy);
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 4px 8px;
+        }
+
+        @media (max-width: 760px) {
+            .header {
+                flex-direction: column;
+            }
+
+            .table-wrap {
+                overflow-x: auto;
+            }
+
+            table {
+                min-width: 900px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <div class="header">
+        <div>
+            <h1>Input Histori Metric Monte Carlo</h1>
+            <div class="subtitle">Pilih metric, lalu input data historis dengan tampilan worksheet seperti Excel.</div>
+        </div>
+        <a class="button secondary" href="/admin/">Kembali ke Admin</a>
+    </div>
+
+    <div class="card table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Risk Metric</th>
+                    <th>Item Risiko Korporat</th>
+                    <th>Target Utama</th>
+                    <th>Target RKAP</th>
+                    <th>Histori</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>
+                            <strong>{{ row.metric.name }}</strong>
+                            <div class="muted">{{ row.metric.unit|default:"-" }} · Bobot {{ row.metric.weight }}</div>
+                        </td>
+                        <td>{{ row.metric.corporate_risk_item }}</td>
+                        <td>{% if row.metric.is_target_metric %}<span class="badge">Ya</span>{% else %}<span class="muted">Tidak</span>{% endif %}</td>
+                        <td>{{ row.metric.target_value|default:"-" }}</td>
+                        <td>{{ row.history_count }} baris</td>
+                        <td><a class="button" href="{{ row.input_url }}">Input Histori</a></td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6">Belum ada Risk Metric. Tambahkan Risk Metric terlebih dahulu.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

@@ -66,6 +66,10 @@ class RiskAdminSite(AdminSite):
 
     def each_context(self, request):
         context = super().each_context(request)
+        app_setting = AppSetting.get_solo()
+        self.site_header = app_setting.nama_aplikasi
+        self.site_title = app_setting.nama_aplikasi
+        context["app_setting"] = app_setting
         context["sidebar_sections"] = self._sidebar_sections(request)
         return context
 
@@ -76,6 +80,7 @@ class RiskAdminSite(AdminSite):
             for model in app.get("models", [])
             if model.get("admin_url")
         }
+        allowed_urls.add("/corporate-risk/metric-history-input/")
 
         def item(label, url):
             return {"label": label, "url": url}
@@ -101,6 +106,7 @@ class RiskAdminSite(AdminSite):
                     {
                         "title": "Monte Carlo Korporat",
                         "items": [
+                            item("Input Histori / Upload Excel", "/corporate-risk/metric-history-input/"),
                             item("Risk Metrics", "/admin/corporate_risk/riskmetric/"),
                             item("Metric History", "/admin/corporate_risk/montecarlometrichistory/"),
                             item("Multi Metric Monte Carlo Results", "/admin/corporate_risk/multimetricmontecarloresult/"),
@@ -208,7 +214,7 @@ class RiskAdminSite(AdminSite):
                     {
                         "title": "Pengaturan Sistem",
                         "items": [
-                            item("Pengaturan Aplikasi & Logo", reverse("risk_admin:risk_appsetting_changelist")),
+                            item("Pengaturan Aplikasi, Logo, LDAP & AI", reverse("risk_admin:risk_appsetting_changelist")),
                             item("Tahun Buku", reverse("risk_admin:masterdata_tahunbuku_changelist")),
                             item("Periode Laporan", reverse("risk_admin:masterdata_periodelaporan_changelist")),
                         ],
@@ -289,6 +295,26 @@ class RiskAdminSite(AdminSite):
 
         sections = [
             {
+                "title": "Pengaturan Sistem",
+                "color": "settings",
+                "count": stats["settings"],
+                "featured": True,
+                "items": [
+                    {
+                        "label": "Pengaturan Aplikasi, Logo, LDAP & AI",
+                        "url": reverse("risk_admin:risk_appsetting_changelist"),
+                    },
+                    {
+                        "label": "Tahun Buku",
+                        "url": reverse("risk_admin:masterdata_tahunbuku_changelist"),
+                    },
+                    {
+                        "label": "Periode Laporan",
+                        "url": reverse("risk_admin:masterdata_periodelaporan_changelist"),
+                    },
+                ],
+            },
+            {
                 "title": "RKAP",
                 "color": "teal",
                 "count": stats["rkap"],
@@ -304,6 +330,18 @@ class RiskAdminSite(AdminSite):
                     {"label": "Profil Risiko Korporat", "url": "/admin/risk/profilrisikokorporatsummary/"},
                     {"label": "Item Risiko Korporat", "url": "/admin/risk/profilrisikokorporatitem/"},
                     {"label": "Sumber Risiko Korporat", "url": "/admin/risk/profilrisikokorporatsumber/"},
+                ],
+            },
+            {
+                "title": "Monte Carlo Korporat",
+                "color": "montecarlo",
+                "count": stats["monte_carlo"],
+                "items": [
+                    {"label": "Input Histori / Upload Excel", "url": "/corporate-risk/metric-history-input/"},
+                    {"label": "Risk Metrics", "url": "/admin/corporate_risk/riskmetric/"},
+                    {"label": "Metric History", "url": "/admin/corporate_risk/montecarlometrichistory/"},
+                    {"label": "Multi Metric Monte Carlo Results", "url": "/admin/corporate_risk/multimetricmontecarloresult/"},
+                    {"label": "Multi Metric AI Insight", "url": "/admin/corporate_risk/multimetricaiinsightkorporat/"},
                 ],
             },
             {
@@ -437,25 +475,6 @@ class RiskAdminSite(AdminSite):
                 "items": [
                     {"label": "Bidang / Unit Bisnis", "url": "/admin/auth/group/"},
                     {"label": "Users", "url": "/admin/auth/user/"},
-                ],
-            },
-            {
-                "title": "Pengaturan Sistem",
-                "color": "settings",
-                "count": stats["settings"],
-                "items": [
-                    {
-                        "label": "Pengaturan Aplikasi & Logo",
-                        "url": reverse("risk_admin:risk_appsetting_changelist"),
-                    },
-                    {
-                        "label": "Tahun Buku",
-                        "url": reverse("risk_admin:masterdata_tahunbuku_changelist"),
-                    },
-                    {
-                        "label": "Periode Laporan",
-                        "url": reverse("risk_admin:masterdata_periodelaporan_changelist"),
-                    },
                 ],
             },
         ]

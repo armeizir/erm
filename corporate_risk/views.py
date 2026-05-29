@@ -1,15 +1,183 @@
 import json
+from datetime import datetime
+from decimal import Decimal
+from statistics import mean, median, pstdev
 
 from .models import MonteCarloKorporatResult
 
+from django.contrib import messages
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.forms import modelformset_factory
+from openpyxl import load_workbook
 
 from .models import RiskMetric, MonteCarloMetricHistory
+from masterdata.models import PeriodeLaporan
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from decimal import Decimal
+
+
+def _normalize_header(value):
+    return str(value or "").strip().lower().replace(" ", "_")
+
+
+def _parse_excel_date(value):
+    if value in (None, ""):
+        return None
+    if hasattr(value, "date"):
+        return value.date()
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d %B %Y"):
+            try:
+                return datetime.strptime(value.strip(), fmt).date()
+            except ValueError:
+                continue
+    return None
+
+
+def _parse_decimal(value):
+    if value in (None, ""):
+        return None
+    cleaned = str(value).strip().replace(",", "")
+    try:
+        return Decimal(cleaned)
+    except Exception:
+        return None
+
+
+def _resolve_period(value, tanggal_data=None):
+    if value not in (None, ""):
+        text = str(value).strip()
+        periode = (
+            PeriodeLaporan.objects.filter(kode_periode__iexact=text).first()
+            or PeriodeLaporan.objects.filter(nama_periode__iexact=text).first()
+        )
+        if periode:
+            return periode
+        if text.isdigit():
+            periode = PeriodeLaporan.objects.filter(pk=int(text)).first()
+            if periode:
+                return periode
+
+    if tanggal_data:
+        return PeriodeLaporan.objects.filter(
+            tanggal_mulai__lte=tanggal_data,
+            tanggal_selesai__gte=tanggal_data,
+        ).first()
+
+    return None
+
+
+def _import_metric_history_excel(metric, uploaded_file):
+    workbook = load_workbook(uploaded_file, data_only=True)
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+    if not rows:
+        raise ValueError("File Excel kosong.")
+
+    headers = [_normalize_header(value) for value in rows[0]]
+    aliases = {
+        "periode": {"periode", "period", "bulan", "month", "kode_periode"},
+        "tanggal_data": {"tanggal_data", "tanggal", "date", "tgl_data"},
+        "metric_value": {"nilai_aktual", "actual", "realisasi", "metric_value", "nilai"},
+        "target_value": {"target", "target_value", "target_rkap"},
+        "keterangan": {"keterangan", "catatan", "note", "notes"},
+    }
+
+    column_map = {}
+    for field, names in aliases.items():
+        for idx, header in enumerate(headers):
+            if header in names:
+                column_map[field] = idx
+                break
+
+    if "metric_value" not in column_map:
+        raise ValueError("Kolom nilai aktual tidak ditemukan. Gunakan header: Nilai Aktual atau Realisasi.")
+
+    imported = 0
+    skipped = 0
+
+    for raw_row in rows[1:]:
+        if not raw_row or all(value in (None, "") for value in raw_row):
+            continue
+
+        def cell(field):
+            idx = column_map.get(field)
+            if idx is None or idx >= len(raw_row):
+                return None
+            return raw_row[idx]
+
+        tanggal_data = _parse_excel_date(cell("tanggal_data"))
+        periode = _resolve_period(cell("periode"), tanggal_data=tanggal_data)
+        metric_value = _parse_decimal(cell("metric_value"))
+        target_value = _parse_decimal(cell("target_value"))
+        keterangan = str(cell("keterangan") or "").strip()
+
+        if not periode or metric_value is None:
+            skipped += 1
+            continue
+
+        if tanggal_data is None:
+            tanggal_data = periode.tanggal_selesai
+
+        MonteCarloMetricHistory.objects.update_or_create(
+            metric=metric,
+            periode=periode,
+            defaults={
+                "tanggal_data": tanggal_data,
+                "metric_value": metric_value,
+                "target_value": target_value,
+                "keterangan": keterangan,
+            },
+        )
+        imported += 1
+
+    return imported, skipped
+
+
+def _metric_statistics(values):
+    values = [float(value) for value in values if value not in (None, "")]
+    if not values:
+        return None
+
+    growth_rates = []
+    for idx in range(1, len(values)):
+        previous = values[idx - 1]
+        current = values[idx]
+        if previous:
+            growth_rates.append((current - previous) / previous * 100)
+
+    avg_value = mean(values)
+    std_value = pstdev(values) if len(values) > 1 else 0
+    coefficient_variation = (std_value / avg_value * 100) if avg_value else 0
+    trend = "Stabil"
+    if len(values) > 1:
+        if values[-1] > values[0] * 1.05:
+            trend = "Meningkat"
+        elif values[-1] < values[0] * 0.95:
+            trend = "Menurun"
+
+    volatility = "Rendah"
+    if coefficient_variation > 20:
+        volatility = "Tinggi"
+    elif coefficient_variation > 10:
+        volatility = "Sedang"
+
+    return {
+        "count": len(values),
+        "min": min(values),
+        "max": max(values),
+        "mean": avg_value,
+        "median": median(values),
+        "std_dev": std_value,
+        "coefficient_variation": coefficient_variation,
+        "avg_growth": mean(growth_rates) if growth_rates else 0,
+        "min_growth": min(growth_rates) if growth_rates else 0,
+        "max_growth": max(growth_rates) if growth_rates else 0,
+        "trend": trend,
+        "volatility": volatility,
+    }
 
 def monte_carlo_result_chart(request, pk):
     result = get_object_or_404(MonteCarloKorporatResult, pk=pk)
@@ -44,8 +212,24 @@ def bulk_metric_input(request, metric_id):
     queryset = MonteCarloMetricHistory.objects.filter(
         metric=metric
     ).order_by("tanggal_data")
+    statistics = _metric_statistics(queryset.values_list("metric_value", flat=True))
 
     if request.method == "POST":
+        if "upload_excel" in request.POST:
+            uploaded_file = request.FILES.get("excel_file")
+            if not uploaded_file:
+                messages.error(request, "Pilih file Excel terlebih dahulu.")
+            else:
+                try:
+                    imported, skipped = _import_metric_history_excel(metric, uploaded_file)
+                    messages.success(
+                        request,
+                        f"Upload Excel berhasil. {imported} baris tersimpan, {skipped} baris dilewati.",
+                    )
+                    return redirect("bulk_metric_input", metric_id=metric.id)
+                except Exception as exc:
+                    messages.error(request, f"Gagal upload Excel: {exc}")
+
         formset = HistoryFormSet(
             request.POST,
             queryset=queryset,
@@ -62,7 +246,7 @@ def bulk_metric_input(request, metric_id):
                 obj.delete()
 
             return redirect(
-                "corporate_risk:bulk_metric_input",
+                "bulk_metric_input",
                 metric_id=metric.id,
             )
 
@@ -75,6 +259,7 @@ def bulk_metric_input(request, metric_id):
         {
             "metric": metric,
             "formset": formset,
+            "statistics": statistics,
         },
     )
 
@@ -106,3 +291,25 @@ def bulk_metric_input(request, metric_id):
         },
         "rows": rows,
     })
+
+
+def metric_history_input_menu(request):
+    metrics = (
+        RiskMetric.objects
+        .select_related("corporate_risk_item")
+        .order_by("corporate_risk_item__summary__tahun", "corporate_risk_item__no_item", "name")
+    )
+
+    rows = []
+    for metric in metrics:
+        rows.append({
+            "metric": metric,
+            "history_count": MonteCarloMetricHistory.objects.filter(metric=metric).count(),
+            "input_url": reverse("bulk_metric_input", args=[metric.pk]),
+        })
+
+    return render(
+        request,
+        "corporate_risk/metric_history_input_menu.html",
+        {"rows": rows},
+    )

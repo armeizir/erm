@@ -717,15 +717,19 @@ class RiskMetricAdmin(admin.ModelAdmin):
         "unit",
         "direction",
         "weight",
+        "is_target_metric",
+        "rkap_item",
+        "target_value",
         "is_active",
+        "input_history_button",
     )
-    list_filter = ("direction", "is_active")
+    list_filter = ("direction", "is_target_metric", "is_active")
     search_fields = (
         "corporate_risk_item__peristiwa_risiko",
         "name",
         "unit",
     )
-    autocomplete_fields = ("corporate_risk_item",)
+    autocomplete_fields = ("corporate_risk_item", "rkap_item")
     ordering = ("corporate_risk_item", "name")
 
     fieldsets = (
@@ -741,7 +745,23 @@ class RiskMetricAdmin(admin.ModelAdmin):
                 "is_active",
             )
         }),
+        ("Prediksi Risiko / Target RKAP", {
+            "fields": (
+                "is_target_metric",
+                "rkap_item",
+                "target_value",
+                "average_selling_price",
+                "risk_appetite_threshold",
+                "risk_appetite_value",
+            )
+        }),
     )
+
+    def input_history_button(self, obj):
+        url = f"/corporate-risk/metric/{obj.pk}/bulk-input/"
+        return format_html('<a class="button" href="{}">Input Histori</a>', url)
+
+    input_history_button.short_description = "Data Historis"
 
 
 @admin.register(MonteCarloMetricHistory)
@@ -796,6 +816,10 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "forecast_periode",
         "composite_score",
         "p80_score",
+        "target_status",
+        "probability_achieve_target",
+        "probability_not_achieve_target",
+        "requires_mitigation",
         "status_hasil",
         "created_at",
         "generate_ai_insight_button",
@@ -804,6 +828,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     list_filter = (
         "forecast_periode",
         "status_hasil",
+        "target_status",
+        "risk_status",
+        "requires_mitigation",
     )
 
     search_fields = (
@@ -817,6 +844,12 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
     readonly_fields = (
         "executive_summary_html",
+        "risk_prediction_flow_html",
+        "target_prediction_cards_html",
+        "target_prediction_table_html",
+        "forecasting_predictor_html",
+        "target_distribution_chart_html",
+        "mitigation_recommendation_html",
         "metric_contribution_html",
         "composite_interpretation_html",
         "multi_metric_history_rows_html",
@@ -824,6 +857,20 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "multi_metric_chart_html",
         "composite_score",
         "p80_score",
+        "forecast_total",
+        "target_value",
+        "target_gap",
+        "average_selling_price",
+        "potential_loss",
+        "probability_achieve_target",
+        "probability_not_achieve_target",
+        "target_status",
+        "risk_status",
+        "worst_case_value",
+        "baseline_value",
+        "best_case_value",
+        "var_95",
+        "requires_mitigation",
         "status_hasil",
         "metric_snapshot_html",
         "multi_metric_ai_insight_html",
@@ -834,13 +881,45 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         ("Executive Summary", {
             "fields": ("executive_summary_html",)
         }),
+        ("Prediksi Risiko / Target RKAP", {
+            "fields": (
+                "risk_prediction_flow_html",
+                "target_prediction_cards_html",
+                "target_prediction_table_html",
+                "forecasting_predictor_html",
+                "target_distribution_chart_html",
+                "mitigation_recommendation_html",
+            )
+        }),
+        ("Pengaturan Forecasting / Monte Carlo", {
+            "fields": (
+                "forecasting_method",
+                "forecast_periods",
+                "prediction_interval",
+                "n_simulations",
+                "scenario_percentile",
+            )
+        }),
         ("Informasi Utama", {
             "fields": (
                 "corporate_risk_item",
                 "forecast_periode",
-                "scenario_percentile",
                 "composite_score",
                 "p80_score",
+                "forecast_total",
+                "target_value",
+                "target_gap",
+                "average_selling_price",
+                "potential_loss",
+                "probability_achieve_target",
+                "probability_not_achieve_target",
+                "worst_case_value",
+                "baseline_value",
+                "best_case_value",
+                "var_95",
+                "target_status",
+                "risk_status",
+                "requires_mitigation",
                 "status_hasil",
                 "created_at",
             )
@@ -912,20 +991,540 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         except Exception:
             return "-"
 
+    def _target_analysis(self, obj):
+        snapshot = obj.simulation_snapshot or {}
+        return snapshot.get("target_analysis") or {}
+
+    def risk_prediction_flow_html(self, obj):
+        steps = [
+            "Tentukan value/objective",
+            "Identifikasi faktor risiko",
+            "Kumpulkan data historis",
+            "Analisis statistik",
+            "Tentukan distribusi",
+            "Bangun mathematical model",
+            "Monte Carlo Simulation",
+            "Distribusi output",
+            "Hitung VaR",
+            "Analisis probabilitas",
+            "Sensitivity analysis",
+            "Mitigasi risiko",
+            "Monitoring & improvement",
+        ]
+        html_steps = "".join(
+            f"""
+            <div style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+                <span style="width:24px;height:24px;border-radius:50%;background:#14345f;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">{idx}</span>
+                <span>{step}</span>
+            </div>
+            """
+            for idx, step in enumerate(steps, start=1)
+        )
+        return mark_safe(
+            f"""
+            <div style="padding:14px;border:1px solid #dbe3ef;border-radius:10px;background:#f8fafc;">
+                <div style="font-weight:700;margin-bottom:8px;">Flow Prediksi Risiko</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;">
+                    {html_steps}
+                </div>
+            </div>
+            """
+        )
+
+    risk_prediction_flow_html.short_description = "Flow Prediksi Risiko"
+
+    def target_prediction_cards_html(self, obj):
+        analysis = self._target_analysis(obj)
+        if not analysis:
+            return mark_safe(
+                "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:8px;'>"
+                "Belum ada analisis target. Tandai salah satu Risk Metric sebagai <strong>Metric Target Utama</strong> "
+                "dan isi Target RKAP atau target pada histori, lalu generate ulang hasil Monte Carlo."
+                "</div>"
+            )
+
+        cards = [
+            ("Target RKAP", obj.target_value, ""),
+            ("Forecast Total", obj.forecast_total, ""),
+            ("Gap Target", obj.target_gap, ""),
+            ("Potential Loss", obj.potential_loss, ""),
+            ("Prob. Tercapai", obj.probability_achieve_target, "%"),
+            ("Prob. Tidak Tercapai", obj.probability_not_achieve_target, "%"),
+            ("Worst Case P5", obj.worst_case_value, ""),
+            ("Baseline P50", obj.baseline_value, ""),
+            ("Best Case P95", obj.best_case_value, ""),
+            ("VaR 95%", obj.var_95, ""),
+        ]
+        card_html = "".join(
+            f"""
+            <div style="padding:14px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
+                <div style="font-size:12px;color:#64748b;text-transform:uppercase;font-weight:700;">{label}</div>
+                <div style="font-size:22px;font-weight:800;color:#14345f;margin-top:6px;">{self._fmt(value, 2)}{suffix}</div>
+            </div>
+            """
+            for label, value, suffix in cards
+        )
+        status_color = "#166534" if obj.risk_status == "Aman" else "#b91c1c"
+        mitigation_text = "Perlu Mitigasi" if obj.requires_mitigation else "Monitor"
+        return mark_safe(
+            f"""
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+                {card_html}
+                <div style="padding:14px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
+                    <div style="font-size:12px;color:#64748b;text-transform:uppercase;font-weight:700;">Status Target</div>
+                    <div style="font-size:20px;font-weight:800;color:{status_color};margin-top:6px;">{obj.target_status or "-"}</div>
+                    <div style="margin-top:6px;color:#64748b;">{obj.risk_status or "-"} · {mitigation_text}</div>
+                </div>
+            </div>
+            """
+        )
+
+    target_prediction_cards_html.short_description = "Dashboard Card Prediksi"
+
+    def target_prediction_table_html(self, obj):
+        analysis = self._target_analysis(obj)
+        if not analysis:
+            return "-"
+
+        rows = [
+            ("Target RKAP", obj.target_value, "Target total akhir tahun."),
+            ("Realisasi YTD", analysis.get("actual_total"), "Total realisasi historis yang sudah masuk simulasi."),
+            ("Forecast total sampai akhir tahun", obj.forecast_total, "Median/P50 dari seluruh hasil simulasi."),
+            ("Gap terhadap target", obj.target_gap, "max(Target RKAP - Forecast total, 0)."),
+            ("Harga jual rata-rata", obj.average_selling_price, "Input untuk menghitung potential loss."),
+            ("Potential loss", obj.potential_loss, "Gap target x harga jual rata-rata."),
+            ("Probabilitas target tercapai", f"{self._fmt(obj.probability_achieve_target, 2)}%", "Jumlah simulasi >= target / total simulasi."),
+            ("Probabilitas target tidak tercapai", f"{self._fmt(obj.probability_not_achieve_target, 2)}%", "Jumlah simulasi < target / total simulasi."),
+            ("Worst case", obj.worst_case_value, "Percentile 5 dari distribusi output."),
+            ("Baseline / median", obj.baseline_value, "Percentile 50 dari distribusi output."),
+            ("Best case", obj.best_case_value, "Percentile 95 dari distribusi output."),
+            ("VaR 95%", obj.var_95, "max(Target RKAP - Worst case, 0)."),
+            ("Status target", obj.target_status, "Tercapai jika forecast_total >= target."),
+            ("Status risiko", obj.risk_status, "Aman jika forecast_total >= target; selain itu berisiko."),
+            ("Perlu mitigasi", "Ya" if obj.requires_mitigation else "Tidak", "Mengacu risk appetite probabilitas dan/atau potential loss."),
+        ]
+        table_rows = "".join(
+            f"""
+            <tr>
+                <td style="padding:8px;border:1px solid #ddd;font-weight:700;">{label}</td>
+                <td style="padding:8px;border:1px solid #ddd;text-align:right;">{self._fmt(value, 2) if not isinstance(value, str) else value}</td>
+                <td style="padding:8px;border:1px solid #ddd;">{note}</td>
+            </tr>
+            """
+            for label, value, note in rows
+        )
+        return mark_safe(
+            f"""
+            <table style="border-collapse:collapse;width:100%;font-size:13px;">
+                <thead>
+                    <tr style="background:#f3f4f6;">
+                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Output</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Nilai</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Cara Baca</th>
+                    </tr>
+                </thead>
+                <tbody>{table_rows}</tbody>
+            </table>
+            """
+        )
+
+    target_prediction_table_html.short_description = "Tabel Hasil Prediksi"
+
+    def forecasting_predictor_html(self, obj):
+        snapshot = obj.simulation_snapshot or {}
+        trials = snapshot.get("n_simulations") or obj.n_simulations or 10000
+        periods = snapshot.get("months_ahead") or obj.forecast_periods or 9
+        method = obj.get_forecasting_method_display() if obj.forecasting_method else "Best Fit - Normal Growth Monte Carlo"
+        interval = obj.get_prediction_interval_display() if obj.prediction_interval else "5% dan 95%"
+        return mark_safe(
+            f"""
+            <style>
+                .erm-predictor-wrap {{
+                    display:grid;
+                    grid-template-columns:minmax(0,1.6fr) minmax(300px,.8fr);
+                    gap:16px;
+                    align-items:stretch;
+                    max-width:1220px;
+                }}
+                .erm-predictor-chart {{
+                    min-height:330px;
+                    border:1px solid #d9e1ec;
+                    border-radius:12px;
+                    background:
+                        linear-gradient(90deg, transparent 0, transparent 62%, rgba(13,46,94,.14) 62%, rgba(13,46,94,.14) 62.4%, transparent 62.4%),
+                        repeating-linear-gradient(0deg, #fff, #fff 48px, #eef3f8 49px),
+                        #fff;
+                    padding:16px;
+                    display:grid;
+                    align-content:end;
+                    overflow:hidden;
+                }}
+                .erm-predictor-lines {{
+                    position:relative;
+                    height:235px;
+                }}
+                .erm-predictor-lines:before,
+                .erm-predictor-lines:after {{
+                    content:"";
+                    position:absolute;
+                    left:8%;
+                    right:5%;
+                    height:3px;
+                    border-radius:999px;
+                }}
+                .erm-predictor-lines:before {{
+                    top:42%;
+                    background:#2f80ed;
+                    box-shadow:40px -24px 0 #2f80ed,86px -10px 0 #2f80ed,132px -45px 0 #2f80ed,178px -36px 0 #2f80ed,224px -62px 0 #2f80ed,270px -58px 0 #2f80ed,316px -42px 0 #2f80ed,362px -50px 0 #2f80ed,408px -46px 0 #2f80ed;
+                }}
+                .erm-predictor-lines:after {{
+                    top:52%;
+                    background:#6aa84f;
+                    box-shadow:40px -18px 0 #6aa84f,86px -8px 0 #6aa84f,132px -34px 0 #6aa84f,178px -26px 0 #6aa84f,224px -50px 0 #6aa84f,270px -44px 0 #6aa84f,316px -35px 0 #6aa84f,362px -38px 0 #6aa84f,408px -32px 0 #6aa84f;
+                }}
+                .erm-predictor-fan {{
+                    position:absolute;
+                    left:64%;
+                    right:3%;
+                    top:34%;
+                    height:92px;
+                    background:linear-gradient(90deg, rgba(249,180,107,.32), rgba(249,180,107,.06));
+                    clip-path:polygon(0 45%,100% 0,100% 100%);
+                    border-left:2px solid rgba(249,180,107,.85);
+                }}
+                .erm-predictor-side {{
+                    border:1px solid #d9e1ec;
+                    border-radius:12px;
+                    background:#fbfdff;
+                    padding:16px;
+                    display:grid;
+                    gap:12px;
+                }}
+                .erm-predictor-field label {{
+                    display:block;
+                    font-size:12px;
+                    font-weight:800;
+                    color:#64748b;
+                    text-transform:uppercase;
+                    margin-bottom:6px;
+                }}
+                .erm-predictor-value {{
+                    border:1px solid #d9e1ec;
+                    border-radius:10px;
+                    padding:10px 12px;
+                    background:#fff;
+                    color:#0d2e5e;
+                    font-weight:700;
+                }}
+                .erm-predictor-stats {{
+                    display:grid;
+                    grid-template-columns:repeat(2,minmax(0,1fr));
+                    gap:10px;
+                }}
+                .erm-predictor-stat {{
+                    border:1px solid #d9e1ec;
+                    border-radius:10px;
+                    background:#fff;
+                    padding:12px;
+                }}
+                .erm-predictor-stat small {{
+                    display:block;
+                    color:#64748b;
+                    font-weight:800;
+                    text-transform:uppercase;
+                    margin-bottom:6px;
+                }}
+                .erm-predictor-stat strong {{
+                    font-size:20px;
+                    color:#0d2e5e;
+                }}
+                .erm-predictor-legend {{
+                    display:flex;
+                    gap:10px;
+                    flex-wrap:wrap;
+                }}
+                .erm-predictor-legend span {{
+                    display:inline-flex;
+                    align-items:center;
+                    gap:6px;
+                    border:1px solid #d9e1ec;
+                    border-radius:999px;
+                    padding:7px 10px;
+                    background:#fff;
+                    color:#0d2e5e;
+                }}
+                .erm-dot {{
+                    width:11px;
+                    height:11px;
+                    border-radius:50%;
+                    display:inline-block;
+                }}
+            </style>
+            <div class="erm-predictor-wrap">
+                <div class="erm-predictor-chart">
+                    <div class="erm-predictor-lines"><div class="erm-predictor-fan"></div></div>
+                    <div class="erm-predictor-legend">
+                        <span><i class="erm-dot" style="background:#6aa84f;"></i>Historical</span>
+                        <span><i class="erm-dot" style="background:#2f80ed;"></i>Fitted / Forecast</span>
+                        <span><i class="erm-dot" style="background:#f9b46b;"></i>Prediction Interval</span>
+                    </div>
+                </div>
+                <div class="erm-predictor-side">
+                    <div class="erm-predictor-field">
+                        <label>Method</label>
+                        <div class="erm-predictor-value">{method}</div>
+                    </div>
+                    <div class="erm-predictor-field">
+                        <label>Periods to Forecast</label>
+                        <div class="erm-predictor-value">{periods}</div>
+                    </div>
+                    <div class="erm-predictor-field">
+                        <label>Prediction Interval</label>
+                        <div class="erm-predictor-value">{interval}</div>
+                    </div>
+                    <div class="erm-predictor-field">
+                        <label>Monte Carlo Trials</label>
+                        <div class="erm-predictor-value">{self._fmt(trials, 0)}</div>
+                    </div>
+                    <div class="erm-predictor-stats">
+                        <div class="erm-predictor-stat">
+                            <small>Baseline P50</small>
+                            <strong>{self._fmt(obj.baseline_value, 0)}</strong>
+                        </div>
+                        <div class="erm-predictor-stat">
+                            <small>VaR 95%</small>
+                            <strong>{self._fmt(obj.var_95, 0)}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """
+        )
+
+    forecasting_predictor_html.short_description = "Pilihan Forecasting / Prediksi Time Series"
+
+    def target_distribution_chart_html(self, obj):
+        analysis = self._target_analysis(obj)
+        distribution = analysis.get("distribution_sample") or []
+        if not distribution:
+            return "-"
+
+        chart_id = f"targetDistributionChart_{obj.id}"
+        values = [float(v) for v in distribution]
+        target_value = float(obj.target_value or 0)
+        trials = len(values)
+
+        return mark_safe(
+            f"""
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;max-width:1200px;margin-bottom:12px;">
+                <div style="padding:10px 12px;border:1px solid #d9e1ec;border-radius:10px;background:#fff;">
+                    <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;">Forecast DMP</div>
+                    <div style="font-size:20px;font-weight:800;color:#0d2e5e;">{self._fmt(obj.baseline_value, 0)}</div>
+                </div>
+                <div style="padding:10px 12px;border:1px solid #d9e1ec;border-radius:10px;background:#fff;">
+                    <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;">Certainty Target Tercapai</div>
+                    <div style="font-size:20px;font-weight:800;color:#0d2e5e;">{self._fmt(obj.probability_achieve_target, 2)}%</div>
+                </div>
+                <div style="padding:10px 12px;border:1px solid #d9e1ec;border-radius:10px;background:#fff;">
+                    <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;">Trials</div>
+                    <div style="font-size:20px;font-weight:800;color:#0d2e5e;">{self._fmt(trials or obj.n_simulations or 10000, 0)}</div>
+                </div>
+                <div style="padding:10px 12px;border:1px solid #d9e1ec;border-radius:10px;background:#fff;">
+                    <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;">Cut-off Target</div>
+                    <div style="font-size:20px;font-weight:800;color:#0d2e5e;">{self._fmt(obj.target_value, 0)}</div>
+                </div>
+            </div>
+            <div style="width:100%;max-width:1200px;height:430px;">
+                <canvas id="{chart_id}"></canvas>
+            </div>
+            <div style="margin-top:10px;padding:10px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;">
+                Forecast DMP menampilkan histogram frekuensi hasil Monte Carlo. Area merah adalah skenario di bawah target,
+                area biru adalah skenario yang mencapai/melewati target.
+            </div>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <script>
+            (function() {{
+                const canvas = document.getElementById("{chart_id}");
+                if (!canvas || typeof Chart === "undefined") return;
+                const existing = Chart.getChart("{chart_id}");
+                if (existing) existing.destroy();
+                const values = {json.dumps(values)};
+                const targetValue = {json.dumps(target_value)};
+                const minValue = Math.min(...values);
+                const maxValue = Math.max(...values);
+                const binCount = Math.min(44, Math.max(18, Math.round(Math.sqrt(values.length))));
+                const binWidth = maxValue > minValue ? (maxValue - minValue) / binCount : 1;
+                const bins = Array.from({{ length: binCount }}, (_, index) => {{
+                    const start = minValue + (index * binWidth);
+                    return {{ center: start + (binWidth / 2), count: 0 }};
+                }});
+                values.forEach((value) => {{
+                    const rawIndex = Math.floor((value - minValue) / binWidth);
+                    const index = Math.max(0, Math.min(binCount - 1, rawIndex));
+                    bins[index].count += 1;
+                }});
+                const compact = new Intl.NumberFormat("en-US", {{ notation: "compact", maximumFractionDigits: 1 }});
+                const labels = bins.map((bin) => compact.format(bin.center));
+                const counts = bins.map((bin) => bin.count);
+                const probabilities = bins.map((bin) => values.length ? bin.count / values.length : 0);
+                const colors = bins.map((bin) => bin.center < targetValue ? "rgba(220,38,38,.78)" : "rgba(37,99,235,.82)");
+                const targetBinIndex = Math.max(0, Math.min(binCount - 1, Math.floor((targetValue - minValue) / binWidth)));
+                const targetPlugin = {{
+                    id: "adminDmpTargetPlugin",
+                    afterDatasetsDraw(chart) {{
+                        const {{ ctx, chartArea, scales }} = chart;
+                        if (!chartArea || !scales.x) return;
+                        const x = scales.x.getPixelForValue(targetBinIndex);
+                        ctx.save();
+                        ctx.strokeStyle = "#0d2e5e";
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([6, 4]);
+                        ctx.beginPath();
+                        ctx.moveTo(x, chartArea.top);
+                        ctx.lineTo(x, chartArea.bottom);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                        ctx.fillStyle = "#0d2e5e";
+                        ctx.font = "bold 12px Arial";
+                        ctx.fillText("Target", Math.min(x + 8, chartArea.right - 48), chartArea.top + 14);
+                        ctx.restore();
+                    }}
+                }};
+                new Chart(canvas, {{
+                    type: "bar",
+                    plugins: [targetPlugin],
+                    data: {{
+                        labels: labels,
+                        datasets: [
+                            {{
+                                label: "Frequency",
+                                data: counts,
+                                backgroundColor: colors,
+                                borderColor: colors,
+                                borderWidth: 1,
+                                barPercentage: 1,
+                                categoryPercentage: 1
+                            }},
+                            {{
+                                label: "Probability",
+                                type: "line",
+                                data: probabilities,
+                                yAxisID: "y1",
+                                borderColor: "#f59e0b",
+                                backgroundColor: "rgba(245,158,11,.16)",
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                tension: .25
+                            }}
+                        ]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{ position: "bottom" }},
+                            title: {{ display: true, text: "Forecast DMP - " + values.length.toLocaleString("en-US") + " Trials" }}
+                        }},
+                        scales: {{
+                            x: {{ title: {{ display: true, text: "Forecast Total" }} }},
+                            y: {{ title: {{ display: true, text: "Frequency" }}, beginAtZero: true }},
+                            y1: {{
+                                position: "right",
+                                title: {{ display: true, text: "Probability" }},
+                                beginAtZero: true,
+                                grid: {{ drawOnChartArea: false }},
+                                ticks: {{ callback: (value) => `${{(Number(value) * 100).toFixed(0)}}%` }}
+                            }}
+                        }}
+                    }}
+                }});
+            }})();
+            </script>
+            """
+        )
+
+    target_distribution_chart_html.short_description = "Grafik Distribusi Output"
+
+    def mitigation_recommendation_html(self, obj):
+        analysis = self._target_analysis(obj)
+        if not analysis:
+            return "-"
+
+        if obj.requires_mitigation:
+            actions = [
+                "Review ulang asumsi demand dan data historis yang menjadi driver simulasi.",
+                "Siapkan aksi peningkatan penjualan untuk menutup gap target terbesar.",
+                "Prioritaskan mitigasi pada faktor risiko yang paling sensitif terhadap penurunan demand.",
+                "Tetapkan trigger monitoring bulanan ketika probabilitas tidak tercapai naik di atas risk appetite.",
+            ]
+            color = "#fef2f2"
+            border = "#fecaca"
+            title = "Rekomendasi: Perlu Mitigasi"
+        else:
+            actions = [
+                "Belum perlu mitigasi tambahan di luar rencana berjalan.",
+                "Tetap monitor realisasi YTD, forecast, dan probabilitas tidak tercapai setiap bulan.",
+                "Update data historis agar distribusi Monte Carlo mencerminkan kondisi terbaru.",
+            ]
+            color = "#f0fdf4"
+            border = "#bbf7d0"
+            title = "Rekomendasi: Monitoring Berkala"
+
+        list_items = "".join(f"<li>{action}</li>" for action in actions)
+        return mark_safe(
+            f"""
+            <div style="padding:14px;border:1px solid {border};border-radius:10px;background:{color};">
+                <h3 style="margin-top:0;">{title}</h3>
+                <p>{analysis.get("recommendation", "")}</p>
+                <ul>{list_items}</ul>
+            </div>
+            """
+        )
+
+    mitigation_recommendation_html.short_description = "Rekomendasi Mitigasi Otomatis"
+
     def save_model(self, request, obj, form, change):
         result = run_multi_metric_monte_carlo_for_korporat_item(
             item=obj.corporate_risk_item,
             forecast_periode=obj.forecast_periode,
-            months_ahead=9,
-            n_simulations=1000,
+            months_ahead=obj.forecast_periods or 9,
+            n_simulations=obj.n_simulations or 10000,
             scenario_percentile=obj.scenario_percentile,
         )
 
+        result.forecasting_method = obj.forecasting_method or result.forecasting_method
+        result.forecast_periods = obj.forecast_periods or result.forecast_periods
+        result.prediction_interval = obj.prediction_interval or result.prediction_interval
+        result.n_simulations = obj.n_simulations or result.n_simulations
+        result.save(update_fields=[
+            "forecasting_method",
+            "forecast_periods",
+            "prediction_interval",
+            "n_simulations",
+            "updated_at",
+        ])
+
         obj.composite_score = result.composite_score
         obj.p80_score = result.p80_score
+        obj.forecast_total = result.forecast_total
+        obj.target_value = result.target_value
+        obj.target_gap = result.target_gap
+        obj.average_selling_price = result.average_selling_price
+        obj.potential_loss = result.potential_loss
+        obj.probability_achieve_target = result.probability_achieve_target
+        obj.probability_not_achieve_target = result.probability_not_achieve_target
+        obj.target_status = result.target_status
+        obj.risk_status = result.risk_status
+        obj.worst_case_value = result.worst_case_value
+        obj.baseline_value = result.baseline_value
+        obj.best_case_value = result.best_case_value
+        obj.var_95 = result.var_95
+        obj.requires_mitigation = result.requires_mitigation
         obj.status_hasil = result.status_hasil
         obj.metric_snapshot = result.metric_snapshot
         obj.simulation_snapshot = result.simulation_snapshot
+        obj.pk = result.pk
+        obj._state.adding = False
 
         super().save_model(request, obj, form, change)
 
@@ -1013,9 +1612,10 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
     def multi_metric_projection_rows_html(self, obj):
         snapshot = obj.simulation_snapshot or {}
+        target_rows = snapshot.get("target_projection_rows", [])
         rows = snapshot.get("projection_rows", [])
 
-        if not rows:
+        if not target_rows and not rows:
             return mark_safe(
                 "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
                 "Proyeksi bulanan belum tersedia. Generate ulang Multi Metric Monte Carlo Result."
@@ -1023,6 +1623,40 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             )
 
         table_rows = []
+
+        if target_rows:
+            for row in target_rows:
+                bulan = row.get("bulan") or f"Bulan-{row.get('bulan_index')}"
+                table_rows.append(f"""
+                    <tr>
+                        <td style="padding:8px;border:1px solid #ddd;">{bulan}</td>
+                        <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:bold;">{self._fmt(row.get("forecast_median"), 0)}</td>
+                        <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:bold;">{self._fmt(row.get("forecast_p15"), 0)}</td>
+                        <td style="padding:8px;border:1px solid #ddd;text-align:right;">{self._fmt(row.get("stdev_f"), 0)}</td>
+                        <td style="padding:8px;border:1px solid #ddd;">{row.get("metric_name") or "-"}</td>
+                    </tr>
+                """)
+
+            html = f"""
+            <div style="padding:10px 12px;margin-bottom:10px;background:#eef7fb;border:1px solid #cfe3ec;border-radius:6px;color:#24586a;">
+                Forecast mengikuti contoh Excel: P50/median, P15,8655254, dan STDEV F = P50 - P15,8655254.
+            </div>
+            <table style="border-collapse:collapse;width:100%;font-size:13px;">
+                <thead>
+                    <tr style="background:#f3f4f6;">
+                        <th style="padding:8px;border:1px solid #ddd;">Bulan</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Forecast Penjualan Bulanan (Median/P50)</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Forecast Penjualan Bulanan (P15,8655254)</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">STDEV F Penjualan</th>
+                        <th style="padding:8px;border:1px solid #ddd;">Metric</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(table_rows)}
+                </tbody>
+            </table>
+            """
+            return mark_safe(html)
 
         for row in rows:
             bulan = row.get("bulan") or f"Bulan-{row.get('bulan_index')}"
@@ -1216,12 +1850,54 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             return "-"
 
         top_metric = max(metrics, key=lambda x: float(x.get("mean_score") or 0))
+        target_analysis = (obj.simulation_snapshot or {}).get("target_analysis") or {}
+        risk_item = obj.corporate_risk_item
+        risk_title = getattr(risk_item, "peristiwa_risiko", None) or str(risk_item)
+        risk_number = getattr(risk_item, "no_item", None)
+        risk_label = f"Risiko {risk_number} - {risk_title}" if risk_number else risk_title
+
+        if target_analysis:
+            mitigation_text = (
+                "perlu mitigasi"
+                if obj.requires_mitigation
+                else "cukup dimonitor dengan trigger bulanan"
+            )
+            html = f"""
+            <div style="padding:16px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;">
+                <h3 style="margin-top:0;">Ringkasan Eksekutif Risiko</h3>
+                <p>
+                    <strong>{risk_label}</strong> untuk periode forecast
+                    <strong>{obj.forecast_periode}</strong> memiliki status target
+                    <strong>{obj.target_status or "-"}</strong> dan status risiko
+                    <strong>{obj.risk_status or "-"}</strong>.
+                </p>
+                <p>
+                    Forecast total berbasis median/P50 sebesar
+                    <strong>{self._fmt(obj.forecast_total, 0)}</strong>, dibandingkan target RKAP
+                    <strong>{self._fmt(obj.target_value, 0)}</strong>. Gap terhadap target sebesar
+                    <strong>{self._fmt(obj.target_gap, 0)}</strong> dengan estimasi potential loss
+                    <strong>{self._fmt(obj.potential_loss, 0)}</strong>.
+                </p>
+                <p>
+                    Probabilitas target tercapai sebesar
+                    <strong>{self._fmt(obj.probability_achieve_target, 2)}%</strong>, sedangkan
+                    probabilitas target tidak tercapai sebesar
+                    <strong>{self._fmt(obj.probability_not_achieve_target, 2)}%</strong>.
+                    VaR 95% tercatat sebesar <strong>{self._fmt(obj.var_95, 0)}</strong>.
+                </p>
+                <p>
+                    Berdasarkan risk appetite, risiko ini <strong>{mitigation_text}</strong>.
+                    Faktor dominan simulasi adalah <strong>{top_metric.get("metric_name", "-")}</strong>.
+                </p>
+            </div>
+            """
+            return mark_safe(html)
 
         html = f"""
         <div style="padding:16px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;">
             <h3 style="margin-top:0;">Ringkasan Eksekutif Risiko</h3>
             <p>
-                Risiko <strong>{obj.corporate_risk_item}</strong> untuk periode forecast
+                <strong>{risk_label}</strong> untuk periode forecast
                 <strong>{obj.forecast_periode}</strong> berada pada level
                 <strong>{obj.status_hasil}</strong>.
             </p>

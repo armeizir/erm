@@ -8,25 +8,58 @@ class PLNLDAPBackend(BaseBackend):
     LDAP_SERVER = "ldap://10.28.0.154"
     LDAP_BASE_DN = "dc=plnbatam,dc=com"
     LDAP_DOMAIN = "PLNBATAM"
+    LDAP_USER_FILTER = "(sAMAccountName={username})"
+    LDAP_EMAIL_DOMAIN = "plnbatam.com"
+
+    def _settings(self):
+        try:
+            from risk.models import AppSetting
+
+            app_setting = AppSetting.get_solo()
+            return {
+                "enabled": app_setting.ldap_aktif,
+                "server": app_setting.ldap_server or self.LDAP_SERVER,
+                "base_dn": app_setting.ldap_base_dn or self.LDAP_BASE_DN,
+                "domain": app_setting.ldap_domain or self.LDAP_DOMAIN,
+                "user_filter": app_setting.ldap_user_filter or self.LDAP_USER_FILTER,
+                "email_domain": app_setting.ldap_email_domain or self.LDAP_EMAIL_DOMAIN,
+                "debug": app_setting.ldap_debug,
+            }
+        except Exception:
+            return {
+                "enabled": True,
+                "server": self.LDAP_SERVER,
+                "base_dn": self.LDAP_BASE_DN,
+                "domain": self.LDAP_DOMAIN,
+                "user_filter": self.LDAP_USER_FILTER,
+                "email_domain": self.LDAP_EMAIL_DOMAIN,
+                "debug": True,
+            }
 
     def authenticate(self, request, username=None, password=None, **kwargs):
         if not username or not password:
             return None
 
+        ldap_settings = self._settings()
+        if not ldap_settings["enabled"]:
+            return None
+
         original_username = username
+        email_suffix = f"@{ldap_settings['email_domain']}".lower()
 
-        if username.lower().endswith("@plnbatam.com"):
-            username = username[:-13]
+        if username.lower().endswith(email_suffix):
+            username = username[: -len(email_suffix)]
 
-        bind_username = f"{self.LDAP_DOMAIN}\\{username}"
+        bind_username = f"{ldap_settings['domain']}\\{username}"
 
-        print(f"[LDAP DEBUG] original={original_username} normalized={username}")
-        print(f"[LDAP DEBUG] binding as {bind_username}")
+        if ldap_settings["debug"]:
+            print(f"[LDAP DEBUG] original={original_username} normalized={username}")
+            print(f"[LDAP DEBUG] binding as {bind_username}")
 
         conn = None
 
         try:
-            conn = ldap.initialize(self.LDAP_SERVER)
+            conn = ldap.initialize(ldap_settings["server"])
             conn.set_option(ldap.OPT_PROTOCOL_VERSION, 3)
             conn.set_option(ldap.OPT_REFERRALS, 0)
 
@@ -34,7 +67,7 @@ class PLNLDAPBackend(BaseBackend):
             conn.simple_bind_s(bind_username, password)
 
             # 2. Search atribut user setelah bind sukses
-            search_filter = f"(sAMAccountName={username})"
+            search_filter = ldap_settings["user_filter"].format(username=username)
             attrs = [
                 "mail",
                 "name",
@@ -47,14 +80,15 @@ class PLNLDAPBackend(BaseBackend):
             ]
 
             result = conn.search_s(
-                self.LDAP_BASE_DN,
+                ldap_settings["base_dn"],
                 ldap.SCOPE_SUBTREE,
                 search_filter,
                 attrs,
             )
 
             if not result:
-                print("[LDAP DEBUG] search result empty")
+                if ldap_settings["debug"]:
+                    print("[LDAP DEBUG] search result empty")
                 return None
 
             dn, entry = result[0]
@@ -68,7 +102,7 @@ class PLNLDAPBackend(BaseBackend):
                     return raw.decode("utf-8", errors="ignore")
                 return str(raw)
 
-            email = get_attr("mail", f"{username.lower()}@plnbatam.com")
+            email = get_attr("mail", f"{username.lower()}@{ldap_settings['email_domain']}")
             full_name = get_attr("name", username)
             samaccountname = get_attr("sAMAccountName", username)
             employee_id = get_attr("employeeID", "")
@@ -76,7 +110,8 @@ class PLNLDAPBackend(BaseBackend):
             department = get_attr("department", "")
             manager = get_attr("manager", "")
 
-            print(f"[LDAP DEBUG] bind success, ldap user={samaccountname}, email={email}")
+            if ldap_settings["debug"]:
+                print(f"[LDAP DEBUG] bind success, ldap user={samaccountname}, email={email}")
 
             User = get_user_model()
 
@@ -116,13 +151,16 @@ class PLNLDAPBackend(BaseBackend):
             return user
 
         except ldap.INVALID_CREDENTIALS:
-            print("[LDAP DEBUG] invalid credentials")
+            if ldap_settings["debug"]:
+                print("[LDAP DEBUG] invalid credentials")
             return None
         except ldap.LDAPError as e:
-            print(f"[LDAP DEBUG] LDAP error: {e}")
+            if ldap_settings["debug"]:
+                print(f"[LDAP DEBUG] LDAP error: {e}")
             return None
         except Exception as e:
-            print(f"[LDAP DEBUG] general error: {e}")
+            if ldap_settings["debug"]:
+                print(f"[LDAP DEBUG] general error: {e}")
             return None
         finally:
             if conn is not None:

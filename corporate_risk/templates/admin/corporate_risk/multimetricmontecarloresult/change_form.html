@@ -1,0 +1,10 @@
+{% extends "admin/change_form.html" %}
+
+{% block object-tools-items %}
+<li>
+    <a href="../../export-excel/" class="historylink">
+        Export to Excel
+    </a>
+</li>
+{{ block.super }}
+{% endblock %}

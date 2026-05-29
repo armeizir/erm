@@ -438,29 +438,66 @@ class RKAPItemAdmin(admin.ModelAdmin):
     list_display = (
         "tahun",
         "kode",
-        "sasaran",
-        "indikator",
+        "nama_bertingkat",
+        "kategori",
+        "subkategori",
+        "nilai_audited_2024",
+        "nilai_unaudited_2025",
         "target",
         "satuan",
-        "unit_penanggung_jawab",
+        "parent",
         "aktif",
     )
-    list_filter = ("tahun", "aktif", "unit_penanggung_jawab")
-    search_fields = ("kode", "sasaran", "indikator", "asumsi")
-    ordering = ("-tahun", "kode", "sasaran")
-    autocomplete_fields = ("unit_penanggung_jawab",)
+
+    list_filter = (
+        "tahun",
+        "periode",
+        "kategori",
+        "subkategori",
+        "aktif",
+    )
+
+    search_fields = (
+        "kode",
+        "sasaran",
+        "indikator",
+        "kategori",
+        "subkategori",
+        "sumber_dokumen",
+    )
+
+    ordering = (
+        "-tahun",
+        "urutan",
+        "kode",
+    )
+
+    autocomplete_fields = (
+        "parent",
+        "unit_penanggung_jawab",
+    )
+
+    list_per_page = 100
 
     fieldsets = (
         ("Informasi Utama", {
             "fields": (
                 "tahun",
+                "parent",
                 "kode",
                 "sasaran",
                 "indikator",
+                "kategori",
+                "subkategori",
+                "periode",
+                "bulan",
+                "urutan",
             )
         }),
-        ("Target", {
+        ("Nilai RKAP", {
             "fields": (
+                "nilai_audited_2024",
+                "nilai_unaudited_2025",
                 "target",
                 "satuan",
             )
@@ -469,11 +506,25 @@ class RKAPItemAdmin(admin.ModelAdmin):
             "fields": (
                 "asumsi",
                 "unit_penanggung_jawab",
+                "sumber_dokumen",
+                "halaman_sumber",
                 "aktif",
             )
         }),
     )
 
+    @admin.display(description="Nama RKAP")
+    def nama_bertingkat(self, obj):
+        level = 0
+        parent = obj.parent
+
+        while parent:
+            level += 1
+            parent = parent.parent
+
+        indent = "— " * level
+        return f"{indent}{obj.sasaran}"
+    
 class MasterBagianKMInline(admin.TabularInline):
     model = MasterBagianKM
     extra = 0

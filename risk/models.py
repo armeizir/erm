@@ -12,16 +12,130 @@ from django.conf import settings
 # =========================================================
 
 class AppSetting(models.Model):
+    AI_PROVIDER_OPENAI = "openai"
+    AI_PROVIDER_CHOICES = (
+        (AI_PROVIDER_OPENAI, "OpenAI / ChatGPT"),
+        ("other", "Provider lain"),
+    )
+
     nama_aplikasi = models.CharField(
         max_length=120,
         default="Manajemen Risiko PLN Batam",
         verbose_name="Nama Aplikasi",
+    )
+    subtitle_aplikasi = models.CharField(
+        max_length=180,
+        blank=True,
+        default="Enterprise Risk Management",
+        verbose_name="Subtitle Aplikasi",
     )
     logo = models.ImageField(
         upload_to="system/logo/",
         blank=True,
         null=True,
         verbose_name="Logo PLN Batam",
+    )
+    tampilkan_logo = models.BooleanField(
+        default=True,
+        verbose_name="Tampilkan Logo di Header",
+    )
+    warna_header = models.CharField(
+        max_length=20,
+        blank=True,
+        default="#3f7c91",
+        verbose_name="Warna Header",
+        help_text="Contoh: #3f7c91",
+    )
+    warna_teks_header = models.CharField(
+        max_length=20,
+        blank=True,
+        default="#ffe45c",
+        verbose_name="Warna Teks Header",
+        help_text="Contoh: #ffe45c",
+    )
+    ldap_aktif = models.BooleanField(
+        default=True,
+        verbose_name="LDAP Aktif",
+    )
+    ldap_server = models.CharField(
+        max_length=255,
+        blank=True,
+        default="ldap://10.28.0.154",
+        verbose_name="LDAP Server",
+    )
+    ldap_base_dn = models.CharField(
+        max_length=255,
+        blank=True,
+        default="dc=plnbatam,dc=com",
+        verbose_name="LDAP Base DN",
+    )
+    ldap_domain = models.CharField(
+        max_length=100,
+        blank=True,
+        default="PLNBATAM",
+        verbose_name="LDAP Domain",
+    )
+    ldap_user_filter = models.CharField(
+        max_length=255,
+        blank=True,
+        default="(sAMAccountName={username})",
+        verbose_name="LDAP User Search Filter",
+    )
+    ldap_email_domain = models.CharField(
+        max_length=120,
+        blank=True,
+        default="plnbatam.com",
+        verbose_name="Default Email Domain LDAP",
+    )
+    ldap_debug = models.BooleanField(
+        default=False,
+        verbose_name="Aktifkan Debug LDAP",
+    )
+    ai_aktif = models.BooleanField(
+        default=False,
+        verbose_name="AI ChatGPT Aktif",
+    )
+    ai_provider = models.CharField(
+        max_length=30,
+        choices=AI_PROVIDER_CHOICES,
+        default=AI_PROVIDER_OPENAI,
+        verbose_name="Provider AI",
+    )
+    ai_api_key = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="API Key AI",
+        help_text="Simpan API key di sini hanya jika server sudah diamankan.",
+    )
+    ai_model = models.CharField(
+        max_length=80,
+        blank=True,
+        default="gpt-4.1-mini",
+        verbose_name="Model AI",
+    )
+    ai_base_url = models.URLField(
+        max_length=255,
+        blank=True,
+        default="https://api.openai.com/v1",
+        verbose_name="Base URL AI",
+    )
+    ai_temperature = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal("0.20"),
+        verbose_name="Temperature AI",
+    )
+    support_email = models.EmailField(
+        blank=True,
+        default="",
+        verbose_name="Email Support",
+    )
+    footer_laporan = models.CharField(
+        max_length=255,
+        blank=True,
+        default="PT PLN Batam - Manajemen Risiko",
+        verbose_name="Footer Laporan",
     )
     diperbarui_pada = models.DateTimeField(
         auto_now=True,
@@ -43,6 +157,14 @@ class AppSetting(models.Model):
 
     def __str__(self):
         return self.nama_aplikasi
+
+    @property
+    def masked_ai_api_key(self):
+        if not self.ai_api_key:
+            return "-"
+        if len(self.ai_api_key) <= 8:
+            return "********"
+        return f"{self.ai_api_key[:4]}...{self.ai_api_key[-4:]}"
 
 
 class TaksonomiT3(models.Model):
@@ -664,7 +786,24 @@ class ItemKontrakManajemen(models.Model):
 # =========================================================
 
 class RKAPItem(models.Model):
+    PERIODE_CHOICES = [
+        ("Tahunan", "Tahunan"),
+        ("Bulanan", "Bulanan"),
+        ("Triwulan", "Triwulan"),
+        ("Lampiran", "Lampiran"),
+    ]
+
     tahun = models.PositiveIntegerField(verbose_name="Tahun")
+
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+        verbose_name="Induk RKAP",
+        help_text="Gunakan untuk detail bulanan atau rincian dari item RKAP utama.",
+    )
 
     kode = models.CharField(
         max_length=50,
@@ -685,6 +824,34 @@ class RKAPItem(models.Model):
         verbose_name="Indikator",
     )
 
+    kategori = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        verbose_name="Kategori",
+    )
+
+    subkategori = models.CharField(
+        max_length=160,
+        blank=True,
+        default="",
+        verbose_name="Subkategori",
+    )
+
+    periode = models.CharField(
+        max_length=20,
+        choices=PERIODE_CHOICES,
+        default="Tahunan",
+        verbose_name="Periode",
+    )
+
+    bulan = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Bulan",
+        help_text="Isi 1-12 jika item ini adalah target bulanan.",
+    )
+
     target = models.DecimalField(
         max_digits=20,
         decimal_places=2,
@@ -698,6 +865,22 @@ class RKAPItem(models.Model):
         blank=True,
         null=True,
         verbose_name="Satuan",
+    )
+
+    nilai_audited_2024 = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Audited 2024",
+    )
+
+    nilai_unaudited_2025 = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Unaudited 2025",
     )
 
     asumsi = models.TextField(
@@ -715,12 +898,30 @@ class RKAPItem(models.Model):
         verbose_name="Unit Penanggung Jawab",
     )
 
+    sumber_dokumen = models.CharField(
+        max_length=180,
+        blank=True,
+        default="",
+        verbose_name="Sumber Dokumen",
+    )
+
+    halaman_sumber = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Halaman Sumber",
+    )
+
+    urutan = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Urutan",
+    )
+
     aktif = models.BooleanField(default=True, verbose_name="Aktif")
 
     class Meta:
         verbose_name = "RKAP — Item"
         verbose_name_plural = "RKAP — Item"
-        ordering = ["-tahun", "kode", "sasaran"]
+        ordering = ["-tahun", "kategori", "subkategori", "urutan", "kode", "sasaran"]
         constraints = [
             models.UniqueConstraint(
                 fields=["tahun", "kode", "sasaran"],

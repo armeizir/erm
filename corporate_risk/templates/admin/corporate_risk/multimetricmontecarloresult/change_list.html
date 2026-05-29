@@ -1,0 +1,12 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools %}
+<ul class="object-tools">
+    <li>
+        <a href="export-excel/" class="addlink">
+            Export to Excel
+        </a>
+    </li>
+    {{ block.super }}
+</ul>
+{% endblock %}

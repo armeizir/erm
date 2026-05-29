@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 from core.models import TimeStampedModel
 from masterdata.models import PeriodeLaporan
 from risk.models import ProfilRisikoKorporatItem
@@ -36,7 +37,7 @@ class MonteCarloKorporatConfig(TimeStampedModel):
         default="normal",
     )
 
-    n_simulations = models.PositiveIntegerField(default=1000)
+    n_simulations = models.PositiveIntegerField(default=10000)
     minimum_history_points = models.PositiveIntegerField(default=2)
 
     is_active = models.BooleanField(default=True)
@@ -94,6 +95,19 @@ class MonteCarloKorporatResult(TimeStampedModel):
     probability_meet_target = models.DecimalField(max_digits=6, decimal_places=2, null=True)
 
     target_value = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
+    forecast_total = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    target_gap = models.DecimalField(max_digits=24, decimal_places=4, default=0)
+    average_selling_price = models.DecimalField(max_digits=24, decimal_places=4, default=0)
+    potential_loss = models.DecimalField(max_digits=24, decimal_places=4, default=0)
+    probability_achieve_target = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    probability_not_achieve_target = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    target_status = models.CharField(max_length=30, blank=True, default="")
+    risk_status = models.CharField(max_length=30, blank=True, default="")
+    worst_case_value = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    baseline_value = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    best_case_value = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    var_95 = models.DecimalField(max_digits=24, decimal_places=4, default=0)
+    requires_mitigation = models.BooleanField(default=False)
     status_hasil = models.CharField(max_length=20, null=True, blank=True)
 
     history_snapshot = models.JSONField(default=list, blank=True)
@@ -173,6 +187,48 @@ class RiskMetric(models.Model):
         verbose_name="Threshold Risiko",
         help_text="Nilai batas risiko (untuk normalisasi ke 0–100)"
     )
+    is_target_metric = models.BooleanField(
+        default=False,
+        verbose_name="Metric Target Utama",
+        help_text="Aktifkan untuk metric utama yang dihitung terhadap target RKAP.",
+    )
+    rkap_item = models.ForeignKey(
+        "risk.RKAPItem",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="risk_metrics",
+        verbose_name="Sumber Target RKAP",
+        help_text="Pilih item RKAP agar target otomatis diambil dari tabel RKAP.",
+    )
+    target_value = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        blank=True,
+        null=True,
+        verbose_name="Target RKAP Override",
+        help_text="Opsional. Jika kosong, sistem memakai target dari Sumber Target RKAP, lalu target histori terakhir.",
+    )
+    average_selling_price = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        default=0,
+        verbose_name="Harga Jual Rata-rata",
+        help_text="Digunakan untuk menghitung potential loss = gap x harga jual rata-rata.",
+    )
+    risk_appetite_threshold = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=20,
+        verbose_name="Risk Appetite Probabilitas Tidak Tercapai (%)",
+    )
+    risk_appetite_value = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        blank=True,
+        null=True,
+        verbose_name="Risk Appetite Nilai Kerugian",
+    )
     is_active = models.BooleanField(
         default=True,
         verbose_name="Aktif",
@@ -196,6 +252,25 @@ class RiskMetric(models.Model):
 
     def __str__(self):
         return f"{self.corporate_risk_item} - {self.name}"
+
+    @property
+    def effective_target_value(self):
+        if self.rkap_item_id and self.rkap_item and self.rkap_item.target is not None:
+            return self.rkap_item.target
+        return self.target_value
+
+    def clean(self):
+        errors = {}
+        if self.target_value is not None and self.target_value <= 0:
+            errors["target_value"] = "Target RKAP harus lebih besar dari 0."
+        if self.average_selling_price is not None and self.average_selling_price < 0:
+            errors["average_selling_price"] = "Harga jual rata-rata tidak boleh negatif."
+        if self.risk_appetite_threshold is not None and not (0 <= self.risk_appetite_threshold <= 100):
+            errors["risk_appetite_threshold"] = "Risk appetite probabilitas harus berada antara 0 sampai 100."
+        if self.risk_appetite_value is not None and self.risk_appetite_value < 0:
+            errors["risk_appetite_value"] = "Risk appetite nilai kerugian tidak boleh negatif."
+        if errors:
+            raise ValidationError(errors)
     
 
 class MonteCarloMetricHistory(models.Model):
@@ -250,6 +325,19 @@ class MonteCarloMetricHistory(models.Model):
 
 
 class MultiMetricMonteCarloResult(models.Model):
+    FORECASTING_METHOD_CHOICES = (
+        ("best_fit_normal_growth", "Best Fit - Normal Growth Monte Carlo"),
+        ("double_exponential_smoothing", "Double Exponential Smoothing"),
+        ("moving_average", "Moving Average"),
+        ("linear_trend", "Linear Trend"),
+    )
+
+    PREDICTION_INTERVAL_CHOICES = (
+        ("5_95", "5% dan 95%"),
+        ("10_90", "10% dan 90%"),
+        ("20_80", "20% dan 80%"),
+    )
+
     corporate_risk_item = models.ForeignKey(
         "risk.ProfilRisikoKorporatItem",
         on_delete=models.CASCADE,
@@ -274,6 +362,28 @@ class MultiMetricMonteCarloResult(models.Model):
         default=80,
         verbose_name="Scenario Percentile",
     )
+    forecasting_method = models.CharField(
+        max_length=40,
+        choices=FORECASTING_METHOD_CHOICES,
+        default="best_fit_normal_growth",
+        verbose_name="Pilihan Forecasting / Prediksi Time Series",
+    )
+    forecast_periods = models.PositiveSmallIntegerField(
+        default=9,
+        verbose_name="Periods to Forecast",
+        help_text="Jumlah periode/bulan ke depan yang diproyeksikan.",
+    )
+    prediction_interval = models.CharField(
+        max_length=10,
+        choices=PREDICTION_INTERVAL_CHOICES,
+        default="5_95",
+        verbose_name="Prediction Interval",
+    )
+    n_simulations = models.PositiveIntegerField(
+        default=10000,
+        verbose_name="Monte Carlo Trials",
+        help_text="Standar Crystal Ball biasanya 10,000 trials.",
+    )
     composite_score = models.DecimalField(
         max_digits=18,
         decimal_places=4,
@@ -286,6 +396,20 @@ class MultiMetricMonteCarloResult(models.Model):
         default=0,
         verbose_name="P80 Composite Score",
     )
+    forecast_total = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    target_value = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    target_gap = models.DecimalField(max_digits=24, decimal_places=4, default=0)
+    average_selling_price = models.DecimalField(max_digits=24, decimal_places=4, default=0)
+    potential_loss = models.DecimalField(max_digits=24, decimal_places=4, default=0)
+    probability_achieve_target = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    probability_not_achieve_target = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    target_status = models.CharField(max_length=30, blank=True, default="")
+    risk_status = models.CharField(max_length=30, blank=True, default="")
+    worst_case_value = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    baseline_value = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    best_case_value = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    var_95 = models.DecimalField(max_digits=24, decimal_places=4, default=0)
+    requires_mitigation = models.BooleanField(default=False)
     status_hasil = models.CharField(
         max_length=100,
         blank=True,
@@ -339,5 +463,3 @@ class MultiMetricAIInsightKorporat(models.Model):
 
     def __str__(self):
         return f"AI Insight - {self.multi_metric_result}"
-
-
