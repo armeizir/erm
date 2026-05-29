@@ -963,6 +963,25 @@
         </div>
     </section>
 
+    <section class="prediction-cards">
+        <div class="panel stat-card">
+            <div class="stat-label">Hasil Prediksi</div>
+            <div class="stat-value">{{ risk_prediction_summary.total }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Target Tidak Tercapai</div>
+            <div class="stat-value">{{ risk_prediction_summary.not_achieved }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Perlu Mitigasi</div>
+            <div class="stat-value">{{ risk_prediction_summary.need_mitigation }}</div>
+        </div>
+        <div class="panel stat-card">
+            <div class="stat-label">Rata-rata Prob. Tidak Tercapai</div>
+            <div class="stat-value">{{ risk_prediction_summary.avg_probability_not_achieve|floatformat:1 }}%</div>
+        </div>
+    </section>
+
     <section class="panel table-card" style="margin-bottom:20px;">
         <div class="section-title">
             <h2>
@@ -1569,25 +1588,6 @@
     </section>
 
     {% endif %}
-
-    <section class="prediction-cards">
-        <div class="panel stat-card">
-            <div class="stat-label">Hasil Prediksi</div>
-            <div class="stat-value">{{ risk_prediction_summary.total }}</div>
-        </div>
-        <div class="panel stat-card">
-            <div class="stat-label">Target Tidak Tercapai</div>
-            <div class="stat-value">{{ risk_prediction_summary.not_achieved }}</div>
-        </div>
-        <div class="panel stat-card">
-            <div class="stat-label">Perlu Mitigasi</div>
-            <div class="stat-value">{{ risk_prediction_summary.need_mitigation }}</div>
-        </div>
-        <div class="panel stat-card">
-            <div class="stat-label">Rata-rata Prob. Tidak Tercapai</div>
-            <div class="stat-value">{{ risk_prediction_summary.avg_probability_not_achieve|floatformat:1 }}%</div>
-        </div>
-    </section>
 
     </div>
 
