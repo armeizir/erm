@@ -27,6 +27,14 @@ def blue_badges(items):
     )
 
 
+class StaffCanViewAdminMixin:
+    def has_module_permission(self, request):
+        return request.user.is_active and request.user.is_staff
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_staff
+
+
 class BusinessAreaInline(admin.TabularInline):
     model = BusinessArea
     extra = 0
@@ -50,7 +58,7 @@ class OrganizationUnitInline(admin.TabularInline):
 
 
 @admin.register(CompanyCode)
-class CompanyCodeAdmin(admin.ModelAdmin):
+class CompanyCodeAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
     list_display = ("code", "description", "business_area_badges", "aktif")
     search_fields = ("code", "description", "business_areas__code", "business_areas__description")
     list_filter = ("aktif",)
@@ -62,7 +70,7 @@ class CompanyCodeAdmin(admin.ModelAdmin):
 
 
 @admin.register(BusinessArea)
-class BusinessAreaAdmin(admin.ModelAdmin):
+class BusinessAreaAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
     list_display = ("code", "description", "company", "aktif")
     search_fields = ("code", "description", "company__code", "company__description")
     list_filter = ("company", "aktif")
@@ -70,7 +78,7 @@ class BusinessAreaAdmin(admin.ModelAdmin):
 
 
 @admin.register(PersonnelArea)
-class PersonnelAreaAdmin(admin.ModelAdmin):
+class PersonnelAreaAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
     list_display = ("code", "description", "personnel_sub_area_badges", "aktif")
     search_fields = ("code", "description", "sub_areas__code", "sub_areas__description")
     list_filter = ("aktif",)
@@ -83,7 +91,7 @@ class PersonnelAreaAdmin(admin.ModelAdmin):
 
 
 @admin.register(PersonnelSubArea)
-class PersonnelSubAreaAdmin(admin.ModelAdmin):
+class PersonnelSubAreaAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
     list_display = ("code", "description", "personnel_area", "aktif")
     search_fields = ("code", "description", "personnel_area__code", "personnel_area__description")
     list_filter = ("personnel_area", "aktif")
@@ -91,7 +99,7 @@ class PersonnelSubAreaAdmin(admin.ModelAdmin):
 
 
 @admin.register(Directorate)
-class DirectorateAdmin(admin.ModelAdmin):
+class DirectorateAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
     list_display = ("code", "description", "child_badges", "aktif")
     search_fields = ("code", "description", "organization_units__code", "organization_units__name")
     list_filter = ("aktif",)
@@ -102,7 +110,7 @@ class DirectorateAdmin(admin.ModelAdmin):
 
 
 @admin.register(Division)
-class DivisionAdmin(admin.ModelAdmin):
+class DivisionAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
     list_display = ("code", "description", "child_badges", "aktif")
     search_fields = ("code", "description", "organization_units__code", "organization_units__name")
     list_filter = ("directorate", "aktif")
@@ -114,7 +122,7 @@ class DivisionAdmin(admin.ModelAdmin):
 
 
 @admin.register(OrganizationUnit)
-class OrganizationUnitAdmin(admin.ModelAdmin):
+class OrganizationUnitAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
     list_display = (
         "code",
         "name",

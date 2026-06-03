@@ -1043,6 +1043,39 @@
 
     <section class="panel table-card" style="margin-bottom:20px;">
         <div class="section-title">
+            <h2>Proyeksi Bulanan Multi Metric</h2>
+            <span>Forecast mengikuti contoh Excel: P50/median, P15,8655254, dan STDEV F = P50 - P15,8655254.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Bulan</th>
+                        <th>Forecast Penjualan Bulanan (Median/P50)</th>
+                        <th>Forecast Penjualan Bulanan (P15,8655254)</th>
+                        <th>STDEV F Penjualan</th>
+                        <th>Metric</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in risk_prediction_detail.target_projection_rows %}
+                        <tr>
+                            <td>{% if row.bulan %}{{ row.bulan }}{% else %}Bulan-{{ row.bulan_index }}{% endif %}</td>
+                            <td>{{ row.forecast_median|floatformat:"0g" }}</td>
+                            <td>{{ row.forecast_p15|floatformat:"0g" }}</td>
+                            <td>{{ row.stdev_f|floatformat:"0g" }}</td>
+                            <td>{{ row.metric_name }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="5"><div class="empty-state">Belum ada proyeksi bulanan target. Generate ulang Multi Metric Monte Carlo Result.</div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel table-card" style="margin-bottom:20px;">
+        <div class="section-title">
             <h2>
                 <span class="process-marker process-marker-heading" aria-label="Point 4 Analisis statistik">
                     <span class="process-marker-number">4</span>
