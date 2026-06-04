@@ -25,6 +25,7 @@ from masterdata.models import TahunBuku
 from risk.models import (
     MasterSkalaDampak,
     MasterSkalaProbabilitas,
+    PenugasanUnitBisnis,
     ReAssessmentItem,
     ReAssessmentSummary,
     RiskMatrix,
@@ -79,6 +80,27 @@ def _get_selected_reassessment_id(request):
         if key in request.GET:
             return request.GET.get(key)
     return None
+
+
+def _assigned_unit_businesses_for_user(user):
+    if not user.is_authenticated:
+        return PenugasanUnitBisnis.objects.none().values_list("unit_bisnis_id", flat=True)
+    if user.is_superuser:
+        from django.contrib.auth.models import Group
+
+        return Group.objects.all()
+    return PenugasanUnitBisnis.objects.filter(
+        user=user,
+        aktif=True,
+    ).values_list("unit_bisnis_id", flat=True)
+
+
+def _limit_by_assigned_units(request, queryset, unit_lookup):
+    if request.user.is_superuser:
+        return queryset
+    return queryset.filter(
+        **{f"{unit_lookup}__in": _assigned_unit_businesses_for_user(request.user)}
+    )
 
 
 class MonthlyRiskReportItemInline(admin.StackedInline):
@@ -388,7 +410,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         reassessment_id = request.GET.get("reassessment")
         queryset = ReAssessmentItem.objects.none()
         if reassessment_id:
-            queryset = ReAssessmentItem.objects.filter(summary_id=reassessment_id).order_by(
+            queryset = _limit_by_assigned_units(
+                request,
+                ReAssessmentItem.objects.filter(summary_id=reassessment_id),
+                "summary__unit_bisnis",
+            ).order_by(
                 "no_item",
                 "no_risiko",
                 "no_penyebab_risiko",
@@ -411,9 +437,13 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "reassessment":
-            kwargs["queryset"] = ReAssessmentSummary.objects.select_related(
+            kwargs["queryset"] = _limit_by_assigned_units(
+                request,
+                ReAssessmentSummary.objects.select_related(
+                    "unit_bisnis",
+                    "kontrak_manajemen",
+                ),
                 "unit_bisnis",
-                "kontrak_manajemen",
             ).order_by("-tahun", "unit_bisnis__name", "judul")
             formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
             formfield.label = "Profil Risiko Bidang/Unit Bisnis"
@@ -448,6 +478,13 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 },
             )
         super().save_model(request, obj, form, change)
+
+    def get_queryset(self, request):
+        return _limit_by_assigned_units(
+            request,
+            super().get_queryset(request),
+            "reassessment__unit_bisnis",
+        )
 
     @admin.display(description="Bulan Laporan", ordering="periode__tanggal_mulai")
     def bulan_laporan_display(self, obj):
@@ -486,6 +523,13 @@ class MonthlyRiskReportItemAdmin(admin.ModelAdmin):
     search_fields = ["issue_summary", "next_action", "escalation_note"]
     raw_id_fields = ["report", "km_item"]
 
+    def get_queryset(self, request):
+        return _limit_by_assigned_units(
+            request,
+            super().get_queryset(request),
+            "report__reassessment__unit_bisnis",
+        )
+
     @admin.display(description="Kuartal")
     def quarter_display(self, obj):
         quarter = obj.quarter
@@ -493,13 +537,23 @@ class MonthlyRiskReportItemAdmin(admin.ModelAdmin):
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "risk_event":
-            kwargs["queryset"] = ReAssessmentItem.objects.select_related(
-                "summary",
-                "unit_bisnis",
+            kwargs["queryset"] = _limit_by_assigned_units(
+                request,
+                ReAssessmentItem.objects.select_related(
+                    "summary",
+                    "unit_bisnis",
+                ),
+                "summary__unit_bisnis",
             ).order_by("summary", "no_item", "no_risiko", "no_penyebab_risiko")
             formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
             formfield.label = "Item Risiko Unit/Bidang"
             return formfield
+        if db_field.name == "report":
+            kwargs["queryset"] = _limit_by_assigned_units(
+                request,
+                MonthlyRiskReport.objects.all(),
+                "reassessment__unit_bisnis",
+            )
         if db_field.name == "realisasi_skala_dampak":
             kwargs["queryset"] = MasterSkalaDampak.objects.filter(aktif=True).order_by(
                 "urutan",
@@ -525,6 +579,22 @@ class MonthlyRiskReportKMAlignmentAdmin(admin.ModelAdmin):
     search_fields = ["reason"]
     raw_id_fields = ["report_item", "km_item"]
 
+    def get_queryset(self, request):
+        return _limit_by_assigned_units(
+            request,
+            super().get_queryset(request),
+            "report_item__report__reassessment__unit_bisnis",
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "report_item":
+            kwargs["queryset"] = _limit_by_assigned_units(
+                request,
+                MonthlyRiskReportItem.objects.all(),
+                "report__reassessment__unit_bisnis",
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 @admin.register(MonthlyRiskReportChange, site=risk_admin_site)
 class MonthlyRiskReportChangeAdmin(admin.ModelAdmin):
@@ -540,6 +610,22 @@ class MonthlyRiskReportChangeAdmin(admin.ModelAdmin):
         "penjelasan",
     ]
     raw_id_fields = ["report"]
+
+    def get_queryset(self, request):
+        return _limit_by_assigned_units(
+            request,
+            super().get_queryset(request),
+            "report__reassessment__unit_bisnis",
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "report":
+            kwargs["queryset"] = _limit_by_assigned_units(
+                request,
+                MonthlyRiskReport.objects.all(),
+                "reassessment__unit_bisnis",
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(MonthlyRiskReportLossEvent, site=risk_admin_site)
@@ -566,6 +652,22 @@ class MonthlyRiskReportLossEventAdmin(admin.ModelAdmin):
     ]
     raw_id_fields = ["report"]
 
+    def get_queryset(self, request):
+        return _limit_by_assigned_units(
+            request,
+            super().get_queryset(request),
+            "report__reassessment__unit_bisnis",
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "report":
+            kwargs["queryset"] = _limit_by_assigned_units(
+                request,
+                MonthlyRiskReport.objects.all(),
+                "reassessment__unit_bisnis",
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 @admin.register(MonthlyRiskReportSubmissionLog, site=risk_admin_site)
 class MonthlyRiskReportSubmissionLogAdmin(admin.ModelAdmin):
@@ -578,3 +680,19 @@ class MonthlyRiskReportSubmissionLogAdmin(admin.ModelAdmin):
     list_filter = ["action", "action_at"]
     search_fields = ["note"]
     raw_id_fields = ["report", "action_by"]
+
+    def get_queryset(self, request):
+        return _limit_by_assigned_units(
+            request,
+            super().get_queryset(request),
+            "report__reassessment__unit_bisnis",
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "report":
+            kwargs["queryset"] = _limit_by_assigned_units(
+                request,
+                MonthlyRiskReport.objects.all(),
+                "reassessment__unit_bisnis",
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)

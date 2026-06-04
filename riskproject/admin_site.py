@@ -53,6 +53,7 @@ from risk.models import (
     MasterPosAnggaran,
     MasterSkalaDampak,
     MasterSkalaProbabilitas,
+    PenugasanUnitBisnis,
     RiskMatrix,
     SasaranKBUMN,
     TaksonomiT3,
@@ -107,6 +108,41 @@ class RiskAdminSite(AdminSite):
             if visible_items:
                 visible_sections.append({**section, "items": visible_items})
         return visible_sections
+
+    def _assigned_units_for_user(self, user):
+        if not user.is_authenticated:
+            return Group.objects.none()
+        if user.is_superuser:
+            return Group.objects.all()
+        return Group.objects.filter(
+            penugasan_pengguna__user=user,
+            penugasan_pengguna__aktif=True,
+        ).distinct()
+
+    def _unit_limited_count(self, request, model, unit_lookup):
+        queryset = model.objects.all()
+        if request.user.is_superuser:
+            return queryset.count()
+        return queryset.filter(
+            **{f"{unit_lookup}__in": self._assigned_units_for_user(request.user)}
+        ).count()
+
+    def _dashboard_stat_cards(self, stats, allowed_urls):
+        cards = [
+            ("RKAP", stats["rkap"], "/admin/risk/rkapitem/"),
+            ("Korporat", stats["corporate"], "/admin/risk/profilrisikokorporatsummary/"),
+            ("KM", stats["km"], "/admin/risk/kontrakmanajemen/"),
+            ("RKM", stats["rkm"], "/admin/risk/rkmsummary/"),
+            ("Re-Assessment", stats["reassessment"], "/admin/risk/reassessmentsummary/"),
+            ("KPMR", stats["kpmr"], "/admin/risk/kpmrsummary/"),
+            ("Laporan Bulanan", stats["monthly_report"], reverse("risk_admin:monthly_report_monthlyriskreport_changelist")),
+            ("Organisasi", stats["organization"], reverse("risk_admin:masterdata_organizationunit_changelist")),
+        ]
+        return [
+            {"label": label, "value": value}
+            for label, value, url in cards
+            if url in allowed_urls
+        ]
 
     def _sidebar_sections(self, request):
         allowed_urls = self._allowed_menu_urls(request)
@@ -271,20 +307,24 @@ class RiskAdminSite(AdminSite):
         extra_context = extra_context or {}
 
         stats = {
-            "rkap": RKAPItem.objects.count(),
+            "rkap": self._unit_limited_count(request, RKAPItem, "unit_penanggung_jawab"),
             "corporate": ProfilRisikoKorporatSummary.objects.count(),
-            "km": KontrakManajemen.objects.count(),
+            "km": self._unit_limited_count(request, KontrakManajemen, "unit_bisnis"),
             "template_km": MasterTemplateKM.objects.count(),
-            "rkm": RKMSummary.objects.count(),
-            "reassessment": ReAssessmentSummary.objects.count(),
-            "kpmr": KPMRSummary.objects.count(),
-            "monthly_report": MonthlyRiskReport.objects.count(),
+            "rkm": self._unit_limited_count(request, RKMSummary, "unit_bisnis"),
+            "reassessment": self._unit_limited_count(request, ReAssessmentSummary, "unit_bisnis"),
+            "kpmr": self._unit_limited_count(request, KPMRSummary, "unit_bisnis"),
+            "monthly_report": self._unit_limited_count(
+                request,
+                MonthlyRiskReport,
+                "reassessment__unit_bisnis",
+            ),
             "monthly_report_detail": (
-                MonthlyRiskReportItem.objects.count()
-                + MonthlyRiskReportKMAlignment.objects.count()
-                + MonthlyRiskReportChange.objects.count()
-                + MonthlyRiskReportLossEvent.objects.count()
-                + MonthlyRiskReportSubmissionLog.objects.count()
+                self._unit_limited_count(request, MonthlyRiskReportItem, "report__reassessment__unit_bisnis")
+                + self._unit_limited_count(request, MonthlyRiskReportKMAlignment, "report_item__report__reassessment__unit_bisnis")
+                + self._unit_limited_count(request, MonthlyRiskReportChange, "report__reassessment__unit_bisnis")
+                + self._unit_limited_count(request, MonthlyRiskReportLossEvent, "report__reassessment__unit_bisnis")
+                + self._unit_limited_count(request, MonthlyRiskReportSubmissionLog, "report__reassessment__unit_bisnis")
             ),
             "organization": (
                 CompanyCode.objects.count()
@@ -526,6 +566,7 @@ class RiskAdminSite(AdminSite):
             allowed_urls,
         )
         extra_context["dashboard_stats"] = stats
+        extra_context["dashboard_stat_cards"] = self._dashboard_stat_cards(stats, allowed_urls)
         extra_context["dashboard_sections"] = dashboard_sections
         extra_context["dashboard_visible_levels"] = {
             section["level"]

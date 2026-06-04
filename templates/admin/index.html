@@ -80,38 +80,12 @@
   {% endif %}
 
   <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-label">RKAP</div>
-      <div class="stat-value">{{ dashboard_stats.rkap|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Korporat</div>
-      <div class="stat-value">{{ dashboard_stats.corporate|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">KM</div>
-      <div class="stat-value">{{ dashboard_stats.km|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">RKM</div>
-      <div class="stat-value">{{ dashboard_stats.rkm|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Re-Assessment</div>
-      <div class="stat-value">{{ dashboard_stats.reassessment|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">KPMR</div>
-      <div class="stat-value">{{ dashboard_stats.kpmr|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Laporan Bulanan</div>
-      <div class="stat-value">{{ dashboard_stats.monthly_report|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Organisasi</div>
-      <div class="stat-value">{{ dashboard_stats.organization|default:0 }}</div>
-    </div>
+    {% for card in dashboard_stat_cards %}
+      <div class="stat-card">
+        <div class="stat-label">{{ card.label }}</div>
+        <div class="stat-value">{{ card.value|default:0 }}</div>
+      </div>
+    {% endfor %}
   </div>
 
   {% if "strategic" in dashboard_visible_levels %}
