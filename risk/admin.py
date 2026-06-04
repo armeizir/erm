@@ -214,18 +214,17 @@ class AppSettingAdmin(admin.ModelAdmin):
     )
 
     def has_module_permission(self, request):
-        return request.user.is_active and request.user.is_staff
+        return super().has_module_permission(request)
 
     def has_view_permission(self, request, obj=None):
-        return request.user.is_active and request.user.is_staff
+        return super().has_view_permission(request, obj)
 
     def has_change_permission(self, request, obj=None):
-        return request.user.is_active and request.user.is_staff
+        return super().has_change_permission(request, obj)
 
     def has_add_permission(self, request):
         return (
-            request.user.is_active
-            and request.user.is_staff
+            super().has_add_permission(request)
             and not AppSetting.objects.exists()
         )
 

@@ -63,6 +63,7 @@ class RiskAdminSite(AdminSite):
     site_header = "Manajemen Risiko PLN Batam"
     site_title = "Manajemen Risiko PLN Batam"
     index_title = "Dashboard Enterprise"
+    metric_history_input_url = "/corporate-risk/metric-history-input/"
 
     def each_context(self, request):
         context = super().each_context(request)
@@ -73,14 +74,42 @@ class RiskAdminSite(AdminSite):
         context["sidebar_sections"] = self._sidebar_sections(request)
         return context
 
-    def _sidebar_sections(self, request):
+    def _allowed_menu_urls(self, request):
         allowed_urls = {
             model["admin_url"]
             for app in self.get_app_list(request)
             for model in app.get("models", [])
             if model.get("admin_url")
         }
-        allowed_urls.add("/corporate-risk/metric-history-input/")
+        if self._can_access_metric_history_input(request):
+            allowed_urls.add(self.metric_history_input_url)
+        return allowed_urls
+
+    def _can_access_metric_history_input(self, request):
+        user = request.user
+        return (
+            user.is_active
+            and user.is_staff
+            and (
+                user.has_perm("corporate_risk.add_montecarlometrichistory")
+                or user.has_perm("corporate_risk.change_montecarlometrichistory")
+            )
+        )
+
+    def _filter_dashboard_sections(self, sections, allowed_urls):
+        visible_sections = []
+        for section in sections:
+            visible_items = [
+                nav_item
+                for nav_item in section["items"]
+                if nav_item["url"] in allowed_urls
+            ]
+            if visible_items:
+                visible_sections.append({**section, "items": visible_items})
+        return visible_sections
+
+    def _sidebar_sections(self, request):
+        allowed_urls = self._allowed_menu_urls(request)
 
         def item(label, url):
             return {"label": label, "url": url}
@@ -106,7 +135,7 @@ class RiskAdminSite(AdminSite):
                     {
                         "title": "Monte Carlo Korporat",
                         "items": [
-                            item("Input Histori / Upload Excel", "/corporate-risk/metric-history-input/"),
+                            item("Input Histori / Upload Excel", self.metric_history_input_url),
                             item("Risk Metrics", "/admin/corporate_risk/riskmetric/"),
                             item("Metric History", "/admin/corporate_risk/montecarlometrichistory/"),
                             item("Multi Metric Monte Carlo Results", "/admin/corporate_risk/multimetricmontecarloresult/"),
@@ -296,6 +325,7 @@ class RiskAdminSite(AdminSite):
         sections = [
             {
                 "title": "Pengaturan Sistem",
+                "level": "settings",
                 "color": "settings",
                 "count": stats["settings"],
                 "featured": True,
@@ -316,6 +346,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "RKAP",
+                "level": "strategic",
                 "color": "teal",
                 "count": stats["rkap"],
                 "items": [
@@ -324,6 +355,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "Profil Risiko Korporat",
+                "level": "strategic",
                 "color": "corporate",
                 "count": stats["corporate"],
                 "items": [
@@ -334,10 +366,11 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "Monte Carlo Korporat",
+                "level": "strategic",
                 "color": "montecarlo",
                 "count": stats["monte_carlo"],
                 "items": [
-                    {"label": "Input Histori / Upload Excel", "url": "/corporate-risk/metric-history-input/"},
+                    {"label": "Input Histori / Upload Excel", "url": self.metric_history_input_url},
                     {"label": "Risk Metrics", "url": "/admin/corporate_risk/riskmetric/"},
                     {"label": "Metric History", "url": "/admin/corporate_risk/montecarlometrichistory/"},
                     {"label": "Multi Metric Monte Carlo Results", "url": "/admin/corporate_risk/multimetricmontecarloresult/"},
@@ -346,6 +379,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "Kontrak Manajemen (KM)",
+                "level": "management",
                 "color": "km",
                 "count": stats["km"],
                 "items": [
@@ -356,6 +390,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "Rencana Kerja Manajemen (RKM)",
+                "level": "management",
                 "color": "rkm",
                 "count": stats["rkm"],
                 "items": [
@@ -365,6 +400,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "Profil Risiko Bidang/Unit Bisnis",
+                "level": "operational",
                 "color": "reassessment",
                 "count": stats["reassessment"],
                 "items": [
@@ -374,6 +410,7 @@ class RiskAdminSite(AdminSite):
             }, 
             {
                 "title": "Laporan Risiko Bulanan",
+                "level": "operational",
                 "color": "orange",
                 "count": stats["monthly_report"],
                 "items": [
@@ -405,6 +442,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "KPMR",
+                "level": "evaluation",
                 "color": "kpmr",
                 "count": stats["kpmr"],
                 "items": [
@@ -414,6 +452,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "Master Organisasi",
+                "level": "support",
                 "color": "organization",
                 "count": stats["organization"],
                 "items": [
@@ -449,6 +488,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "Master Data Risiko",
+                "level": "support",
                 "color": "master",
                 "count": stats["masters"],
                 "items": [
@@ -470,6 +510,7 @@ class RiskAdminSite(AdminSite):
             },
             {
                 "title": "Authentication and Authorization",
+                "level": "support",
                 "color": "auth",
                 "count": stats["users"],
                 "items": [
@@ -479,8 +520,17 @@ class RiskAdminSite(AdminSite):
             },
         ]
 
+        allowed_urls = self._allowed_menu_urls(request)
+        dashboard_sections = self._filter_dashboard_sections(
+            sections,
+            allowed_urls,
+        )
         extra_context["dashboard_stats"] = stats
-        extra_context["dashboard_sections"] = sections
+        extra_context["dashboard_sections"] = dashboard_sections
+        extra_context["dashboard_visible_levels"] = {
+            section["level"]
+            for section in dashboard_sections
+        }
         return super().index(request, extra_context=extra_context)
 
 

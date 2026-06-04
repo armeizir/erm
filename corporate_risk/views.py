@@ -6,6 +6,8 @@ from statistics import mean, median, pstdev
 from .models import MonteCarloKorporatResult
 
 from django.contrib import messages
+from django.contrib.admin.views.decorators import staff_member_required
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.forms import modelformset_factory
@@ -16,6 +18,22 @@ from masterdata.models import PeriodeLaporan
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+
+
+def _can_manage_metric_history(user):
+    return (
+        user.is_active
+        and user.is_staff
+        and (
+            user.has_perm("corporate_risk.add_montecarlometrichistory")
+            or user.has_perm("corporate_risk.change_montecarlometrichistory")
+        )
+    )
+
+
+def _require_metric_history_permission(request):
+    if not _can_manage_metric_history(request.user):
+        raise PermissionDenied
 
 
 def _normalize_header(value):
@@ -193,7 +211,9 @@ def monte_carlo_result_chart(request, pk):
     }
     return render(request, "corporate_risk/monte_carlo_chart.html", context)
 
+@staff_member_required
 def bulk_metric_input(request, metric_id):
+    _require_metric_history_permission(request)
     metric = get_object_or_404(RiskMetric, id=metric_id)
 
     HistoryFormSet = modelformset_factory(
@@ -293,7 +313,9 @@ def bulk_metric_input(request, metric_id):
     })
 
 
+@staff_member_required
 def metric_history_input_menu(request):
+    _require_metric_history_permission(request)
     metrics = (
         RiskMetric.objects
         .select_related("corporate_risk_item")

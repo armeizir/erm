@@ -757,6 +757,18 @@ class RiskMetricAdmin(admin.ModelAdmin):
         }),
     )
 
+    def get_list_display(self, request):
+        if (
+            request.user.has_perm("corporate_risk.add_montecarlometrichistory")
+            or request.user.has_perm("corporate_risk.change_montecarlometrichistory")
+        ):
+            return self.list_display
+        return tuple(
+            field
+            for field in self.list_display
+            if field != "input_history_button"
+        )
+
     def input_history_button(self, obj):
         url = f"/corporate-risk/metric/{obj.pk}/bulk-input/"
         return format_html('<a class="button" href="{}">Input Histori</a>', url)

@@ -53,29 +53,31 @@
     </div>
   </div>
 
-  <div class="dashboard-level">Pengaturan</div>
-  <div class="section-grid settings-callout">
-    {% for section in dashboard_sections %}
-      {% if section.featured %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "settings" in dashboard_visible_levels %}
+    <div class="dashboard-level">Pengaturan</div>
+    <div class="section-grid settings-callout">
+      {% for section in dashboard_sections %}
+        {% if section.level == "settings" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
   <div class="stats-grid">
     <div class="stat-card">
@@ -112,124 +114,134 @@
     </div>
   </div>
 
-  <div class="dashboard-level">Strategic Level</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if not section.featured and forloop.counter <= 4 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "strategic" in dashboard_visible_levels %}
+    <div class="dashboard-level">Strategic Level</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "strategic" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
-  <div class="dashboard-level">Management Level</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if not section.featured and forloop.counter > 4 and forloop.counter <= 6 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "management" in dashboard_visible_levels %}
+    <div class="dashboard-level">Management Level</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "management" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
-  <div class="dashboard-level">Operational Level</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if not section.featured and forloop.counter > 6 and forloop.counter <= 8 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "operational" in dashboard_visible_levels %}
+    <div class="dashboard-level">Operational Level</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "operational" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
-  <div class="dashboard-level">Evaluation Level</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if not section.featured and forloop.counter > 8 and forloop.counter <= 9 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "evaluation" in dashboard_visible_levels %}
+    <div class="dashboard-level">Evaluation Level</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "evaluation" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
-  <div class="dashboard-level">Support Modules</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if not section.featured and forloop.counter > 9 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "support" in dashboard_visible_levels %}
+    <div class="dashboard-level">Support Modules</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "support" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 </div>
 {% endblock %}
