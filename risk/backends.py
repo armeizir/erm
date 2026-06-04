@@ -179,8 +179,8 @@ class PLNLDAPBackend(BaseBackend):
 
 class SuperuserOnlyModelBackend(ModelBackend):
     """
-    Fallback login lokal hanya untuk superuser.
-    User biasa tidak boleh login dengan password lokal.
+    Fallback login lokal untuk admin Django.
+    User harus aktif dan berstatus staff agar bisa masuk ke admin.
     """
     def authenticate(self, request, username=None, password=None, **kwargs):
         user = super().authenticate(
@@ -189,6 +189,6 @@ class SuperuserOnlyModelBackend(ModelBackend):
             password=password,
             **kwargs
         )
-        if user and user.is_superuser:
+        if user and user.is_active and user.is_staff:
             return user
         return None
