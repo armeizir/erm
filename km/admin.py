@@ -1,8 +1,6 @@
 from django.contrib import admin
 from django import forms
 
-from riskproject.admin_site import risk_admin_site
-
 from .models import (
     KontrakManajemen,
     KontrakManajemenBagian,
@@ -63,15 +61,3 @@ class KontrakManajemenTargetPeriodeAdmin(admin.ModelAdmin):
     list_display = ("km_item", "periode", "target_nilai", "realisasi_nilai", "nilai_capaian")
     list_filter = ("periode",)
     search_fields = ("km_item__indikator", "km_item__no_urut")
-
-
-for model, model_admin in (
-    (KontrakManajemen, KontrakManajemenAdmin),
-    (KontrakManajemenBagian, KontrakManajemenBagianAdmin),
-    (KontrakManajemenItem, KontrakManajemenItemAdmin),
-    (KontrakManajemenTargetPeriode, KontrakManajemenTargetPeriodeAdmin),
-):
-    try:
-        risk_admin_site.register(model, model_admin)
-    except admin.sites.AlreadyRegistered:
-        pass

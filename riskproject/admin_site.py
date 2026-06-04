@@ -186,10 +186,6 @@ class RiskAdminSite(AdminSite):
                     {
                         "title": "Kontrak Manajemen (KM)",
                         "items": [
-                            item("Kontrak Manajemen", "/admin/km/kontrakmanajemen/"),
-                            item("Bagian Kontrak Manajemen", "/admin/km/kontrakmanajemenbagian/"),
-                            item("Item Kontrak Manajemen", "/admin/km/kontrakmanajemenitem/"),
-                            item("Target Periode KM", "/admin/km/kontrakmanajementargetperiode/"),
                             item("Template KM", "/admin/risk/mastertemplatekm/"),
                             item("Kontrak Manajemen Unit/Bidang", "/admin/risk/kontrakmanajemen/"),
                             item("Item Kontrak Manajemen", "/admin/risk/itemkontrakmanajemen/"),
@@ -427,10 +423,6 @@ class RiskAdminSite(AdminSite):
                 "color": "km",
                 "count": stats["km"],
                 "items": [
-                    {"label": "Kontrak Manajemen", "url": "/admin/km/kontrakmanajemen/"},
-                    {"label": "Bagian Kontrak Manajemen", "url": "/admin/km/kontrakmanajemenbagian/"},
-                    {"label": "Item Kontrak Manajemen", "url": "/admin/km/kontrakmanajemenitem/"},
-                    {"label": "Target Periode KM", "url": "/admin/km/kontrakmanajementargetperiode/"},
                     {"label": "Template KM", "url": "/admin/risk/mastertemplatekm/"},
                     {"label": "Kontrak Manajemen Unit/Bidang", "url": "/admin/risk/kontrakmanajemen/"},
                     {"label": "Item Kontrak Manajemen", "url": "/admin/risk/itemkontrakmanajemen/"},

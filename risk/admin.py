@@ -585,6 +585,47 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
     search_fields = ("judul", "unit_bisnis__name", "template__nama")
     ordering = ("-tahun", "judul")
 
+    def _has_km_permission(self, request, action):
+        return (
+            request.user.has_perm(f"risk.{action}_kontrakmanajemen")
+            or request.user.has_perm(f"km.{action}_kontrakmanajemen")
+        )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def has_module_permission(self, request):
+        return self._has_km_permission(request, "view")
+
+    def has_view_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "view") or self._has_km_permission(request, "change")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "change")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_add_permission(self, request):
+        return self._has_km_permission(request, "add")
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "delete")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser and db_field.name == "unit_bisnis":
+            kwargs["queryset"] = assigned_unit_businesses_for_user(request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
     def save_model(self, request, obj, form, change):
         is_new = obj.pk is None
         super().save_model(request, obj, form, change)
@@ -1125,6 +1166,51 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
         "target",
         "polaritas",
     )
+
+    def _has_km_permission(self, request, action):
+        return (
+            request.user.has_perm(f"risk.{action}_itemkontrakmanajemen")
+            or request.user.has_perm(f"km.{action}_kontrakmanajemenitem")
+        )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(
+            kontrak__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+        )
+
+    def has_module_permission(self, request):
+        return self._has_km_permission(request, "view")
+
+    def has_view_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "view") or self._has_km_permission(request, "change")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.kontrak.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "change")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.kontrak.unit_bisnis_id)
+
+    def has_add_permission(self, request):
+        return self._has_km_permission(request, "add")
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "delete")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.kontrak.unit_bisnis_id)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser and db_field.name == "kontrak":
+            kwargs["queryset"] = KontrakManajemen.objects.filter(
+                unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_model(self, request, obj, form, change):
 
