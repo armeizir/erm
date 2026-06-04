@@ -3,6 +3,7 @@ from django.contrib import admin, messages
 from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin, UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group, User
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -1251,6 +1252,21 @@ class RKMItemInline(admin.TabularInline):
     )
     ordering = ("no_item",)
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(
+            summary__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser and db_field.name == "km_item":
+            kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
+                kontrak__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 @admin.register(RKMSummary)
 class RKMSummaryAdmin(admin.ModelAdmin):
@@ -1307,6 +1323,47 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         ]
         return custom_urls + urls
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def get_list_filter(self, request):
+        if request.user.is_superuser:
+            return self.list_filter
+        return tuple(
+            item for item in self.list_filter if item != "unit_bisnis"
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser:
+            if db_field.name == "unit_bisnis":
+                kwargs["queryset"] = assigned_unit_businesses_for_user(request.user)
+            elif db_field.name == "kontrak_manajemen":
+                kwargs["queryset"] = KontrakManajemen.objects.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+                )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
     def generate_button(self, obj):
         url = reverse("admin:risk_rkmsummary_generate_items", args=[obj.pk])
         return format_html('<a class="button" href="{}">Generate RKM dari KM</a>', url)
@@ -1314,6 +1371,8 @@ class RKMSummaryAdmin(admin.ModelAdmin):
 
     def generate_items_view(self, request, rkm_id, *args, **kwargs):
         rkm = get_object_or_404(RKMSummary, pk=rkm_id)
+        if not user_can_access_unit(request, rkm.unit_bisnis_id):
+            raise PermissionDenied
         created_count = rkm.generate_items_from_km()
 
         self.message_user(
@@ -1344,6 +1403,49 @@ class RKMItemAdmin(admin.ModelAdmin):
         "sasaran",
     )
     ordering = ("summary", "no_item")
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(summary__unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def get_list_filter(self, request):
+        if request.user.is_superuser:
+            return self.list_filter
+        return tuple(
+            item for item in self.list_filter if item != "summary__unit_bisnis"
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser:
+            if db_field.name == "summary":
+                kwargs["queryset"] = RKMSummary.objects.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+                )
+            elif db_field.name == "km_item":
+                kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
+                    kontrak__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+                )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
 
 
 # =========================================================
