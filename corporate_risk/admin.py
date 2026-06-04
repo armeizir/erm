@@ -2110,6 +2110,26 @@ class MultiMetricAIInsightKorporatAdmin(admin.ModelAdmin):
     )
 
 try:
+    risk_admin_site.register(MonteCarloKorporatConfig, MonteCarloKorporatConfigAdmin)
+except Exception:
+    pass
+
+try:
+    risk_admin_site.register(MonteCarloKorporatHistory, MonteCarloKorporatHistoryAdmin)
+except Exception:
+    pass
+
+try:
+    risk_admin_site.register(MonteCarloKorporatResult, MonteCarloKorporatResultAdmin)
+except Exception:
+    pass
+
+try:
+    risk_admin_site.register(AIInsightKorporat, AIInsightKorporatAdmin)
+except Exception:
+    pass
+
+try:
     risk_admin_site.register(MonteCarloMetricHistory, MonteCarloMetricHistoryAdmin)
 except Exception:
     pass
