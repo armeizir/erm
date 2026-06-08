@@ -136,12 +136,29 @@ class PenugasanUnitBisnisGroupInline(admin.TabularInline):
 @admin.register(Group)
 class CustomGroupAdmin(BaseGroupAdmin):
     inlines = [PenugasanUnitBisnisGroupInline]
-    list_display = ("name",)
+    list_display = ("name", "jenis_group", "jumlah_permission")
+    list_filter = ("permissions__content_type__app_label",)
     search_fields = ("name",)
     ordering = ("name",)
 
     def get_queryset(self, request):
-        return super().get_queryset(request).order_by("name")
+        return super().get_queryset(request).prefetch_related("permissions").order_by("name")
+
+    def get_inline_instances(self, request, obj=None):
+        if obj and self._is_permission_role(obj):
+            return []
+        return super().get_inline_instances(request, obj)
+
+    def _is_permission_role(self, obj):
+        return str(obj.name or "").startswith("ROLE - ")
+
+    @admin.display(description="Jenis")
+    def jenis_group(self, obj):
+        return "Role Permission" if self._is_permission_role(obj) else "Bidang / Unit Bisnis"
+
+    @admin.display(description="Permissions")
+    def jumlah_permission(self, obj):
+        return obj.permissions.count()
 
 
 class AppSettingForm(forms.ModelForm):
