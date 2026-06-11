@@ -1870,7 +1870,7 @@ class KPMRSummaryAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
         self.message_user(
             request,
-            "KPMR berhasil disimpan dan item dihitung otomatis dari Re-Assessment.",
+            "KPMR berhasil disimpan dan item dihitung otomatis dari Profil Risiko Bidang/Unit Bisnis.",
             level=messages.SUCCESS,
         )
 

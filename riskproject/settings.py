@@ -44,7 +44,7 @@ INSTALLED_APPS = [
     'core',
     'masterdata',
     'km',
-    'reassessment',
+    'reassessment.apps.ReassessmentConfig',
     'kpmr',
     'imports',
     'monthly_report',

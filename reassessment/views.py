@@ -15,7 +15,7 @@ def submit_reassessment(request, pk):
     note = request.POST.get("note", "")
     try:
         ReAssessmentWorkflowService.submit(obj, request.user, note=note)
-        messages.success(request, "ReAssessment berhasil di-submit.")
+        messages.success(request, "Profil Risiko berhasil di-submit.")
     except ValidationError as e:
         messages.error(request, "; ".join(e.messages))
     return redirect(request.META.get("HTTP_REFERER", "/admin/"))
@@ -28,7 +28,7 @@ def start_rkm_review(request, pk):
 
     try:
         ReAssessmentWorkflowService.start_rkm_review(obj, request.user, note=note)
-        messages.success(request, "ReAssessment masuk tahap review RKM.")
+        messages.success(request, "Profil Risiko masuk tahap review RKM.")
     except ValidationError as e:
         messages.error(request, "; ".join(e.messages))
     except Exception as e:
@@ -45,7 +45,7 @@ def start_km_review(request, pk):
 
     try:
         ReAssessmentWorkflowService.start_km_review(obj, request.user, note=note)
-        messages.success(request, "ReAssessment masuk tahap review KM.")
+        messages.success(request, "Profil Risiko masuk tahap review KM.")
     except ValidationError as e:
         messages.error(request, "; ".join(e.messages))
     except Exception as e:
@@ -61,7 +61,7 @@ def approve_rkm(request, pk):
     note = request.POST.get("note", "")
     try:
         ReAssessmentWorkflowService.approve_rkm(obj, request.user, note=note)
-        messages.success(request, "ReAssessment berhasil di-approve pada level RKM.")
+        messages.success(request, "Profil Risiko berhasil di-approve pada level RKM.")
     except ValidationError as e:
         messages.error(request, "; ".join(e.messages))
     return redirect(request.META.get("HTTP_REFERER", "/admin/"))
@@ -74,7 +74,7 @@ def reject_rkm(request, pk):
     note = request.POST.get("note", "")
     try:
         ReAssessmentWorkflowService.reject_rkm(obj, request.user, note=note)
-        messages.success(request, "ReAssessment dikembalikan ke unit.")
+        messages.success(request, "Profil Risiko dikembalikan ke unit.")
     except ValidationError as e:
         messages.error(request, "; ".join(e.messages))
     return redirect(request.META.get("HTTP_REFERER", "/admin/"))
@@ -88,7 +88,7 @@ def approve_km(request, pk):
     escalate = request.POST.get("escalate") == "1"
     try:
         ReAssessmentWorkflowService.approve_km(obj, request.user, note=note, escalate=escalate)
-        messages.success(request, "ReAssessment berhasil di-approve pada level KM.")
+        messages.success(request, "Profil Risiko berhasil di-approve pada level KM.")
     except ValidationError as e:
         messages.error(request, "; ".join(e.messages))
     return redirect(request.META.get("HTTP_REFERER", "/admin/"))
@@ -101,7 +101,7 @@ def reject_km(request, pk):
     note = request.POST.get("note", "")
     try:
         ReAssessmentWorkflowService.reject_km(obj, request.user, note=note)
-        messages.success(request, "ReAssessment ditolak pada level KM.")
+        messages.success(request, "Profil Risiko ditolak pada level KM.")
     except ValidationError as e:
         messages.error(request, "; ".join(e.messages))
     return redirect(request.META.get("HTTP_REFERER", "/admin/"))
@@ -114,7 +114,7 @@ def lock_reassessment(request, pk):
     note = request.POST.get("note", "")
     try:
         ReAssessmentWorkflowService.lock(obj, request.user, note=note)
-        messages.success(request, "ReAssessment berhasil di-lock.")
+        messages.success(request, "Profil Risiko berhasil di-lock.")
     except ValidationError as e:
         messages.error(request, "; ".join(e.messages))
     return redirect(request.META.get("HTTP_REFERER", "/admin/"))

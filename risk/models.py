@@ -999,7 +999,7 @@ class RKMSummary(models.Model):
     deadline_pengajuan = models.DateField(
         null=True,
         blank=True,
-        verbose_name="Deadline Pengajuan Re-Assessment",
+        verbose_name="Deadline Pengajuan Profil Risiko",
     )
 
     tanggal_pengajuan = models.DateField(
@@ -1147,11 +1147,11 @@ class RKMItem(models.Model):
         super().save(*args, **kwargs)
 
 # =========================================================
-# PROFIL RISIKO UNIT / BIDANG (RE-ASSESSMENT)
+# PROFIL RISIKO UNIT / BIDANG
 # =========================================================
 
 class ReAssessmentSummary(models.Model):
-    judul = models.CharField(max_length=200, verbose_name="Judul Re-Assessment")
+    judul = models.CharField(max_length=200, verbose_name="Judul Profil Risiko")
     tahun = models.PositiveIntegerField(verbose_name="Tahun")
     unit_bisnis = models.ForeignKey(
         Group,
@@ -1185,7 +1185,7 @@ class ReAssessmentSummary(models.Model):
 
     class Meta:
         verbose_name = "Profil Risiko Unit/Bidang"
-        verbose_name_plural = "TRANSAKSI UNIT — Profil Risiko (Re-Assessment)"
+        verbose_name_plural = "TRANSAKSI UNIT - Profil Risiko Bidang/Unit Bisnis"
         ordering = ["-tahun", "judul"]
 
     def __str__(self):
@@ -1629,7 +1629,7 @@ class ReAssessmentItem(models.Model):
 
     class Meta:
         verbose_name = "Item Risiko Unit/Bidang"
-        verbose_name_plural = "TRANSAKSI UNIT — Item Re-Assessment"
+        verbose_name_plural = "TRANSAKSI UNIT - Item Risiko Bidang/Unit Bisnis"
         ordering = ["summary", "no_item", "no_risiko"]
         constraints = [
             models.UniqueConstraint(
@@ -1648,12 +1648,12 @@ class ReAssessmentItem(models.Model):
         if self.summary and self.summary.rkm:
             if self.summary.rkm.unit_bisnis_id != self.unit_bisnis_id:
                 raise ValidationError(
-                    "Unit bisnis Re-Assessment harus sama dengan unit bisnis RKM."
+                    "Unit bisnis Profil Risiko harus sama dengan unit bisnis RKM."
                 )
 
             if self.summary.rkm.kontrak_manajemen_id != self.summary.kontrak_manajemen_id:
                 raise ValidationError(
-                    "Kontrak Manajemen Re-Assessment harus sama dengan Kontrak Manajemen pada RKM."
+                    "Kontrak Manajemen Profil Risiko harus sama dengan Kontrak Manajemen pada RKM."
                 )
         
     def _get_active_matrix(self):
@@ -1782,7 +1782,7 @@ class KPMRSummary(models.Model):
         ReAssessmentSummary,
         on_delete=models.PROTECT,
         related_name="kpmr_summary",
-        verbose_name="Re-Assessment",
+        verbose_name="Profil Risiko Bidang/Unit Bisnis",
     )
     dibuat_pada = models.DateTimeField(auto_now_add=True, verbose_name="Dibuat Pada")
 
@@ -1837,7 +1837,7 @@ class KPMRSummary(models.Model):
             notes.append("Output perlakuan risiko belum diisi")
 
         if not notes:
-            return "Dihitung otomatis dari Re-Assessment"
+            return "Dihitung otomatis dari Profil Risiko"
 
         return "; ".join(notes)
 
@@ -1913,7 +1913,7 @@ class KPMRItem(models.Model):
         ReAssessmentItem,
         on_delete=models.PROTECT,
         related_name="kpmr_item",
-        verbose_name="Re-Assessment Item",
+        verbose_name="Item Risiko Bidang/Unit Bisnis",
     )
     perlakuan_risiko = models.TextField(blank=True, null=True, verbose_name="Perlakuan Risiko")
     bukti = models.TextField(blank=True, null=True, verbose_name="Bukti")
@@ -2449,7 +2449,7 @@ class ProfilRisikoKorporatSumber(models.Model):
         ReAssessmentItem,
         on_delete=models.PROTECT,
         related_name="mendukung_risiko_korporat",
-        verbose_name="Risiko Bidang / Unit (Re-Assessment)",
+        verbose_name="Risiko Bidang / Unit",
     )
 
     no_penyebab_risiko = models.CharField(

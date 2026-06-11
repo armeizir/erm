@@ -98,6 +98,8 @@ class ReAssessment(TimeStampedModel):
 
     class Meta:
         db_table = "ra_reassessment"
+        verbose_name = "Profil Risiko Bidang/Unit Bisnis"
+        verbose_name_plural = "Profil Risiko Bidang/Unit Bisnis"
         unique_together = [("tahun_buku", "periode", "unit", "versi")]
 
     def __str__(self):
@@ -131,13 +133,13 @@ class ReAssessment(TimeStampedModel):
         if self.kontrak_manajemen_id and self.unit_id:
             if self.kontrak_manajemen.unit_id != self.unit_id:
                 raise ValidationError(
-                    "Unit ReAssessment harus sama dengan unit pada Kontrak Manajemen."
+                    "Unit Profil Risiko harus sama dengan unit pada Kontrak Manajemen."
                 )
 
         if self.kontrak_manajemen_id and self.tahun_buku_id:
             if self.kontrak_manajemen.tahun_buku_id != self.tahun_buku_id:
                 raise ValidationError(
-                    "Tahun buku ReAssessment harus sama dengan tahun buku Kontrak Manajemen."
+                    "Tahun buku Profil Risiko harus sama dengan tahun buku Kontrak Manajemen."
                 )
 
 
@@ -221,6 +223,8 @@ class RiskEvent(TimeStampedModel):
 
     class Meta:
         db_table = "ra_risk_event"
+        verbose_name = "Item Risiko Bidang/Unit Bisnis"
+        verbose_name_plural = "Item Risiko Bidang/Unit Bisnis"
         unique_together = [("reassessment", "no_risiko")]
         ordering = ["reassessment", "no_item"]
 
@@ -238,7 +242,7 @@ class RiskEvent(TimeStampedModel):
         if self.risk_owner_id and self.reassessment_id:
             if self.risk_owner_id != self.reassessment.unit_id:
                 raise ValidationError(
-                    "Risk owner harus sama dengan unit ReAssessment."
+                    "Risk owner harus sama dengan unit Profil Risiko."
                 )
 
 
@@ -255,6 +259,8 @@ class RiskCause(models.Model):
 
     class Meta:
         db_table = "ra_risk_cause"
+        verbose_name = "Penyebab Risiko"
+        verbose_name_plural = "Penyebab Risiko"
         ordering = ["risk_event", "urutan"]
 
     def __str__(self):
@@ -292,6 +298,8 @@ class RiskIndicator(models.Model):
 
     class Meta:
         db_table = "ra_risk_indicator"
+        verbose_name = "Key Risk Indicator"
+        verbose_name_plural = "Key Risk Indicator"
 
     def __str__(self):
         return self.nama_kri
@@ -325,6 +333,8 @@ class ExistingControl(models.Model):
 
     class Meta:
         db_table = "ra_existing_control"
+        verbose_name = "Existing Control"
+        verbose_name_plural = "Existing Control"
 
     def __str__(self):
         return self.nama_control
@@ -364,6 +374,8 @@ class RiskAssessment(TimeStampedModel):
 
     class Meta:
         db_table = "ra_risk_assessment"
+        verbose_name = "Penilaian Risiko"
+        verbose_name_plural = "Penilaian Risiko"
         unique_together = [("risk_event", "periode", "risk_type")]
 
     def __str__(self):
@@ -417,6 +429,8 @@ class TreatmentPlan(TimeStampedModel):
 
     class Meta:
         db_table = "ra_treatment_plan"
+        verbose_name = "Rencana Perlakuan Risiko"
+        verbose_name_plural = "Rencana Perlakuan Risiko"
 
     def __str__(self):
         return f"Treatment - {self.risk_event.no_risiko}"
@@ -435,6 +449,8 @@ class TreatmentTimeline(models.Model):
 
     class Meta:
         db_table = "ra_treatment_timeline"
+        verbose_name = "Timeline Perlakuan Risiko"
+        verbose_name_plural = "Timeline Perlakuan Risiko"
         unique_together = [("treatment_plan", "bulan_ke")]
 
     def __str__(self):
@@ -470,6 +486,8 @@ class TreatmentProgress(models.Model):
 
     class Meta:
         db_table = "ra_treatment_progress"
+        verbose_name = "Progress Perlakuan Risiko"
+        verbose_name_plural = "Progress Perlakuan Risiko"
         unique_together = [("treatment_plan", "periode")]
 
     def __str__(self):
@@ -518,6 +536,8 @@ class ReAssessmentWorkflowLog(models.Model):
 
     class Meta:
         db_table = "ra_workflow_log"
+        verbose_name = "Log Workflow Profil Risiko"
+        verbose_name_plural = "Log Workflow Profil Risiko"
         ordering = ["-acted_at"]
 
     def __str__(self):

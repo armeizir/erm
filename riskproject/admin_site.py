@@ -133,7 +133,7 @@ class RiskAdminSite(AdminSite):
             ("Korporat", stats["corporate"], "/admin/risk/profilrisikokorporatsummary/"),
             ("KM", stats["km"], "/admin/risk/kontrakmanajemen/"),
             ("RKM", stats["rkm"], "/admin/risk/rkmsummary/"),
-            ("Re-Assessment", stats["reassessment"], "/admin/risk/reassessmentsummary/"),
+            ("Profil Risiko Unit/Bidang", stats["reassessment"], "/admin/risk/reassessmentsummary/"),
             ("KPMR", stats["kpmr"], "/admin/risk/kpmrsummary/"),
             ("Laporan Bulanan", stats["monthly_report"], reverse("risk_admin:monthly_report_monthlyriskreport_changelist")),
             ("Organisasi", stats["organization"], reverse("risk_admin:masterdata_organizationunit_changelist")),
