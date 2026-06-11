@@ -1035,6 +1035,10 @@ class RKMSummary(models.Model):
         return f"{self.judul} ({self.bulan}/{self.tahun})"
 
     @property
+    def is_approved(self):
+        return self.status == "Final" or self.status_pengajuan == "Disetujui"
+
+    @property
     def pairing_officer(self):
         return PenugasanUnitBisnis.objects.filter(
             unit_bisnis=self.unit_bisnis,
@@ -1061,7 +1065,11 @@ class RKMSummary(models.Model):
     def save(self, *args, **kwargs):
         from datetime import date
 
-        if self.deadline_pengajuan:
+        if self.status == "Final":
+            self.status_pengajuan = "Disetujui"
+        elif self.status_pengajuan == "Disetujui":
+            self.status = "Final"
+        elif self.deadline_pengajuan:
             if not self.tanggal_pengajuan:
                 if date.today() > self.deadline_pengajuan:
                     self.status_pengajuan = "Terlambat"

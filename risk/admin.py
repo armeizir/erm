@@ -1258,6 +1258,7 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
 class RKMItemInline(admin.TabularInline):
     model = RKMItem
     extra = 0
+    can_delete = True
     fields = (
         "no_item",
         "km_item",
@@ -1268,6 +1269,23 @@ class RKMItemInline(admin.TabularInline):
         "keterangan",
     )
     ordering = ("no_item",)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.is_approved:
+            return self.fields
+        return ()
+
+    def has_add_permission(self, request, obj=None):
+        allowed = super().has_add_permission(request, obj)
+        if not allowed:
+            return False
+        return not (obj and obj.is_approved)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed:
+            return False
+        return not (obj and obj.is_approved)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -1301,6 +1319,7 @@ class RKMSummaryAdmin(admin.ModelAdmin):
     search_fields = ("judul", "unit_bisnis__name", "kontrak_manajemen__judul")
     ordering = ("-tahun", "bulan", "judul")
     inlines = [RKMItemInline]
+    readonly_fields = ("rkm_lock_info",)
 
     fieldsets = (
         ("Informasi Utama", {
@@ -1311,6 +1330,7 @@ class RKMSummaryAdmin(admin.ModelAdmin):
                 "unit_bisnis",
                 "kontrak_manajemen",
                 "status",
+                "rkm_lock_info",
             )
         }),
         ("Periode", {
@@ -1346,6 +1366,25 @@ class RKMSummaryAdmin(admin.ModelAdmin):
             return qs
         return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
 
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.is_approved:
+            return (
+                "judul",
+                "tahun",
+                "bulan",
+                "unit_bisnis",
+                "kontrak_manajemen",
+                "status",
+                "tanggal_mulai",
+                "tanggal_selesai",
+                "pic",
+                "deadline_pengajuan",
+                "tanggal_pengajuan",
+                "status_pengajuan",
+                "rkm_lock_info",
+            )
+        return self.readonly_fields
+
     def get_list_filter(self, request):
         if request.user.is_superuser:
             return self.list_filter
@@ -1371,23 +1410,47 @@ class RKMSummaryAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         allowed = super().has_change_permission(request, obj)
-        if not allowed or obj is None or request.user.is_superuser:
+        if not allowed or obj is None:
+            return allowed
+        if obj.is_approved:
+            return False
+        if request.user.is_superuser:
             return allowed
         return user_can_access_unit(request, obj.unit_bisnis_id)
 
     def has_delete_permission(self, request, obj=None):
         allowed = super().has_delete_permission(request, obj)
-        if not allowed or obj is None or request.user.is_superuser:
+        if not allowed or obj is None:
+            return allowed
+        if obj.is_approved:
+            return False
+        if request.user.is_superuser:
             return allowed
         return user_can_access_unit(request, obj.unit_bisnis_id)
 
     def generate_button(self, obj):
+        if obj.is_approved:
+            return "RKM sudah disetujui/final"
         url = reverse("admin:risk_rkmsummary_generate_items", args=[obj.pk])
         return format_html('<a class="button" href="{}">Generate RKM dari KM</a>', url)
     generate_button.short_description = "Generate"
 
+    @admin.display(description="Status Kunci")
+    def rkm_lock_info(self, obj):
+        if obj and obj.is_approved:
+            return "RKM sudah disetujui/final dan tidak dapat diedit. Realisasi dicatat melalui Laporan Risiko Bulanan."
+        return "RKM masih dapat diedit sebelum status Final/Disetujui."
+
     def generate_items_view(self, request, rkm_id, *args, **kwargs):
         rkm = get_object_or_404(RKMSummary, pk=rkm_id)
+        if rkm.is_approved:
+            self.message_user(
+                request,
+                "RKM sudah disetujui/final sehingga item tidak dapat digenerate ulang.",
+                level=messages.ERROR,
+            )
+            change_url = reverse("admin:risk_rkmsummary_change", args=[rkm.pk])
+            return redirect(change_url)
         if not user_can_access_unit(request, rkm.unit_bisnis_id):
             raise PermissionDenied
         created_count = rkm.generate_items_from_km()
@@ -1435,12 +1498,19 @@ class RKMItemAdmin(admin.ModelAdmin):
         )
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if not request.user.is_superuser:
-            if db_field.name == "summary":
-                kwargs["queryset"] = RKMSummary.objects.filter(
-                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+        if db_field.name == "summary":
+            summary_qs = RKMSummary.objects.exclude(
+                status="Final",
+            ).exclude(
+                status_pengajuan="Disetujui",
+            )
+            if not request.user.is_superuser:
+                summary_qs = summary_qs.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user),
                 )
-            elif db_field.name == "km_item":
+            kwargs["queryset"] = summary_qs
+        elif not request.user.is_superuser:
+            if db_field.name == "km_item":
                 kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
                     kontrak__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
                 )
@@ -1454,13 +1524,21 @@ class RKMItemAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         allowed = super().has_change_permission(request, obj)
-        if not allowed or obj is None or request.user.is_superuser:
+        if not allowed or obj is None:
+            return allowed
+        if obj.summary.is_approved:
+            return False
+        if request.user.is_superuser:
             return allowed
         return user_can_access_unit(request, obj.summary.unit_bisnis_id)
 
     def has_delete_permission(self, request, obj=None):
         allowed = super().has_delete_permission(request, obj)
-        if not allowed or obj is None or request.user.is_superuser:
+        if not allowed or obj is None:
+            return allowed
+        if obj.summary.is_approved:
+            return False
+        if request.user.is_superuser:
             return allowed
         return user_can_access_unit(request, obj.summary.unit_bisnis_id)
 
