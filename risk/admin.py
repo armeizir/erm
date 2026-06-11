@@ -1261,12 +1261,36 @@ class RKMItemInline(admin.TabularInline):
     can_delete = True
     fields = (
         "no_item",
+        "kategori_rkm",
         "km_item",
-        "sasaran",
-        "target_bulanan",
-        "realisasi",
-        "deviasi",
-        "keterangan",
+        "kpi_indikator",
+        "kpi_satuan",
+        "kpi_target",
+        "inisiatif_strategis",
+        "program_kerja_utama",
+        "risiko",
+        "mitigasi_risiko",
+        "rencana_aksi",
+        "anggaran_rp_ribu",
+        "target_akumulasi",
+        "target_akumulasi_satuan",
+        "realisasi_januari",
+        "realisasi_februari",
+        "realisasi_maret",
+        "realisasi_april",
+        "realisasi_mei",
+        "realisasi_juni",
+        "realisasi_juli",
+        "realisasi_agustus",
+        "realisasi_september",
+        "realisasi_oktober",
+        "realisasi_november",
+        "realisasi_desember",
+        "jumlah_realisasi",
+        "persen_capaian",
+        "realisasi_anggaran",
+        "pic_rkm",
+        "hasil_analisa_program_kerja",
     )
     ordering = ("no_item",)
 
@@ -1470,19 +1494,90 @@ class RKMItemAdmin(admin.ModelAdmin):
     list_display = (
         "summary",
         "no_item",
+        "kategori_rkm",
         "km_item",
-        "sasaran",
-        "target_bulanan",
-        "realisasi",
-        "deviasi",
+        "kpi_indikator",
+        "program_kerja_utama",
+        "target_akumulasi",
+        "jumlah_realisasi",
+        "persen_capaian",
+        "pic_rkm",
     )
-    list_filter = ("summary__tahun", "summary__bulan", "summary__unit_bisnis")
+    list_filter = ("summary__tahun", "summary__bulan", "summary__unit_bisnis", "kategori_rkm")
     search_fields = (
         "summary__judul",
         "km_item__indikator_kinerja_kunci",
         "sasaran",
+        "kpi_indikator",
+        "program_kerja_utama",
+        "risiko",
+        "pic_rkm",
     )
     ordering = ("summary", "no_item")
+    fieldsets = (
+        ("Acuan", {
+            "fields": (
+                "summary",
+                "no_item",
+                "kategori_rkm",
+                "km_item",
+            )
+        }),
+        ("KPI", {
+            "fields": (
+                "kpi_indikator",
+                "kpi_satuan",
+                "kpi_target",
+            )
+        }),
+        ("Program Kerja", {
+            "fields": (
+                "inisiatif_strategis",
+                "program_kerja_utama",
+                "risiko",
+                "mitigasi_risiko",
+                "rencana_aksi",
+                "anggaran_rp_ribu",
+                "target_akumulasi",
+                "target_akumulasi_satuan",
+            )
+        }),
+        ("Realisasi Bulanan", {
+            "fields": (
+                "realisasi_januari",
+                "realisasi_februari",
+                "realisasi_maret",
+                "realisasi_april",
+                "realisasi_mei",
+                "realisasi_juni",
+                "realisasi_juli",
+                "realisasi_agustus",
+                "realisasi_september",
+                "realisasi_oktober",
+                "realisasi_november",
+                "realisasi_desember",
+            )
+        }),
+        ("Hasil", {
+            "fields": (
+                "jumlah_realisasi",
+                "persen_capaian",
+                "realisasi_anggaran",
+                "pic_rkm",
+                "hasil_analisa_program_kerja",
+            )
+        }),
+        ("Data Lama", {
+            "classes": ("collapse",),
+            "fields": (
+                "sasaran",
+                "target_bulanan",
+                "realisasi",
+                "deviasi",
+                "keterangan",
+            )
+        }),
+    )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

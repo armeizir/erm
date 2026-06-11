@@ -1,6 +1,18 @@
 from collections import defaultdict
 from datetime import date
+from decimal import Decimal, InvalidOperation
+import os
 from pathlib import Path
+import sys
+
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "riskproject.settings")
+
+import django
+
+django.setup()
 
 from django.contrib.auth.models import Group
 from django.db import transaction
@@ -8,17 +20,43 @@ from django.db import transaction
 from risk.models import ItemKontrakManajemen, KontrakManajemen, RKMItem, RKMSummary
 
 
-SOURCE_FILE = Path("/Users/armeizir/Downloads/Draft RKM UBKITRANS APRIL.xlsx")
+DEFAULT_SOURCE_FILE = "/Users/armeizir/Downloads/Draft RKM UBKITRANS APRIL (1).xlsx"
+SOURCE_FILE = Path(
+    os.environ.get("RKM_SOURCE_FILE")
+    or (sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SOURCE_FILE)
+)
 SHEET_NAME = "Usulan RKM 2026"
 YEAR = 2026
 MONTH = 4
 UNIT_NAME = "UB KITRAN"
+CATEGORY_LABELS = {
+    "A": "Nilai Ekonomi dan Sosial untuk Indonesia",
+    "B": "Inovasi Model Bisnis",
+    "C": "Kepemimpinan Teknologi",
+    "D": "Peningkatan Investasi",
+}
 
 
 def clean(value):
     if value in (None, ""):
         return None
     return str(value).strip()
+
+
+def decimal_or_none(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text.startswith("=") or text in {"-", "AO"}:
+            return None
+        text = text.replace("%", "").replace(",", ".")
+    else:
+        text = value
+    try:
+        return Decimal(str(text))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def fmt(value):
@@ -89,15 +127,20 @@ def read_rows():
     )
     worksheet = workbook[SHEET_NAME]
     current = {}
+    current_category = None
     rows = []
-    for row_idx, row in enumerate(worksheet.iter_rows(min_row=8, values_only=True), start=8):
+    for row_idx, row in enumerate(worksheet.iter_rows(min_row=7, values_only=True), start=7):
         values = list(row)
         no = values[0] if len(values) > 0 else None
         kpi = clean(values[1] if len(values) > 1 else None)
+        if isinstance(no, str) and no.strip() in CATEGORY_LABELS:
+            current_category = no.strip()
+            continue
         if isinstance(no, (int, float)) and kpi:
             current = {
                 "excel_row": row_idx,
                 "excel_no": int(no),
+                "kategori_rkm": current_category,
                 "kpi": kpi,
                 "satuan_kpi": clean(values[2] if len(values) > 2 else None),
                 "target_kpi": clean(values[3] if len(values) > 3 else None),
@@ -125,6 +168,14 @@ def read_rows():
                 "realisasi_feb": clean(values[13] if len(values) > 13 else None),
                 "realisasi_mar": clean(values[14] if len(values) > 14 else None),
                 "realisasi_apr": clean(values[15] if len(values) > 15 else None),
+                "realisasi_mei": clean(values[16] if len(values) > 16 else None),
+                "realisasi_jun": clean(values[17] if len(values) > 17 else None),
+                "realisasi_jul": clean(values[18] if len(values) > 18 else None),
+                "realisasi_agu": clean(values[19] if len(values) > 19 else None),
+                "realisasi_sep": clean(values[20] if len(values) > 20 else None),
+                "realisasi_okt": clean(values[21] if len(values) > 21 else None),
+                "realisasi_nov": clean(values[22] if len(values) > 22 else None),
+                "realisasi_des": clean(values[23] if len(values) > 23 else None),
                 "jumlah": clean(values[24] if len(values) > 24 else None),
                 "capaian": clean(values[25] if len(values) > 25 else None),
                 "realisasi_anggaran": clean(values[26] if len(values) > 26 else None),
@@ -186,10 +237,10 @@ def run():
                 "judul": "RKM UB KITRAN April 2026",
                 "tanggal_mulai": date(YEAR, MONTH, 1),
                 "tanggal_selesai": date(YEAR, MONTH, 30),
-                "status": "Draft",
-                "pic": "UB KITRAN",
-                "tanggal_pengajuan": date(YEAR, MONTH, 30),
-            },
+                    "status": "Draft",
+                    "pic": "UB KITRAN",
+                    "tanggal_pengajuan": date(YEAR, MONTH, 30),
+                },
         )
 
         imported = 0
@@ -208,6 +259,35 @@ def run():
                 defaults={
                     "no_item": no_urut,
                     "sasaran": " / ".join(kpi_names),
+                    "kategori_rkm": first["kategori_rkm"],
+                    "kpi_indikator": first["kpi"],
+                    "kpi_satuan": first["satuan_kpi"],
+                    "kpi_target": first["target_kpi"],
+                    "inisiatif_strategis": first["inisiatif"],
+                    "program_kerja_utama": "\n\n".join(filter(None, [row["program"] for row in rows])),
+                    "risiko": "\n\n".join(filter(None, [row["risiko"] for row in rows])),
+                    "mitigasi_risiko": "\n\n".join(filter(None, [row["mitigasi"] for row in rows])),
+                    "rencana_aksi": "\n\n".join(filter(None, [row["rencana_aksi"] for row in rows])),
+                    "anggaran_rp_ribu": decimal_or_none(first["anggaran"]),
+                    "target_akumulasi": first["target_akumulasi"],
+                    "target_akumulasi_satuan": first["satuan_target"],
+                    "realisasi_januari": first["realisasi_jan"],
+                    "realisasi_februari": first["realisasi_feb"],
+                    "realisasi_maret": first["realisasi_mar"],
+                    "realisasi_april": first["realisasi_apr"],
+                    "realisasi_mei": first["realisasi_mei"],
+                    "realisasi_juni": first["realisasi_jun"],
+                    "realisasi_juli": first["realisasi_jul"],
+                    "realisasi_agustus": first["realisasi_agu"],
+                    "realisasi_september": first["realisasi_sep"],
+                    "realisasi_oktober": first["realisasi_okt"],
+                    "realisasi_november": first["realisasi_nov"],
+                    "realisasi_desember": first["realisasi_des"],
+                    "jumlah_realisasi": first["jumlah"],
+                    "persen_capaian": decimal_or_none(first["capaian"]),
+                    "realisasi_anggaran": decimal_or_none(first["realisasi_anggaran"]),
+                    "pic_rkm": first["pic"],
+                    "hasil_analisa_program_kerja": first["analisa"],
                     "target_bulanan": (
                         f"Target KPI: {fmt(first['target_kpi'])} {fmt(first['satuan_kpi'])}; "
                         f"Target akumulasi: {fmt(first['target_akumulasi'])} {fmt(first['satuan_target'])}"

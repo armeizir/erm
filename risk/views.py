@@ -546,13 +546,29 @@ def _kontrak_manajemen_detail(selected_contract, year, month):
     rkm_qs = RKMSummary.objects.filter(kontrak_manajemen=selected_contract).order_by("-tahun", "-bulan")
     if year:
         rkm_qs = rkm_qs.filter(tahun=year)
+    base_rkm_qs = rkm_qs
     if month:
         rkm_qs = rkm_qs.filter(bulan=month)
-    rkm = rkm_qs.first()
+    rkm = rkm_qs.first() or base_rkm_qs.first()
     rkm_items = {
         item.km_item_id: item
         for item in rkm.item.select_related("km_item")
     } if rkm else {}
+    month_realisasi_fields = {
+        1: "realisasi_januari",
+        2: "realisasi_februari",
+        3: "realisasi_maret",
+        4: "realisasi_april",
+        5: "realisasi_mei",
+        6: "realisasi_juni",
+        7: "realisasi_juli",
+        8: "realisasi_agustus",
+        9: "realisasi_september",
+        10: "realisasi_oktober",
+        11: "realisasi_november",
+        12: "realisasi_desember",
+    }
+    realisasi_field = month_realisasi_fields.get(month)
 
     items = ItemKontrakManajemen.objects.filter(kontrak=selected_contract).select_related(
         "master_bagian",
@@ -583,8 +599,18 @@ def _kontrak_manajemen_detail(selected_contract, year, month):
             current_code = code
 
         rkm_item = rkm_items.get(item.id)
-        target_bulanan_raw = rkm_item.target_bulanan if rkm_item else ""
-        realisasi_raw = rkm_item.realisasi if rkm_item else ""
+        target_bulanan_raw = (
+            rkm_item.target_akumulasi or rkm_item.target_bulanan
+            if rkm_item else ""
+        )
+        realisasi_raw = ""
+        if rkm_item:
+            realisasi_raw = (
+                (getattr(rkm_item, realisasi_field, None) if realisasi_field else None)
+                or rkm_item.jumlah_realisasi
+                or rkm_item.realisasi
+                or ""
+            )
         target_value = _decimal_or_none(target_bulanan_raw) or _decimal_or_none(item.target)
         realisasi_value = _decimal_or_none(realisasi_raw)
         achievement, score = _calculate_km_score(item, target_value, realisasi_value)
@@ -611,7 +637,10 @@ def _kontrak_manajemen_detail(selected_contract, year, month):
                 "pencapaian": _format_percent(achievement),
                 "nilai": _format_decimal(score),
                 "indicator": "good" if score is not None and score >= bobot else "attention" if score is not None else "",
-                "keterangan": rkm_item.keterangan if rkm_item else "",
+                "keterangan": (
+                    rkm_item.hasil_analisa_program_kerja or rkm_item.keterangan
+                    if rkm_item else ""
+                ),
             }
         )
 

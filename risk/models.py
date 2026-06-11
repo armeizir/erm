@@ -1102,6 +1102,9 @@ class RKMSummary(models.Model):
                 defaults={
                     "no_item": no,
                     "sasaran": km_item.indikator_kinerja_kunci,
+                    "kpi_indikator": km_item.indikator_kinerja_kunci,
+                    "kpi_satuan": km_item.satuan,
+                    "kpi_target": km_item.target,
                 }
             )
             if created:
@@ -1111,6 +1114,13 @@ class RKMSummary(models.Model):
         return created_count
     
 class RKMItem(models.Model):
+    KATEGORI_RKM_CHOICES = [
+        ("A", "A - Keuangan"),
+        ("B", "B - Pelanggan"),
+        ("C", "C - Bisnis Proses Internal"),
+        ("D", "D - Pengembangan dan Lingkungan"),
+    ]
+
     summary = models.ForeignKey(
         "RKMSummary",
         on_delete=models.CASCADE,
@@ -1125,7 +1135,109 @@ class RKMItem(models.Model):
         verbose_name="Item KM",
     )
 
+    kategori_rkm = models.CharField(
+        max_length=1,
+        choices=KATEGORI_RKM_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Kategori RKM",
+    )
     sasaran = models.TextField(blank=True, null=True, verbose_name="Sasaran / KPI")
+    kpi_indikator = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="KPI - Indikator",
+    )
+    kpi_satuan = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="KPI - Satuan",
+    )
+    kpi_target = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="KPI - Target",
+    )
+    inisiatif_strategis = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Inisiatif Strategis",
+    )
+    program_kerja_utama = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Program Kerja Utama",
+    )
+    risiko = models.TextField(blank=True, null=True, verbose_name="Risiko")
+    mitigasi_risiko = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Mitigasi Risiko",
+    )
+    rencana_aksi = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Rencana Aksi",
+    )
+    anggaran_rp_ribu = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        verbose_name="Anggaran (Rp Ribu)",
+    )
+    target_akumulasi = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Target Akumulasi",
+    )
+    target_akumulasi_satuan = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Satuan Target Akumulasi",
+    )
+    realisasi_januari = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Januari")
+    realisasi_februari = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Februari")
+    realisasi_maret = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Maret")
+    realisasi_april = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi April")
+    realisasi_mei = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Mei")
+    realisasi_juni = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Juni")
+    realisasi_juli = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Juli")
+    realisasi_agustus = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Agustus")
+    realisasi_september = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi September")
+    realisasi_oktober = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Oktober")
+    realisasi_november = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi November")
+    realisasi_desember = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Desember")
+    jumlah_realisasi = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Jumlah Realisasi",
+    )
+    persen_capaian = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        verbose_name="% Capaian",
+    )
+    realisasi_anggaran = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        verbose_name="Realisasi Anggaran",
+    )
+    pic_rkm = models.CharField(max_length=255, blank=True, null=True, verbose_name="PIC")
+    hasil_analisa_program_kerja = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Hasil Analisa Program Kerja",
+    )
     target_bulanan = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Bulanan")
     realisasi = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi")
     deviasi = models.CharField(max_length=255, blank=True, null=True, verbose_name="Deviasi")
@@ -1150,8 +1262,15 @@ class RKMItem(models.Model):
         return f"{self.summary} - {self.no_item}"
 
     def save(self, *args, **kwargs):
-        if not self.sasaran and self.km_item:
-            self.sasaran = self.km_item.indikator_kinerja_kunci
+        if self.km_item:
+            if not self.sasaran:
+                self.sasaran = self.km_item.indikator_kinerja_kunci
+            if not self.kpi_indikator:
+                self.kpi_indikator = self.km_item.indikator_kinerja_kunci
+            if not self.kpi_satuan:
+                self.kpi_satuan = self.km_item.satuan
+            if not self.kpi_target:
+                self.kpi_target = self.km_item.target
         super().save(*args, **kwargs)
 
 # =========================================================
