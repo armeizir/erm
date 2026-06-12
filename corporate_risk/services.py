@@ -112,10 +112,12 @@ def _gemini_generate_management_language(setting: AppSetting, prompt: str) -> di
     if "api.openai.com" in base_url:
         base_url = "https://generativelanguage.googleapis.com/v1beta"
     base_url = base_url.rstrip("/")
+    if base_url == "https://generativelanguage.googleapis.com":
+        base_url = f"{base_url}/v1beta"
     url = f"{base_url}/models/{model_name}:generateContent"
     response = httpx.post(
         url,
-        params={"key": setting.ai_api_key},
+        headers={"x-goog-api-key": setting.ai_api_key},
         json={
             "contents": [
                 {
