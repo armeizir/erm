@@ -1,6 +1,7 @@
 import json
 from django import forms
 from django.contrib import admin, messages
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -1752,21 +1753,22 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         obj.pk = result.pk
         obj._state.adding = False
 
-        super().save_model(request, obj, form, change)
+        def generate_insight_after_commit():
+            try:
+                insight = generate_rule_based_ai_insight_for_multi_metric_result(result)
+                self.message_user(
+                    request,
+                    f"AI Insight Multi Metric otomatis dibuat/diperbarui. Insight ID: {insight.pk}",
+                    level=messages.SUCCESS,
+                )
+            except Exception as exc:
+                self.message_user(
+                    request,
+                    f"Data tersimpan, tetapi AI Insight gagal dibuat otomatis: {exc}",
+                    level=messages.WARNING,
+                )
 
-        try:
-            insight = generate_rule_based_ai_insight_for_multi_metric_result(obj)
-            self.message_user(
-                request,
-                f"AI Insight Multi Metric otomatis dibuat/diperbarui. Insight ID: {insight.pk}",
-                level=messages.SUCCESS,
-            )
-        except Exception as exc:
-            self.message_user(
-                request,
-                f"Data tersimpan, tetapi AI Insight gagal dibuat otomatis: {exc}",
-                level=messages.WARNING,
-            )
+        transaction.on_commit(generate_insight_after_commit)
 
     def multi_metric_history_rows_html(self, obj):
         snapshot = obj.simulation_snapshot or {}
