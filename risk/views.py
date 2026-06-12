@@ -1,6 +1,9 @@
 from collections import defaultdict
+import calendar
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 import json
+from statistics import mean, median, pstdev
 
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -8,12 +11,20 @@ from django.views.decorators.csrf import csrf_exempt
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
+from monthly_report.models import MonthlyRiskReport
+from corporate_risk.models import MonteCarloMetricHistory, MultiMetricMonteCarloResult, RiskMetric
+
+from .services.kpmr_automation import kpmr_dashboard_rows, kpmr_dashboard_summary
 from .models import (
+    ItemKontrakManajemen,
     KPMRItem,
     KPMRSummary,
+    KontrakManajemen,
     ProfilRisikoKorporatItem,
     ProfilRisikoKorporatPenyebab,
     ProfilRisikoKorporatSummary,
+    RKMSummary,
+    ReAssessmentSummary,
     RiskMatrix,
 )
 
@@ -30,6 +41,22 @@ MODE_CHOICES = [
     ("inheren", "Inheren"),
     ("residual", "Residual"),
 ]
+
+BULAN_CHOICES = [
+    (1, "Januari"),
+    (2, "Februari"),
+    (3, "Maret"),
+    (4, "April"),
+    (5, "Mei"),
+    (6, "Juni"),
+    (7, "Juli"),
+    (8, "Agustus"),
+    (9, "September"),
+    (10, "Oktober"),
+    (11, "November"),
+    (12, "Desember"),
+]
+BULAN_LABELS = dict(BULAN_CHOICES)
 
 
 def _normalize(text):
@@ -122,15 +149,13 @@ def _build_risk_entry(item, mode, matrix_lookup):
     stored_score = getattr(item, level_field)
     stored_cell = getattr(item, cell_field, None)
 
-    if impact is None or likelihood is None:
-        return None
-
     score = stored_score
     level_name = None
     color = None
     matrix_source = "fallback"
+    is_mappable = impact is not None and likelihood is not None
 
-    cell_meta = matrix_lookup.get((impact, likelihood))
+    cell_meta = matrix_lookup.get((impact, likelihood)) if is_mappable else None
     if cell_meta:
         score = cell_meta["score"]
         level_name = cell_meta["level"]
@@ -142,7 +167,12 @@ def _build_risk_entry(item, mode, matrix_lookup):
         score = stored_cell.skor or score
         matrix_source = "stored_cell"
 
-    if not level_name:
+    if not is_mappable:
+        level_name = "Belum Dipetakan"
+        color = "#e5e7eb"
+        score = None
+        matrix_source = "not_mapped"
+    elif not level_name:
         level_name, fallback_color = _fallback_level_from_score(score or (impact * likelihood))
         color = color or fallback_color
         matrix_source = "fallback"
@@ -164,16 +194,17 @@ def _build_risk_entry(item, mode, matrix_lookup):
         "kemungkinan": likelihood,
         "level": level_name,
         "level_bucket": _resolve_level_bucket(level_name),
-        "score": score or (impact * likelihood),
+        "score": score or (impact * likelihood if is_mappable else None),
         "color": color or "#d9d9d9",
         "mode": mode,
         "matrix_source": matrix_source,
+        "is_mappable": is_mappable,
     }
 
 
 def _get_filtered_items(request):
     summary_id = request.GET.get("summary")
-    year = request.GET.get("tahun")
+    year = request.GET.get("tahun") or _selected_year(request)
     status = request.GET.get("status")
     owner = request.GET.get("pemilik")
     category_id = request.GET.get("kategori")
@@ -220,9 +251,10 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
         entry = _build_risk_entry(item, mode, matrix_lookup)
         if not entry:
             continue
-        level_counts[entry["level_bucket"]] += 1
-        legend_map.setdefault(entry["level_bucket"], entry["color"])
-        cell_items[(entry["dampak"], entry["kemungkinan"])].append(entry)
+        if entry["is_mappable"]:
+            level_counts[entry["level_bucket"]] += 1
+            legend_map.setdefault(entry["level_bucket"], entry["color"])
+            cell_items[(entry["dampak"], entry["kemungkinan"])].append(entry)
         drilldown_items.append(entry)
 
     grid = []
@@ -278,6 +310,7 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
     )
 
     total_risks = len(drilldown_items)
+    mapped_risks = len([item for item in drilldown_items if item["is_mappable"]])
     defaults = {bucket["name"]: bucket["default_color"] for bucket in LEVEL_FALLBACKS}
     legend = [
         {"name": "Low", "color": "#5a8f3a"},
@@ -293,6 +326,8 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
         "impact_axis": impact_axis,
         "legend": legend,
         "total_risks": total_risks,
+        "mapped_risks": mapped_risks,
+        "unmapped_risks": total_risks - mapped_risks,
         "level_counts": {
             "high": level_counts.get("High", 0),
             "moderate_to_high": level_counts.get("Moderate to High", 0),
@@ -303,7 +338,10 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
         "mode": mode,
         "mode_label": _get_mode_label(mode),
         "matrix_source_label": "RiskMatrixCell default" if matrix else "Fallback skor standar",
-        "drilldown_rows": sorted(drilldown_items, key=lambda row: (row["score"] * -1, row["no_risiko"] or 0)),
+        "drilldown_rows": sorted(
+            drilldown_items,
+            key=lambda row: (0 if row["score"] is None else row["score"] * -1, row["no_risiko"] or 0),
+        ),
         "filters": {
             "summaries": summaries,
             "years": years,
@@ -312,7 +350,524 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
             "categories": categories,
             "selected_summary": selected_summary,
             "modes": MODE_CHOICES,
+            "months": BULAN_CHOICES,
         },
+    }
+
+
+def _selected_year(request):
+    year = request.GET.get("tahun")
+    if year:
+        try:
+            return int(year)
+        except ValueError:
+            pass
+    latest = (
+        ProfilRisikoKorporatSummary.objects.order_by("-tahun")
+        .values_list("tahun", flat=True)
+        .first()
+    )
+    return latest
+
+
+def _selected_month(request):
+    month = request.GET.get("bulan")
+    if month:
+        try:
+            month_int = int(month)
+            if 1 <= month_int <= 12:
+                return month_int
+        except ValueError:
+            pass
+    return None
+
+
+def _selected_tab(request):
+    tab = request.GET.get("tab", "profil")
+    return tab if tab in {"profil", "prediksi", "kpmr", "km"} else "profil"
+
+
+def _decimal_or_none(value):
+    if value in (None, ""):
+        return None
+    cleaned = str(value).strip().replace("%", "").replace(",", ".")
+    try:
+        return Decimal(cleaned)
+    except InvalidOperation:
+        return None
+
+
+def _format_decimal(value):
+    if value is None:
+        return ""
+    normalized = value.quantize(Decimal("0.01"))
+    if normalized == normalized.to_integral():
+        return str(normalized.to_integral())
+    return str(normalized)
+
+
+def _format_percent(value):
+    if value is None:
+        return ""
+    return f"{_format_decimal(value)}%"
+
+
+def _calculate_km_score(item, target, realisasi):
+    if target is None or realisasi is None or target == 0:
+        return None, None
+    if item.polaritas == "negatif":
+        achievement = (target / realisasi * Decimal("100")) if realisasi else None
+    else:
+        achievement = realisasi / target * Decimal("100")
+    if achievement is None:
+        return None, None
+    score = Decimal(str(item.bobot or 0)) * achievement / Decimal("100")
+    return achievement, score
+
+
+def _corporate_profile_rows(year):
+    queryset = ProfilRisikoKorporatSummary.objects.all().order_by("-tahun", "judul")
+    if year:
+        queryset = queryset.filter(tahun=year)
+
+    rows = []
+    for summary in queryset:
+        items = ProfilRisikoKorporatItem.objects.filter(summary=summary)
+        mapped_inherent = items.filter(dampak__isnull=False, kemungkinan__isnull=False).count()
+        mapped_residual = items.filter(
+            residual_dampak__isnull=False,
+            residual_kemungkinan__isnull=False,
+        ).count()
+        rows.append(
+            {
+                "id": summary.id,
+                "judul": summary.judul,
+                "tahun": summary.tahun,
+                "status": summary.status,
+                "total": items.count(),
+                "mapped_inherent": mapped_inherent,
+                "mapped_residual": mapped_residual,
+            }
+        )
+    return rows
+
+
+def _unit_profile_rows(year, month):
+    summaries = ReAssessmentSummary.objects.select_related("unit_bisnis").order_by(
+        "unit_bisnis__name",
+        "judul",
+    )
+    if year:
+        summaries = summaries.filter(tahun=year)
+
+    rows = []
+    for summary in summaries:
+        reports = summary.monthly_reports.select_related("periode").order_by(
+            "-periode__tanggal_mulai",
+            "-versi",
+        )
+        if month:
+            reports = reports.filter(periode__tanggal_mulai__month=month)
+        report = reports.first()
+        total_profile_items = summary.item.count()
+        reported_items = report.items.count() if report else 0
+        high_items = report.items.filter(realisasi_level_risiko__icontains="tinggi").count() if report else 0
+        rows.append(
+            {
+                "id": summary.id,
+                "unit": summary.unit_bisnis.name if summary.unit_bisnis_id else "-",
+                "judul": summary.judul,
+                "tahun": summary.tahun,
+                "profile_items": total_profile_items,
+                "report": report,
+                "bulan": BULAN_LABELS.get(report.periode.tanggal_mulai.month) if report else "-",
+                "reported_items": reported_items,
+                "high_items": high_items,
+                "coverage": round((reported_items / total_profile_items) * 100, 1)
+                if total_profile_items
+                else 0,
+            }
+        )
+    return rows
+
+
+def _selected_kontrak(request, year):
+    contracts = KontrakManajemen.objects.select_related("unit_bisnis").order_by(
+        "unit_bisnis__name",
+        "judul",
+    )
+    if year:
+        contracts = contracts.filter(tahun=year)
+
+    selected_id = request.GET.get("km")
+    selected = None
+    if selected_id:
+        selected = contracts.filter(pk=selected_id).first()
+    if selected is None:
+        selected = contracts.filter(unit_bisnis__name="BID MRK").first() or contracts.first()
+    return selected, contracts
+
+
+def _kontrak_manajemen_rows(year):
+    contracts = KontrakManajemen.objects.select_related("unit_bisnis").order_by(
+        "unit_bisnis__name",
+        "-tahun",
+        "judul",
+    )
+    if year:
+        contracts = contracts.filter(tahun=year)
+
+    rows = []
+    for contract in contracts:
+        reassessments = contract.reassessment_summary.all()
+        monthly_reports = MonthlyRiskReport.objects.filter(
+            reassessment__kontrak_manajemen=contract,
+        ).distinct()
+        rows.append(
+            {
+                "id": contract.id,
+                "unit": contract.unit_bisnis.name if contract.unit_bisnis_id else "-",
+                "judul": contract.judul,
+                "tahun": contract.tahun,
+                "status": contract.status,
+                "total_items": ItemKontrakManajemen.objects.filter(kontrak=contract).count(),
+                "rkm_count": contract.rkm_summary.count(),
+                "profile_count": reassessments.count(),
+                "monthly_report_count": monthly_reports.count(),
+            }
+        )
+    return rows
+
+
+def _kontrak_manajemen_detail(selected_contract, year, month):
+    if selected_contract is None:
+        return {"groups": [], "rkm": None, "total_bobot": 0, "total_nilai": ""}
+
+    rkm_qs = RKMSummary.objects.filter(kontrak_manajemen=selected_contract).order_by("-tahun", "-bulan")
+    if year:
+        rkm_qs = rkm_qs.filter(tahun=year)
+    base_rkm_qs = rkm_qs
+    if month:
+        rkm_qs = rkm_qs.filter(bulan=month)
+    rkm = rkm_qs.first() or base_rkm_qs.first()
+    rkm_items = {
+        item.km_item_id: item
+        for item in rkm.item.select_related("km_item")
+    } if rkm else {}
+    month_realisasi_fields = {
+        1: "realisasi_januari",
+        2: "realisasi_februari",
+        3: "realisasi_maret",
+        4: "realisasi_april",
+        5: "realisasi_mei",
+        6: "realisasi_juni",
+        7: "realisasi_juli",
+        8: "realisasi_agustus",
+        9: "realisasi_september",
+        10: "realisasi_oktober",
+        11: "realisasi_november",
+        12: "realisasi_desember",
+    }
+    realisasi_field = month_realisasi_fields.get(month)
+
+    items = ItemKontrakManajemen.objects.filter(kontrak=selected_contract).select_related(
+        "master_bagian",
+        "bagian",
+    ).order_by("master_bagian__urutan", "master_bagian__kode_bagian", "no_urut")
+
+    groups = []
+    current_code = None
+    current_group = None
+    total_bobot = Decimal("0")
+    total_nilai = Decimal("0")
+    has_nilai = False
+
+    for item in items:
+        master = item.master_bagian
+        code = master.kode_bagian if master else "-"
+        name = master.nama_bagian if master else "Tanpa Bagian"
+        if code != current_code:
+            current_group = {
+                "kode": code,
+                "nama": name,
+                "bobot": Decimal("0"),
+                "nilai": Decimal("0"),
+                "has_nilai": False,
+                "items": [],
+            }
+            groups.append(current_group)
+            current_code = code
+
+        rkm_item = rkm_items.get(item.id)
+        target_bulanan_raw = (
+            rkm_item.target_akumulasi or rkm_item.target_bulanan
+            if rkm_item else ""
+        )
+        realisasi_raw = ""
+        if rkm_item:
+            realisasi_raw = (
+                (getattr(rkm_item, realisasi_field, None) if realisasi_field else None)
+                or rkm_item.jumlah_realisasi
+                or rkm_item.realisasi
+                or ""
+            )
+        target_value = _decimal_or_none(target_bulanan_raw) or _decimal_or_none(item.target)
+        realisasi_value = _decimal_or_none(realisasi_raw)
+        achievement, score = _calculate_km_score(item, target_value, realisasi_value)
+
+        bobot = Decimal(str(item.bobot or 0))
+        total_bobot += bobot
+        current_group["bobot"] += bobot
+        if score is not None:
+            has_nilai = True
+            current_group["has_nilai"] = True
+            current_group["nilai"] += score
+            total_nilai += score
+
+        current_group["items"].append(
+            {
+                "no": item.no_urut,
+                "indikator": item.indikator_kinerja_kunci,
+                "formula": item.formula or "",
+                "satuan": item.satuan or "",
+                "bobot": _format_decimal(bobot),
+                "target_tahunan": item.target or "",
+                "target_bulanan": target_bulanan_raw or item.target or "",
+                "realisasi": realisasi_raw,
+                "pencapaian": _format_percent(achievement),
+                "nilai": _format_decimal(score),
+                "indicator": "good" if score is not None and score >= bobot else "attention" if score is not None else "",
+                "keterangan": (
+                    rkm_item.hasil_analisa_program_kerja or rkm_item.keterangan
+                    if rkm_item else ""
+                ),
+            }
+        )
+
+    for group in groups:
+        group["bobot_display"] = _format_decimal(group["bobot"])
+        group["nilai_display"] = _format_decimal(group["nilai"]) if group["has_nilai"] else ""
+
+    return {
+        "groups": groups,
+        "rkm": rkm,
+        "total_bobot": _format_decimal(total_bobot),
+        "total_nilai": _format_decimal(total_nilai) if has_nilai else "",
+    }
+
+
+def _selected_prediction_risk(request):
+    risk_id = request.GET.get("prediksi_risiko")
+    if not risk_id:
+        return None
+    try:
+        return int(risk_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _risk_prediction_options(year, selected_summary):
+    items = ProfilRisikoKorporatItem.objects.select_related("summary").order_by("summary__tahun", "no_item")
+    if year:
+        items = items.filter(summary__tahun=year)
+    if selected_summary:
+        items = items.filter(summary=selected_summary)
+    return items
+
+
+def _risk_prediction_rows(year, selected_risk_id=None):
+    queryset = (
+        MultiMetricMonteCarloResult.objects
+        .select_related("corporate_risk_item", "forecast_periode")
+        .order_by("-created_at")
+    )
+    if year:
+        queryset = queryset.filter(forecast_periode__tahun_buku__tahun=year)
+    if selected_risk_id:
+        queryset = queryset.filter(corporate_risk_item_id=selected_risk_id)
+
+    rows = []
+    for result in queryset[:25]:
+        rows.append(
+            {
+                "id": result.id,
+                "risk": result.corporate_risk_item,
+                "periode": result.forecast_periode,
+                "target": result.target_value,
+                "actual_ytd": (result.simulation_snapshot or {}).get("target_analysis", {}).get("actual_total"),
+                "forecast_total": result.forecast_total,
+                "gap": result.target_gap,
+                "potential_loss": result.potential_loss,
+                "prob_achieve": result.probability_achieve_target,
+                "prob_not_achieve": result.probability_not_achieve_target,
+                "worst_case": result.worst_case_value,
+                "baseline": result.baseline_value,
+                "best_case": result.best_case_value,
+                "var_95": result.var_95,
+                "target_status": result.target_status or "-",
+                "risk_status": result.risk_status or "-",
+                "requires_mitigation": result.requires_mitigation,
+            }
+        )
+    return rows
+
+
+def _metric_statistics(values):
+    values = [float(value) for value in values if value not in (None, "")]
+    if not values:
+        return None
+
+    growth_rates = []
+    for idx in range(1, len(values)):
+        previous = values[idx - 1]
+        current = values[idx]
+        if previous:
+            growth_rates.append((current - previous) / previous * 100)
+
+    avg_value = mean(values)
+    std_value = pstdev(values) if len(values) > 1 else 0
+    coefficient_variation = (std_value / avg_value * 100) if avg_value else 0
+
+    trend = "Stabil"
+    if len(values) > 1:
+        first_value = values[0]
+        last_value = values[-1]
+        if last_value > first_value * 1.05:
+            trend = "Meningkat"
+        elif last_value < first_value * 0.95:
+            trend = "Menurun"
+
+    volatility = "Rendah"
+    if coefficient_variation > 20:
+        volatility = "Tinggi"
+    elif coefficient_variation > 10:
+        volatility = "Sedang"
+
+    return {
+        "count": len(values),
+        "min": min(values),
+        "max": max(values),
+        "mean": avg_value,
+        "median": median(values),
+        "std_dev": std_value,
+        "coefficient_variation": coefficient_variation,
+        "avg_growth": mean(growth_rates) if growth_rates else 0,
+        "min_growth": min(growth_rates) if growth_rates else 0,
+        "max_growth": max(growth_rates) if growth_rates else 0,
+        "trend": trend,
+        "volatility": volatility,
+    }
+
+
+def _risk_prediction_history(selected_risk_id):
+    if not selected_risk_id:
+        return {"selected_item": None, "metrics": [], "histories": []}
+
+    selected_item = (
+        ProfilRisikoKorporatItem.objects
+        .select_related("summary")
+        .filter(pk=selected_risk_id)
+        .first()
+    )
+    if not selected_item:
+        return {"selected_item": None, "metrics": [], "histories": []}
+
+    metrics = list(
+        RiskMetric.objects
+        .filter(corporate_risk_item=selected_item, is_active=True)
+        .order_by("-is_target_metric", "name")
+    )
+    histories = []
+    for metric in metrics:
+        metric_histories = (
+            MonteCarloMetricHistory.objects
+            .filter(metric=metric)
+            .select_related("periode")
+            .order_by("tanggal_data", "id")
+        )
+        history_rows = list(metric_histories)
+        histories.append(
+            {
+                "metric": metric,
+                "rows": history_rows,
+                "count": len(history_rows),
+                "statistics": _metric_statistics([row.metric_value for row in history_rows]),
+            }
+        )
+    return {
+        "selected_item": selected_item,
+        "metrics": metrics,
+        "histories": histories,
+    }
+
+
+def _risk_prediction_summary(rows):
+    total = len(rows)
+    need_mitigation = len([row for row in rows if row["requires_mitigation"]])
+    not_achieved = len([row for row in rows if row["target_status"] == "Tidak Tercapai"])
+    avg_probability = Decimal("0")
+    probabilities = [
+        Decimal(str(row["prob_not_achieve"]))
+        for row in rows
+        if row["prob_not_achieve"] not in (None, "")
+    ]
+    if probabilities:
+        avg_probability = sum(probabilities, Decimal("0")) / Decimal(str(len(probabilities)))
+    return {
+        "total": total,
+        "need_mitigation": need_mitigation,
+        "not_achieved": not_achieved,
+        "avg_probability_not_achieve": avg_probability,
+    }
+
+
+def _risk_prediction_detail(selected_risk_id, year):
+    if not selected_risk_id:
+        return {}
+
+    queryset = (
+        MultiMetricMonteCarloResult.objects
+        .filter(corporate_risk_item_id=selected_risk_id)
+        .select_related("corporate_risk_item", "forecast_periode")
+        .order_by("-created_at")
+    )
+    if year:
+        queryset = queryset.filter(forecast_periode__tahun_buku__tahun=year)
+
+    result = queryset.first()
+    if not result:
+        return {}
+
+    snapshot = result.simulation_snapshot or {}
+    target_analysis = snapshot.get("target_analysis") or {}
+    metrics = (result.metric_snapshot or {}).get("metrics", [])
+    simulation_count = (
+        target_analysis.get("total_simulation")
+        or snapshot.get("n_simulations")
+        or 0
+    )
+    projection_rows = snapshot.get("projection_rows") or []
+    target_projection_rows = snapshot.get("target_projection_rows") or []
+    chart_series = snapshot.get("chart_series") or {}
+    distribution = sorted(float(value) for value in target_analysis.get("distribution_sample", []) if value is not None)
+    target_value = float(result.target_value or target_analysis.get("target_value") or 0)
+
+    return {
+        "result": result,
+        "target_analysis": target_analysis,
+        "metrics": metrics,
+        "simulation_count": simulation_count,
+        "projection_rows": projection_rows,
+        "target_projection_rows": target_projection_rows,
+        "distribution_labels_json": json.dumps(list(range(1, len(distribution) + 1))),
+        "distribution_values_json": json.dumps(distribution),
+        "distribution_target_json": json.dumps([target_value] * len(distribution)),
+        "multi_metric_labels_json": json.dumps(chart_series.get("labels", [])),
+        "multi_metric_mean_json": json.dumps(chart_series.get("mean", [])),
+        "multi_metric_p20_json": json.dumps(chart_series.get("p20", [])),
+        "multi_metric_p40_json": json.dumps(chart_series.get("p40", [])),
+        "multi_metric_p60_json": json.dumps(chart_series.get("p60", [])),
+        "multi_metric_p80_json": json.dumps(chart_series.get("p80", [])),
     }
 
 
@@ -443,6 +998,52 @@ def _export_workbook(context, params):
 def dashboard(request):
     items, selected_summary, mode = _get_filtered_items(request)
     context = _risk_matrix_context(items, mode=mode, selected_summary=selected_summary)
+    selected_year = _selected_year(request)
+    selected_month = _selected_month(request)
+    active_tab = _selected_tab(request)
+    selected_prediction_risk_id = _selected_prediction_risk(request)
+    selected_kontrak, kontrak_options = _selected_kontrak(request, selected_year)
+    corporate_profile_rows = _corporate_profile_rows(selected_year)
+    unit_profile_rows = _unit_profile_rows(selected_year, selected_month)
+    kontrak_manajemen_rows = _kontrak_manajemen_rows(selected_year)
+    kontrak_manajemen_detail = _kontrak_manajemen_detail(selected_kontrak, selected_year, selected_month)
+    kpmr_rows = kpmr_dashboard_rows(selected_year, selected_month)
+    kpmr_summary = kpmr_dashboard_summary(kpmr_rows)
+    risk_prediction_options = _risk_prediction_options(selected_year, selected_summary)
+    risk_prediction_history = _risk_prediction_history(selected_prediction_risk_id)
+    risk_prediction_rows = _risk_prediction_rows(selected_year, selected_prediction_risk_id)
+    risk_prediction_summary = _risk_prediction_summary(risk_prediction_rows)
+    risk_prediction_detail = _risk_prediction_detail(selected_prediction_risk_id, selected_year)
+
+    context["active_tab"] = active_tab
+    context["selected_kontrak"] = selected_kontrak
+    context["kontrak_options"] = kontrak_options
+    context["filters"]["selected_year"] = selected_year
+    context["filters"]["selected_month"] = selected_month
+    context["corporate_profile_rows"] = corporate_profile_rows
+    context["unit_profile_rows"] = unit_profile_rows
+    context["kontrak_manajemen_rows"] = kontrak_manajemen_rows
+    context["kontrak_manajemen_detail"] = kontrak_manajemen_detail
+    context["corporate_profile_count"] = sum(row["total"] for row in corporate_profile_rows)
+    context["unit_profile_count"] = sum(row["profile_items"] for row in unit_profile_rows)
+    context["unit_report_count"] = len([row for row in unit_profile_rows if row["report"]])
+    context["kontrak_manajemen_count"] = len(kontrak_manajemen_rows)
+    context["kontrak_manajemen_item_count"] = sum(row["total_items"] for row in kontrak_manajemen_rows)
+    context["kpmr_rows"] = kpmr_rows
+    context["kpmr_summary"] = kpmr_summary
+    context["risk_prediction_rows"] = risk_prediction_rows
+    context["risk_prediction_summary"] = risk_prediction_summary
+    context["risk_prediction_options"] = risk_prediction_options
+    context["risk_prediction_history"] = risk_prediction_history
+    context["risk_prediction_detail"] = risk_prediction_detail
+    context["selected_prediction_risk_id"] = selected_prediction_risk_id
+    context["selected_period_label"] = (
+        f"{BULAN_LABELS[selected_month]} {selected_year}"
+        if selected_month and selected_year
+        else f"Tahun {selected_year}"
+        if selected_year
+        else "Semua periode"
+    )
     context["page_title"] = "Risk Control Center (RCC)"
     return render(request, "dashboard.html", context)
 

@@ -220,7 +220,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         try:
             ReAssessmentWorkflowService.submit(obj, request.user, note="Submit via admin button")
-            self.message_user(request, "ReAssessment berhasil di-submit.", level=messages.SUCCESS)
+            self.message_user(request, "Profil Risiko berhasil di-submit.", level=messages.SUCCESS)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level=messages.ERROR)
         return self._redirect_to_change(obj)
@@ -229,7 +229,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         try:
             ReAssessmentWorkflowService.start_rkm_review(obj, request.user, note="Start RKM review via admin button")
-            self.message_user(request, "ReAssessment masuk tahap review RKM.", level=messages.SUCCESS)
+            self.message_user(request, "Profil Risiko masuk tahap review RKM.", level=messages.SUCCESS)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level=messages.ERROR)
         return self._redirect_to_change(obj)
@@ -238,7 +238,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         try:
             ReAssessmentWorkflowService.approve_rkm(obj, request.user, note="Approve RKM via admin button")
-            self.message_user(request, "ReAssessment berhasil di-approve RKM.", level=messages.SUCCESS)
+            self.message_user(request, "Profil Risiko berhasil di-approve RKM.", level=messages.SUCCESS)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level=messages.ERROR)
         return self._redirect_to_change(obj)
@@ -247,7 +247,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         try:
             ReAssessmentWorkflowService.reject_rkm(obj, request.user, note="Reject RKM via admin button")
-            self.message_user(request, "ReAssessment ditolak pada level RKM.", level=messages.SUCCESS)
+            self.message_user(request, "Profil Risiko ditolak pada level RKM.", level=messages.SUCCESS)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level=messages.ERROR)
         return self._redirect_to_change(obj)
@@ -256,7 +256,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         try:
             ReAssessmentWorkflowService.start_km_review(obj, request.user, note="Start KM review via admin button")
-            self.message_user(request, "ReAssessment masuk tahap review KM.", level=messages.SUCCESS)
+            self.message_user(request, "Profil Risiko masuk tahap review KM.", level=messages.SUCCESS)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level=messages.ERROR)
         return self._redirect_to_change(obj)
@@ -265,7 +265,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         try:
             ReAssessmentWorkflowService.approve_km(obj, request.user, note="Approve KM via admin button")
-            self.message_user(request, "ReAssessment berhasil di-approve KM.", level=messages.SUCCESS)
+            self.message_user(request, "Profil Risiko berhasil di-approve KM.", level=messages.SUCCESS)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level=messages.ERROR)
         return self._redirect_to_change(obj)
@@ -274,7 +274,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         try:
             ReAssessmentWorkflowService.reject_km(obj, request.user, note="Reject KM via admin button")
-            self.message_user(request, "ReAssessment ditolak pada level KM.", level=messages.SUCCESS)
+            self.message_user(request, "Profil Risiko ditolak pada level KM.", level=messages.SUCCESS)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level=messages.ERROR)
         return self._redirect_to_change(obj)
@@ -283,7 +283,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         try:
             ReAssessmentWorkflowService.lock(obj, request.user, note="Lock via admin button")
-            self.message_user(request, "ReAssessment berhasil di-lock.", level=messages.SUCCESS)
+            self.message_user(request, "Profil Risiko berhasil di-lock.", level=messages.SUCCESS)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level=messages.ERROR)
         return self._redirect_to_change(obj)
@@ -295,7 +295,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
             except ValidationError as e:
                 self.message_user(request, f"{obj.kode}: {'; '.join(e.messages)}", level=messages.ERROR)
         self.message_user(request, "Action submit selesai.")
-    action_submit.short_description = "Submit selected reassessments"
+    action_submit.short_description = "Submit profil risiko terpilih"
 
     def action_start_rkm_review(self, request, queryset):
         for obj in queryset:
@@ -340,7 +340,7 @@ class ReAssessmentAdmin(admin.ModelAdmin):
             except ValidationError as e:
                 self.message_user(request, f"{obj.kode}: {'; '.join(e.messages)}", level=messages.ERROR)
         self.message_user(request, "Action lock selesai.")
-    action_lock.short_description = "Lock reassessments"
+    action_lock.short_description = "Lock profil risiko terpilih"
 
 
 @admin.register(RiskEvent)

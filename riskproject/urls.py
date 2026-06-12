@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.urls import path, include
 
 from risk.views import dashboard, export_rcc_excel, kpmr_review_view, kpmr_update_item
@@ -21,3 +23,6 @@ urlpatterns = [
 
     path("corporate-risk/", include("corporate_risk.urls")),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

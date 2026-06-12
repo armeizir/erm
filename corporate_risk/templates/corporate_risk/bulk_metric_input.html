@@ -1,91 +1,426 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-    <title>Bulk Input Metric</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Data Historis Monte Carlo</title>
 
     <style>
-        body{
-            font-family: Arial;
-            margin:40px;
+        :root {
+            --navy: #14345f;
+            --border: #cfd8e5;
+            --soft: #f4f7fb;
+            --text: #172b4d;
+            --muted: #64748b;
+            --header: #e8eff8;
         }
 
-        table{
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #eef2f7;
+            color: var(--text);
+            font-family: Arial, sans-serif;
+        }
+
+        .page {
+            padding: 22px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            color: var(--navy);
+            font-size: 26px;
+        }
+
+        .meta {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.55;
+        }
+
+        .button {
+            border: 1px solid var(--navy);
+            border-radius: 8px;
+            background: var(--navy);
+            color: #fff;
+            cursor: pointer;
+            display: inline-block;
+            font-weight: 700;
+            padding: 10px 14px;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .button.secondary {
+            background: #fff;
+            color: var(--navy);
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .sheet-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+        }
+
+        .upload-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+            margin-bottom: 16px;
+            padding: 16px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .stat-box {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            color: var(--navy);
+            font-size: 20px;
+            font-weight: 800;
+            margin-top: 6px;
+        }
+
+        .upload-grid {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) auto;
+            gap: 12px;
+            align-items: end;
+        }
+
+        .upload-card label {
+            display: block;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .upload-card input[type="file"] {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            height: auto;
+        }
+
+        .message-list {
+            list-style: none;
+            margin: 0 0 16px;
+            padding: 0;
+        }
+
+        .message-list li {
+            border-radius: 8px;
+            margin-bottom: 8px;
+            padding: 10px 12px;
+        }
+
+        .message-list .success {
+            background: #ecfdf5;
+            border: 1px solid #bbf7d0;
+            color: #166534;
+        }
+
+        .message-list .error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+        }
+
+        .sheet-title {
+            align-items: center;
+            background: var(--header);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 16px;
+        }
+
+        .sheet-title strong {
+            color: var(--navy);
+            font-size: 16px;
+        }
+
+        .sheet-wrap {
+            overflow: auto;
+            max-height: calc(100vh - 210px);
+        }
+
+        table {
             border-collapse: collapse;
-            width:100%;
+            min-width: 1180px;
+            width: 100%;
         }
 
-        th, td{
-            border:1px solid #ccc;
-            padding:8px;
+        th,
+        td {
+            border: 1px solid var(--border);
+            padding: 0;
+            vertical-align: top;
         }
 
-        th{
-            background:#f5f5f5;
+        thead th {
+            background: #dbe7f5;
+            color: #1e3a5f;
+            font-size: 12px;
+            font-weight: 800;
+            height: 38px;
+            position: sticky;
+            text-align: center;
+            text-transform: uppercase;
+            top: 0;
+            z-index: 3;
         }
 
-        input, textarea, select{
-            width:100%;
-            padding:6px;
-            box-sizing:border-box;
+        .row-number {
+            background: var(--soft);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            width: 46px;
         }
 
-        .btn{
-            background:#0d6efd;
-            color:white;
-            border:none;
-            padding:10px 20px;
-            cursor:pointer;
-            border-radius:4px;
+        .row-number,
+        tbody td {
+            height: 38px;
         }
 
-        .btn:hover{
-            background:#084298;
+        input,
+        textarea,
+        select {
+            background: #fff;
+            border: 0;
+            color: var(--text);
+            font: inherit;
+            height: 38px;
+            outline: none;
+            padding: 8px;
+            width: 100%;
+        }
+
+        textarea {
+            min-height: 38px;
+            resize: vertical;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            box-shadow: inset 0 0 0 2px #2563eb;
+        }
+
+        .col-periode {
+            width: 230px;
+        }
+
+        .col-date {
+            width: 135px;
+        }
+
+        .col-number {
+            width: 150px;
+        }
+
+        .col-note {
+            width: 340px;
+        }
+
+        .col-delete {
+            text-align: center;
+            width: 74px;
+        }
+
+        .col-delete input {
+            height: auto;
+            margin-top: 12px;
+            width: auto;
+        }
+
+        .footer {
+            align-items: center;
+            background: #fff;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 16px;
+        }
+
+        .summary {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @media (max-width: 760px) {
+            .header,
+            .footer {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .toolbar {
+                justify-content: flex-start;
+            }
+
+            .upload-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
+<div class="page">
+    <div class="header">
+        <div>
+            <h1>Data Historis Monte Carlo</h1>
+            <div class="meta">
+                <strong>{{ metric.name }}</strong><br>
+                {{ metric.corporate_risk_item }}<br>
+                Satuan: {{ metric.unit|default:"-" }} · Bobot: {{ metric.weight }} · Target RKAP: {{ metric.target_value|default:"-" }}
+            </div>
+        </div>
+        <div class="toolbar">
+            <a class="button secondary" href="/admin/corporate_risk/riskmetric/">Kembali</a>
+            <button form="history-form" type="submit" class="button">Simpan Data</button>
+        </div>
+    </div>
 
-    <h1>Bulk Input Metric</h1>
+    {% if messages %}
+        <ul class="message-list">
+            {% for message in messages %}
+                <li class="{{ message.tags }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
 
-    <h3>{{ metric.name }}</h3>
-
-    <form method="post">
+    <form method="post" enctype="multipart/form-data" class="upload-card">
         {% csrf_token %}
-
-        {{ formset.management_form }}
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Periode</th>
-                    <th>Tanggal</th>
-                    <th>Nilai Aktual</th>
-                    <th>Target</th>
-                    <th>Keterangan</th>
-                    <th>Delete</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                {% for form in formset %}
-                <tr>
-                    <td>{{ form.periode }}</td>
-                    <td>{{ form.tanggal_data }}</td>
-                    <td>{{ form.metric_value }}</td>
-                    <td>{{ form.target_value }}</td>
-                    <td>{{ form.keterangan }}</td>
-                    <td>{{ form.DELETE }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        <br>
-
-        <button type="submit" class="btn">
-            Save Bulk Data
-        </button>
+        <div class="upload-grid">
+            <div>
+                <label for="excel_file">Upload Excel Histori</label>
+                <input id="excel_file" name="excel_file" type="file" accept=".xlsx,.xlsm">
+                <div class="summary" style="margin-top:8px;">
+                    Header yang dibaca: Periode, Tanggal Data, Nilai Aktual/Realisasi, Target, Keterangan.
+                    Jika Periode kosong, sistem memakai Tanggal Data untuk mencari periode laporan.
+                </div>
+            </div>
+            <button type="submit" name="upload_excel" value="1" class="button">Upload & Input Data</button>
+        </div>
     </form>
 
+    {% if statistics %}
+        <div class="sheet-card" style="margin-bottom:16px;">
+            <div class="sheet-title">
+                <strong>Analisis Statistik</strong>
+                <span class="summary">Berdasarkan data historis tersimpan</span>
+            </div>
+            <div style="padding:16px;">
+                <div class="stat-grid">
+                    <div class="stat-box"><div class="stat-label">Jumlah Data</div><div class="stat-value">{{ statistics.count }}</div></div>
+                    <div class="stat-box"><div class="stat-label">Minimum</div><div class="stat-value">{{ statistics.min|floatformat:2 }}</div></div>
+                    <div class="stat-box"><div class="stat-label">Maksimum</div><div class="stat-value">{{ statistics.max|floatformat:2 }}</div></div>
+                    <div class="stat-box"><div class="stat-label">Rata-rata</div><div class="stat-value">{{ statistics.mean|floatformat:2 }}</div></div>
+                    <div class="stat-box"><div class="stat-label">Median</div><div class="stat-value">{{ statistics.median|floatformat:2 }}</div></div>
+                    <div class="stat-box"><div class="stat-label">Std Dev</div><div class="stat-value">{{ statistics.std_dev|floatformat:2 }}</div></div>
+                    <div class="stat-box"><div class="stat-label">Koef. Variasi</div><div class="stat-value">{{ statistics.coefficient_variation|floatformat:2 }}%</div></div>
+                    <div class="stat-box"><div class="stat-label">Avg Growth</div><div class="stat-value">{{ statistics.avg_growth|floatformat:2 }}%</div></div>
+                    <div class="stat-box"><div class="stat-label">Min Growth</div><div class="stat-value">{{ statistics.min_growth|floatformat:2 }}%</div></div>
+                    <div class="stat-box"><div class="stat-label">Max Growth</div><div class="stat-value">{{ statistics.max_growth|floatformat:2 }}%</div></div>
+                    <div class="stat-box"><div class="stat-label">Tren</div><div class="stat-value">{{ statistics.trend }}</div></div>
+                    <div class="stat-box"><div class="stat-label">Volatilitas</div><div class="stat-value">{{ statistics.volatility }}</div></div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <form id="history-form" method="post">
+        {% csrf_token %}
+        {{ formset.management_form }}
+
+        <div class="sheet-card">
+            <div class="sheet-title">
+                <strong>Worksheet Histori</strong>
+                <span class="summary">{{ formset.forms|length }} baris</span>
+            </div>
+
+            <div class="sheet-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="row-number">No</th>
+                            <th class="col-periode">Periode</th>
+                            <th class="col-date">Tanggal Data</th>
+                            <th class="col-number">Nilai Aktual</th>
+                            <th class="col-number">Target</th>
+                            <th class="col-note">Keterangan</th>
+                            <th class="col-delete">Delete</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for form in formset %}
+                            <tr>
+                                <td class="row-number">
+                                    {{ forloop.counter }}
+                                    {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+                                </td>
+                                <td class="col-periode">{{ form.periode }}</td>
+                                <td class="col-date">{{ form.tanggal_data }}</td>
+                                <td class="col-number">{{ form.metric_value }}</td>
+                                <td class="col-number">{{ form.target_value }}</td>
+                                <td class="col-note">{{ form.keterangan }}</td>
+                                <td class="col-delete">{{ form.DELETE }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="footer">
+                <div class="summary">
+                    Metric target utama: {% if metric.is_target_metric %}Ya{% else %}Tidak{% endif %}
+                    · Risk appetite tidak tercapai: {{ metric.risk_appetite_threshold }}%
+                </div>
+                <button type="submit" class="button">Simpan Data</button>
+            </div>
+        </div>
+    </form>
+</div>
 </body>
 </html>

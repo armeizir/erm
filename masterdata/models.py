@@ -26,6 +26,197 @@ class UnitOrganisasi(TimeStampedModel):
         ordering = ["kode"]
 
 
+class CompanyCode(TimeStampedModel):
+    code = models.CharField(max_length=10, unique=True, verbose_name="Company Code")
+    description = models.CharField(max_length=255, verbose_name="Description")
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "md_company_code"
+        verbose_name = "Company Code"
+        verbose_name_plural = "Organization — Company Code"
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.description}"
+
+
+class BusinessArea(TimeStampedModel):
+    company = models.ForeignKey(
+        CompanyCode,
+        on_delete=models.PROTECT,
+        related_name="business_areas",
+        verbose_name="Company Code",
+    )
+    code = models.CharField(max_length=10, verbose_name="Business Area")
+    description = models.CharField(max_length=255, verbose_name="Description")
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "md_business_area"
+        verbose_name = "Business Area"
+        verbose_name_plural = "Organization — Business Area"
+        unique_together = [("company", "code")]
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.description}"
+
+
+class PersonnelArea(TimeStampedModel):
+    code = models.CharField(max_length=10, unique=True, verbose_name="Personnel Area")
+    description = models.CharField(max_length=255, verbose_name="Description")
+    company = models.ForeignKey(
+        CompanyCode,
+        on_delete=models.PROTECT,
+        related_name="personnel_areas",
+        null=True,
+        blank=True,
+        verbose_name="Company Code",
+    )
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "md_personnel_area"
+        verbose_name = "Personnel Area"
+        verbose_name_plural = "Organization — Personnel Area"
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.description}"
+
+
+class PersonnelSubArea(TimeStampedModel):
+    personnel_area = models.ForeignKey(
+        PersonnelArea,
+        on_delete=models.PROTECT,
+        related_name="sub_areas",
+        verbose_name="Personnel Area",
+    )
+    code = models.CharField(max_length=10, verbose_name="Personnel Sub Area")
+    description = models.CharField(max_length=255, verbose_name="Description")
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "md_personnel_sub_area"
+        verbose_name = "Personnel Sub Area"
+        verbose_name_plural = "Organization — Personnel Sub Area"
+        unique_together = [("personnel_area", "code")]
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.description}"
+
+
+class Directorate(TimeStampedModel):
+    code = models.CharField(max_length=10, unique=True, verbose_name="Directorate Code")
+    description = models.CharField(max_length=255, verbose_name="Description")
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "md_directorate"
+        verbose_name = "Directorate"
+        verbose_name_plural = "Organization — Directorate"
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.description}"
+
+
+class Division(TimeStampedModel):
+    code = models.CharField(max_length=10, unique=True, verbose_name="Division Code")
+    description = models.CharField(max_length=255, verbose_name="Description")
+    directorate = models.ForeignKey(
+        Directorate,
+        on_delete=models.PROTECT,
+        related_name="divisions",
+        null=True,
+        blank=True,
+        verbose_name="Directorate",
+    )
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "md_division"
+        verbose_name = "Division"
+        verbose_name_plural = "Organization — Division"
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.description}"
+
+
+class OrganizationUnit(TimeStampedModel):
+    code = models.CharField(max_length=20, unique=True, verbose_name="Org Code")
+    name = models.CharField(max_length=255, verbose_name="Name")
+    company = models.ForeignKey(
+        CompanyCode,
+        on_delete=models.PROTECT,
+        related_name="organization_units",
+        null=True,
+        blank=True,
+        verbose_name="Company Code",
+    )
+    business_area = models.ForeignKey(
+        BusinessArea,
+        on_delete=models.PROTECT,
+        related_name="organization_units",
+        null=True,
+        blank=True,
+        verbose_name="Business Area",
+    )
+    personnel_area = models.ForeignKey(
+        PersonnelArea,
+        on_delete=models.PROTECT,
+        related_name="organization_units",
+        null=True,
+        blank=True,
+        verbose_name="Personnel Area",
+    )
+    personnel_sub_area = models.ForeignKey(
+        PersonnelSubArea,
+        on_delete=models.PROTECT,
+        related_name="organization_units",
+        null=True,
+        blank=True,
+        verbose_name="Personnel Sub Area",
+    )
+    directorate = models.ForeignKey(
+        Directorate,
+        on_delete=models.PROTECT,
+        related_name="organization_units",
+        null=True,
+        blank=True,
+        verbose_name="Directorate",
+    )
+    division = models.ForeignKey(
+        Division,
+        on_delete=models.PROTECT,
+        related_name="organization_units",
+        null=True,
+        blank=True,
+        verbose_name="Division",
+    )
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="children",
+        null=True,
+        blank=True,
+        verbose_name="Parent Org Code",
+    )
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "md_organization_unit"
+        verbose_name = "Organization Unit"
+        verbose_name_plural = "Organization — Organization Unit"
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+
 class TahunBuku(TimeStampedModel):
     tahun = models.PositiveIntegerField(unique=True)
     aktif = models.BooleanField(default=True)

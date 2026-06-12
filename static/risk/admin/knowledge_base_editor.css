@@ -1,0 +1,13 @@
+.field-konten .cke {
+  max-width: 1180px;
+}
+
+.field-konten textarea.kb-rich-editor {
+  min-height: 460px;
+  font-family: Arial, sans-serif;
+  line-height: 1.5;
+}
+
+.field-ringkasan textarea {
+  max-width: 900px;
+}

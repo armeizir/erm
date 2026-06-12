@@ -33,7 +33,7 @@ ALLOWED_HOSTS = ['*']
 
 # Application definition
 
-INSTALLED_APPS = [
+INSTALLED_APPS = [ 
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -44,7 +44,7 @@ INSTALLED_APPS = [
     'core',
     'masterdata',
     'km',
-    'reassessment',
+    'reassessment.apps.ReassessmentConfig',
     'kpmr',
     'imports',
     'monthly_report',
@@ -88,6 +88,9 @@ STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
 
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 WSGI_APPLICATION = 'riskproject.wsgi.application'
 
 
@@ -99,6 +102,9 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        "OPTIONS": {
+            "timeout": 30,
+        },
     }
 }
 

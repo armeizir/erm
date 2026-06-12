@@ -1,0 +1,170 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<style>
+  .iiic-page {
+    max-width: 1280px;
+  }
+
+  .iiic-toolbar {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 16px;
+  }
+
+  .iiic-meta {
+    margin: 0 0 16px;
+    color: #444;
+  }
+
+  .iiic-matrix {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+    background: #fff;
+  }
+
+  .iiic-matrix th,
+  .iiic-matrix td {
+    border: 1px solid #333;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .iiic-matrix th {
+    background: #f4f4f4;
+    font-weight: 600;
+    padding: 8px;
+  }
+
+  .iiic-cell {
+    min-height: 104px;
+    padding: 8px;
+    position: relative;
+  }
+
+  .iiic-level {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .iiic-score {
+    font-size: 16px;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+
+  .iiic-points {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    justify-content: center;
+    margin-top: 8px;
+  }
+
+  .iiic-point {
+    align-items: center;
+    border: 1px solid #111;
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 700;
+    height: 28px;
+    justify-content: center;
+    min-width: 28px;
+    padding: 0 6px;
+  }
+
+  .iiic-point-inherent {
+    background: #4472c4;
+    color: #fff;
+  }
+
+  .iiic-point-residual {
+    background: #fff;
+    color: #111;
+  }
+
+  .iiic-legend {
+    display: flex;
+    gap: 20px;
+    margin: 16px 0;
+  }
+
+  .iiic-legend span {
+    align-items: center;
+    display: inline-flex;
+    gap: 8px;
+  }
+
+  .iiic-empty {
+    background: #fff7d6;
+    border: 1px solid #e7c75f;
+    margin: 16px 0;
+    padding: 12px;
+  }
+</style>
+
+<div class="iiic-page">
+  <div class="iiic-toolbar">
+    <a class="button" href="../">Kembali ke Laporan</a>
+  </div>
+
+  <h1>{{ title }}</h1>
+  <p class="iiic-meta">
+    <strong>Profil Risiko:</strong> {{ report.reassessment }}<br>
+    <strong>Bulan Laporan:</strong> {{ report.periode.nama_periode }}<br>
+    <strong>Matriks:</strong> {% if matrix %}{{ matrix }}{% else %}-{% endif %}
+  </p>
+
+  <div class="iiic-legend">
+    <span><i class="iiic-point iiic-point-inherent">1</i> Risiko Inheren</span>
+    <span><i class="iiic-point iiic-point-residual">1</i> Risiko Residual Triwulan/Tahun Berjalan</span>
+  </div>
+
+  {% if not matrix %}
+    <div class="iiic-empty">Matriks risiko belum tersedia.</div>
+  {% endif %}
+
+  <table class="iiic-matrix">
+    <thead>
+      <tr>
+        <th style="width: 150px;">Tingkat Kemungkinan</th>
+        {% for dampak in dampak_scales %}
+          <th>{{ dampak }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <th>{{ row.probabilitas }}</th>
+          {% for cell in row.cells %}
+            <td class="iiic-cell" style="background: {{ cell.color }};">
+              <div class="iiic-level">{{ cell.level|default:"-" }}</div>
+              <div class="iiic-score">{{ cell.score }}</div>
+              <div class="iiic-points">
+                {% for point in cell.inherent_points %}
+                  <span class="iiic-point iiic-point-inherent">{{ point }}</span>
+                {% endfor %}
+                {% for point in cell.residual_points %}
+                  <span class="iiic-point iiic-point-residual">{{ point }}</span>
+                {% endfor %}
+              </div>
+            </td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <th>Tingkat Dampak</th>
+        {% for dampak in dampak_scales %}
+          <th>{{ dampak }}</th>
+        {% endfor %}
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{% endblock %}

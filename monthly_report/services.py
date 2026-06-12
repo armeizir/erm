@@ -3,7 +3,6 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import MonthlyRiskReport, MonthlyRiskReportItem, MonthlyRiskReportSubmissionLog
-from reassessment.models import RiskAssessment
 
 
 @transaction.atomic
@@ -12,38 +11,15 @@ def generate_monthly_report_from_reassessment(report: MonthlyRiskReport):
     Membuat atau memperbarui item report dari seluruh risk event di reassessment.
     Snapshot diambil dari assessment dan progress treatment pada periode yang sama.
     """
-    risk_events = report.reassessment.risk_events.select_related("km_item").all()
+    risk_events = report.reassessment.item.select_related("summary").all()
 
     for risk_event in risk_events:
-        assessments = {
-            a.risk_type: a
-            for a in risk_event.assessments.select_related(
-                "skala_dampak", "skala_probabilitas"
-            ).filter(periode=report.periode)
-        }
-        inherent = assessments.get("inherent")
-        residual = assessments.get("residual")
-        target = assessments.get("target_residual")
-
-        progress = None
-        treatment_plan = risk_event.treatment_plans.order_by("id").first()
-        if treatment_plan:
-            progress = treatment_plan.progress_list.filter(periode=report.periode).first()
-
         item, _ = MonthlyRiskReportItem.objects.update_or_create(
             report=report,
             risk_event=risk_event,
             defaults={
-                "km_item": risk_event.km_item,
-                "inherent_skala_dampak": getattr(inherent, "skala_dampak", None),
-                "inherent_skala_probabilitas": getattr(inherent, "skala_probabilitas", None),
-                "inherent_level": getattr(inherent, "level_risiko", None),
-                "residual_skala_dampak": getattr(residual, "skala_dampak", None),
-                "residual_skala_probabilitas": getattr(residual, "skala_probabilitas", None),
-                "residual_level": getattr(residual, "level_risiko", None),
-                "target_residual_level": getattr(target, "level_risiko", None),
-                "mitigation_progress_percent": getattr(progress, "persentase_progress", None),
-                "mitigation_status": getattr(progress, "status_realisasi", None),
+                "issue_summary": risk_event.peristiwa_risiko,
+                "next_action": risk_event.rencana_perlakuan_risiko,
             },
         )
         item.full_clean()
@@ -118,15 +94,11 @@ def approve_monthly_report(report: MonthlyRiskReport, user, note: str = ""):
 def validate_report_alignment(report: MonthlyRiskReport):
     issues = []
 
-    if report.unit_id != report.reassessment.unit_id:
-        issues.append("Unit laporan tidak sama dengan unit reassessment.")
-    if report.periode_id != report.reassessment.periode_id:
-        issues.append("Periode laporan tidak sama dengan periode reassessment.")
-    if report.kontrak_manajemen_id != report.reassessment.kontrak_manajemen_id:
-        issues.append("Kontrak manajemen laporan tidak sama dengan reassessment.")
+    if report.tahun_buku_id and report.reassessment.tahun != report.tahun_buku.tahun:
+        issues.append("Tahun buku laporan tidak sama dengan profil risiko.")
 
     for item in report.items.select_related("risk_event", "km_item"):
-        if item.risk_event.reassessment_id != report.reassessment_id:
+        if item.risk_event.summary_id != report.reassessment_id:
             issues.append(
                 f"Risk {item.risk_event.no_risiko} tidak berasal dari reassessment report ini."
             )

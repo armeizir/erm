@@ -2,6 +2,7 @@
 {% load static %}
 
 {% block extrastyle %}
+{{ block.super }}
 <link rel="stylesheet" href="{% static 'admin/css/enterprise-dashboard.css' %}">
 <style>
   .dashboard-level {
@@ -26,6 +27,16 @@
   .hero-subflow strong {
     color: #fff;
   }
+
+  .settings-callout {
+    margin-bottom: 22px;
+  }
+
+  .settings-callout .section-card {
+    border-top-color: #114b5f;
+    background: linear-gradient(180deg, #ffffff, #f8fbfd);
+  }
+
 </style>
 {% endblock %}
 
@@ -34,7 +45,7 @@
   <div class="hero">
     <div>
       <h1>Dashboard Manajemen Risiko</h1>
-      <p>Enterprise overview untuk RKAP, Profil Risiko Korporat, KM, RKM, Re-Assessment, dan KPMR.</p>
+      <p>Enterprise overview untuk RKAP, Profil Risiko Korporat, KM, RKM, Profil Risiko Bidang/Unit Bisnis, KPMR, Laporan Bulanan, dan Master Organisasi.</p>
       <div class="hero-subflow">
         <strong>Alur proses:</strong>
         RKAP → Profil Risiko Korporat → KM → RKM → Profil Risiko Unit/Bidang → KPMR
@@ -42,174 +53,169 @@
     </div>
   </div>
 
+  {% if "settings" in dashboard_visible_levels %}
+    <div class="dashboard-level">Pengaturan</div>
+    <div class="section-grid settings-callout">
+      {% for section in dashboard_sections %}
+        {% if section.level == "settings" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
   <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-label">RKAP</div>
-      <div class="stat-value">{{ dashboard_stats.rkap|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Korporat</div>
-      <div class="stat-value">{{ dashboard_stats.corporate|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">KM</div>
-      <div class="stat-value">{{ dashboard_stats.km|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">RKM</div>
-      <div class="stat-value">{{ dashboard_stats.rkm|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Re-Assessment</div>
-      <div class="stat-value">{{ dashboard_stats.reassessment|default:0 }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">KPMR</div>
-      <div class="stat-value">{{ dashboard_stats.kpmr|default:0 }}</div>
-    </div>
-  </div>
-
-  <div class="dashboard-level">Strategic Level</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if forloop.counter <= 2 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
-            </div>
-          </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  
-    <div class="section-card section-orange">
-      <div class="section-head">
-        <div>
-          <h2>Monte Carlo Korporat</h2>
-          <span class="badge">3</span>
-        </div>
+    {% for card in dashboard_stat_cards %}
+      <div class="stat-card">
+        <div class="stat-label">{{ card.label }}</div>
+        <div class="stat-value">{{ card.value|default:0 }}</div>
       </div>
-      <div class="section-links">
-        <a href="/admin/corporate_risk/montecarlokorporatconfig/" class="section-link">
-          <span>Config Monte Carlo</span>
-          <span class="arrow">→</span>
-        </a>
-        <a href="/admin/corporate_risk/montecarlokorporathistory/" class="section-link">
-          <span>Input Data Historis</span>
-          <span class="arrow">→</span>
-        </a>
-        <a href="/admin/corporate_risk/montecarlokorporatresult/" class="section-link">
-          <span>Hasil Simulasi</span>
-          <span class="arrow">→</span>
-        </a>
-      </div>
+    {% endfor %}
+  </div>
+
+  {% if "strategic" in dashboard_visible_levels %}
+    <div class="dashboard-level">Strategic Level</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "strategic" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
     </div>
-  </div>
+  {% endif %}
 
-  <div class="dashboard-level">Management Level</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if forloop.counter > 2 and forloop.counter <= 4 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "management" in dashboard_visible_levels %}
+    <div class="dashboard-level">Management Level</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "management" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
-  <div class="dashboard-level">Operational Level</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if forloop.counter > 4 and forloop.counter <= 6 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "operational" in dashboard_visible_levels %}
+    <div class="dashboard-level">Operational Level</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "operational" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
-  <div class="dashboard-level">Evaluation Level</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if forloop.counter > 6 and forloop.counter <= 7 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "evaluation" in dashboard_visible_levels %}
+    <div class="dashboard-level">Evaluation Level</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "evaluation" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
-  <div class="dashboard-level">Support Modules</div>
-  <div class="section-grid">
-    {% for section in dashboard_sections %}
-      {% if forloop.counter > 7 %}
-        <div class="section-card section-{{ section.color }}">
-          <div class="section-head">
-            <div>
-              <h2>{{ section.title }}</h2>
-              <span class="badge">{{ section.count }}</span>
+  {% if "support" in dashboard_visible_levels %}
+    <div class="dashboard-level">Support Modules</div>
+    <div class="section-grid">
+      {% for section in dashboard_sections %}
+        {% if section.level == "support" %}
+          <div class="section-card section-{{ section.color }}">
+            <div class="section-head">
+              <div>
+                <h2>{{ section.title }}</h2>
+                <span class="badge">{{ section.count }}</span>
+              </div>
+            </div>
+            <div class="section-links">
+              {% for item in section.items %}
+                <a href="{{ item.url }}" class="section-link">
+                  <span>{{ item.label }}</span>
+                  <span class="arrow">→</span>
+                </a>
+              {% endfor %}
             </div>
           </div>
-          <div class="section-links">
-            {% for item in section.items %}
-              <a href="{{ item.url }}" class="section-link">
-                <span>{{ item.label }}</span>
-                <span class="arrow">→</span>
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 </div>
 {% endblock %}

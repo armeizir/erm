@@ -5,11 +5,288 @@ from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
+from django.utils.text import slugify
 
 
 # =========================================================
 # MASTER DATA
 # =========================================================
+
+class AppSetting(models.Model):
+    AI_PROVIDER_OPENAI = "openai"
+    AI_PROVIDER_CHOICES = (
+        (AI_PROVIDER_OPENAI, "OpenAI / ChatGPT"),
+        ("other", "Provider lain"),
+    )
+
+    nama_aplikasi = models.CharField(
+        max_length=120,
+        default="Manajemen Risiko PLN Batam",
+        verbose_name="Nama Aplikasi",
+    )
+    subtitle_aplikasi = models.CharField(
+        max_length=180,
+        blank=True,
+        default="Enterprise Risk Management",
+        verbose_name="Subtitle Aplikasi",
+    )
+    logo = models.ImageField(
+        upload_to="system/logo/",
+        blank=True,
+        null=True,
+        verbose_name="Logo PLN Batam",
+    )
+    tampilkan_logo = models.BooleanField(
+        default=True,
+        verbose_name="Tampilkan Logo di Header",
+    )
+    warna_header = models.CharField(
+        max_length=20,
+        blank=True,
+        default="#3f7c91",
+        verbose_name="Warna Header",
+        help_text="Contoh: #3f7c91",
+    )
+    warna_teks_header = models.CharField(
+        max_length=20,
+        blank=True,
+        default="#ffe45c",
+        verbose_name="Warna Teks Header",
+        help_text="Contoh: #ffe45c",
+    )
+    ldap_aktif = models.BooleanField(
+        default=True,
+        verbose_name="LDAP Aktif",
+    )
+    ldap_server = models.CharField(
+        max_length=255,
+        blank=True,
+        default="ldap://10.28.0.154",
+        verbose_name="LDAP Server",
+    )
+    ldap_base_dn = models.CharField(
+        max_length=255,
+        blank=True,
+        default="dc=plnbatam,dc=com",
+        verbose_name="LDAP Base DN",
+    )
+    ldap_domain = models.CharField(
+        max_length=100,
+        blank=True,
+        default="PLNBATAM",
+        verbose_name="LDAP Domain",
+    )
+    ldap_user_filter = models.CharField(
+        max_length=255,
+        blank=True,
+        default="(sAMAccountName={username})",
+        verbose_name="LDAP User Search Filter",
+    )
+    ldap_email_domain = models.CharField(
+        max_length=120,
+        blank=True,
+        default="plnbatam.com",
+        verbose_name="Default Email Domain LDAP",
+    )
+    ldap_debug = models.BooleanField(
+        default=False,
+        verbose_name="Aktifkan Debug LDAP",
+    )
+    ai_aktif = models.BooleanField(
+        default=False,
+        verbose_name="AI ChatGPT Aktif",
+    )
+    ai_provider = models.CharField(
+        max_length=30,
+        choices=AI_PROVIDER_CHOICES,
+        default=AI_PROVIDER_OPENAI,
+        verbose_name="Provider AI",
+    )
+    ai_api_key = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="API Key AI",
+        help_text="Simpan API key di sini hanya jika server sudah diamankan.",
+    )
+    ai_model = models.CharField(
+        max_length=80,
+        blank=True,
+        default="gpt-4.1-mini",
+        verbose_name="Model AI",
+    )
+    ai_base_url = models.URLField(
+        max_length=255,
+        blank=True,
+        default="https://api.openai.com/v1",
+        verbose_name="Base URL AI",
+    )
+    ai_temperature = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal("0.20"),
+        verbose_name="Temperature AI",
+    )
+    support_email = models.EmailField(
+        blank=True,
+        default="",
+        verbose_name="Email Support",
+    )
+    footer_laporan = models.CharField(
+        max_length=255,
+        blank=True,
+        default="PT PLN Batam - Manajemen Risiko",
+        verbose_name="Footer Laporan",
+    )
+    diperbarui_pada = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Diperbarui pada",
+    )
+
+    class Meta:
+        verbose_name = "Pengaturan Aplikasi"
+        verbose_name_plural = "PENGATURAN — Aplikasi"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return self.nama_aplikasi
+
+    @property
+    def masked_ai_api_key(self):
+        if not self.ai_api_key:
+            return "-"
+        if len(self.ai_api_key) <= 8:
+            return "********"
+        return f"{self.ai_api_key[:4]}...{self.ai_api_key[-4:]}"
+
+
+class KnowledgeBaseCategory(models.Model):
+    nama = models.CharField(max_length=120, unique=True, verbose_name="Nama Kategori")
+    slug = models.SlugField(max_length=140, unique=True, blank=True)
+    deskripsi = models.TextField(blank=True, default="", verbose_name="Deskripsi")
+    urutan = models.PositiveIntegerField(default=1, verbose_name="Urutan")
+    aktif = models.BooleanField(default=True, verbose_name="Aktif")
+
+    class Meta:
+        verbose_name = "Knowledge Base - Kategori"
+        verbose_name_plural = "KNOWLEDGE BASE — Kategori"
+        ordering = ["urutan", "nama"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.nama)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.nama
+
+
+class KnowledgeBaseArticle(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_PUBLISHED = "published"
+    STATUS_ARCHIVED = "archived"
+
+    STATUS_CHOICES = (
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_PUBLISHED, "Published"),
+        (STATUS_ARCHIVED, "Archived"),
+    )
+
+    AUDIENCE_CHOICES = (
+        ("all", "Semua Pengguna"),
+        ("strategic", "Strategic Level"),
+        ("management", "Management Level"),
+        ("operational", "Operational Level"),
+        ("evaluation", "Evaluation Level"),
+        ("admin", "Administrator"),
+    )
+
+    kategori = models.ForeignKey(
+        KnowledgeBaseCategory,
+        on_delete=models.PROTECT,
+        related_name="artikel",
+        verbose_name="Kategori",
+    )
+    judul = models.CharField(max_length=220, verbose_name="Judul")
+    slug = models.SlugField(max_length=240, unique=True, blank=True)
+    ringkasan = models.TextField(blank=True, default="", verbose_name="Ringkasan")
+    konten = models.TextField(verbose_name="Konten Knowledge Base")
+    tags = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Tag",
+        help_text="Pisahkan tag dengan koma. Contoh: ERM, Profil Risiko, Monte Carlo",
+    )
+    audience = models.CharField(
+        max_length=20,
+        choices=AUDIENCE_CHOICES,
+        default="all",
+        verbose_name="Target Pengguna",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_DRAFT,
+        verbose_name="Status",
+    )
+    lampiran = models.FileField(
+        upload_to="knowledge_base/",
+        blank=True,
+        null=True,
+        verbose_name="Lampiran",
+    )
+    dibuat_oleh = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="knowledge_base_dibuat",
+        verbose_name="Dibuat Oleh",
+    )
+    diperbarui_oleh = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="knowledge_base_diperbarui",
+        verbose_name="Diperbarui Oleh",
+    )
+    dipublikasikan_pada = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Dipublikasikan Pada",
+    )
+    dibuat_pada = models.DateTimeField(auto_now_add=True, verbose_name="Dibuat Pada")
+    diperbarui_pada = models.DateTimeField(auto_now=True, verbose_name="Diperbarui Pada")
+
+    class Meta:
+        verbose_name = "Knowledge Base - Artikel"
+        verbose_name_plural = "KNOWLEDGE BASE — Artikel"
+        ordering = ["kategori__urutan", "judul"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.judul) or "knowledge-base"
+            slug = base_slug
+            counter = 2
+            while KnowledgeBaseArticle.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.judul
+
 
 class TaksonomiT3(models.Model):
     kode = models.CharField(max_length=50, unique=True, verbose_name="Kode")
@@ -630,7 +907,24 @@ class ItemKontrakManajemen(models.Model):
 # =========================================================
 
 class RKAPItem(models.Model):
+    PERIODE_CHOICES = [
+        ("Tahunan", "Tahunan"),
+        ("Bulanan", "Bulanan"),
+        ("Triwulan", "Triwulan"),
+        ("Lampiran", "Lampiran"),
+    ]
+
     tahun = models.PositiveIntegerField(verbose_name="Tahun")
+
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+        verbose_name="Induk RKAP",
+        help_text="Gunakan untuk detail bulanan atau rincian dari item RKAP utama.",
+    )
 
     kode = models.CharField(
         max_length=50,
@@ -651,6 +945,34 @@ class RKAPItem(models.Model):
         verbose_name="Indikator",
     )
 
+    kategori = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        verbose_name="Kategori",
+    )
+
+    subkategori = models.CharField(
+        max_length=160,
+        blank=True,
+        default="",
+        verbose_name="Subkategori",
+    )
+
+    periode = models.CharField(
+        max_length=20,
+        choices=PERIODE_CHOICES,
+        default="Tahunan",
+        verbose_name="Periode",
+    )
+
+    bulan = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Bulan",
+        help_text="Isi 1-12 jika item ini adalah target bulanan.",
+    )
+
     target = models.DecimalField(
         max_digits=20,
         decimal_places=2,
@@ -664,6 +986,22 @@ class RKAPItem(models.Model):
         blank=True,
         null=True,
         verbose_name="Satuan",
+    )
+
+    nilai_audited_2024 = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Audited 2024",
+    )
+
+    nilai_unaudited_2025 = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Unaudited 2025",
     )
 
     asumsi = models.TextField(
@@ -681,12 +1019,30 @@ class RKAPItem(models.Model):
         verbose_name="Unit Penanggung Jawab",
     )
 
+    sumber_dokumen = models.CharField(
+        max_length=180,
+        blank=True,
+        default="",
+        verbose_name="Sumber Dokumen",
+    )
+
+    halaman_sumber = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Halaman Sumber",
+    )
+
+    urutan = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Urutan",
+    )
+
     aktif = models.BooleanField(default=True, verbose_name="Aktif")
 
     class Meta:
         verbose_name = "RKAP — Item"
         verbose_name_plural = "RKAP — Item"
-        ordering = ["-tahun", "kode", "sasaran"]
+        ordering = ["-tahun", "kategori", "subkategori", "urutan", "kode", "sasaran"]
         constraints = [
             models.UniqueConstraint(
                 fields=["tahun", "kode", "sasaran"],
@@ -764,7 +1120,7 @@ class RKMSummary(models.Model):
     deadline_pengajuan = models.DateField(
         null=True,
         blank=True,
-        verbose_name="Deadline Pengajuan Re-Assessment",
+        verbose_name="Deadline Pengajuan Profil Risiko",
     )
 
     tanggal_pengajuan = models.DateField(
@@ -778,6 +1134,24 @@ class RKMSummary(models.Model):
         choices=STATUS_PENGAJUAN_CHOICES,
         default="Belum",
         verbose_name="Status Pengajuan",
+    )
+
+    penandatangan_laporan_km = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="rkm_laporan_km_ditandatangani",
+        verbose_name="Penandatangan Laporan KM",
+    )
+
+    penandatangan_laporan_rkm = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="rkm_laporan_rkm_ditandatangani",
+        verbose_name="Penandatangan Laporan RKM",
     )
 
     dibuat_pada = models.DateTimeField(
@@ -798,6 +1172,10 @@ class RKMSummary(models.Model):
 
     def __str__(self):
         return f"{self.judul} ({self.bulan}/{self.tahun})"
+
+    @property
+    def is_approved(self):
+        return self.status == "Final" or self.status_pengajuan == "Disetujui"
 
     @property
     def pairing_officer(self):
@@ -826,7 +1204,11 @@ class RKMSummary(models.Model):
     def save(self, *args, **kwargs):
         from datetime import date
 
-        if self.deadline_pengajuan:
+        if self.status == "Final":
+            self.status_pengajuan = "Disetujui"
+        elif self.status_pengajuan == "Disetujui":
+            self.status = "Final"
+        elif self.deadline_pengajuan:
             if not self.tanggal_pengajuan:
                 if date.today() > self.deadline_pengajuan:
                     self.status_pengajuan = "Terlambat"
@@ -859,6 +1241,9 @@ class RKMSummary(models.Model):
                 defaults={
                     "no_item": no,
                     "sasaran": km_item.indikator_kinerja_kunci,
+                    "kpi_indikator": km_item.indikator_kinerja_kunci,
+                    "kpi_satuan": km_item.satuan,
+                    "kpi_target": km_item.target,
                 }
             )
             if created:
@@ -868,6 +1253,13 @@ class RKMSummary(models.Model):
         return created_count
     
 class RKMItem(models.Model):
+    KATEGORI_RKM_CHOICES = [
+        ("A", "A - Keuangan"),
+        ("B", "B - Pelanggan"),
+        ("C", "C - Bisnis Proses Internal"),
+        ("D", "D - Pengembangan dan Lingkungan"),
+    ]
+
     summary = models.ForeignKey(
         "RKMSummary",
         on_delete=models.CASCADE,
@@ -882,7 +1274,109 @@ class RKMItem(models.Model):
         verbose_name="Item KM",
     )
 
+    kategori_rkm = models.CharField(
+        max_length=1,
+        choices=KATEGORI_RKM_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Kategori RKM",
+    )
     sasaran = models.TextField(blank=True, null=True, verbose_name="Sasaran / KPI")
+    kpi_indikator = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="KPI - Indikator",
+    )
+    kpi_satuan = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="KPI - Satuan",
+    )
+    kpi_target = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="KPI - Target",
+    )
+    inisiatif_strategis = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Inisiatif Strategis",
+    )
+    program_kerja_utama = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Program Kerja Utama",
+    )
+    risiko = models.TextField(blank=True, null=True, verbose_name="Risiko")
+    mitigasi_risiko = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Mitigasi Risiko",
+    )
+    rencana_aksi = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Rencana Aksi",
+    )
+    anggaran_rp_ribu = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        verbose_name="Anggaran (Rp Ribu)",
+    )
+    target_akumulasi = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Target Akumulasi",
+    )
+    target_akumulasi_satuan = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Satuan Target Akumulasi",
+    )
+    realisasi_januari = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Januari")
+    realisasi_februari = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Februari")
+    realisasi_maret = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Maret")
+    realisasi_april = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi April")
+    realisasi_mei = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Mei")
+    realisasi_juni = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Juni")
+    realisasi_juli = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Juli")
+    realisasi_agustus = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Agustus")
+    realisasi_september = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi September")
+    realisasi_oktober = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Oktober")
+    realisasi_november = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi November")
+    realisasi_desember = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Desember")
+    jumlah_realisasi = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Jumlah Realisasi",
+    )
+    persen_capaian = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        verbose_name="% Capaian",
+    )
+    realisasi_anggaran = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        verbose_name="Realisasi Anggaran",
+    )
+    pic_rkm = models.CharField(max_length=255, blank=True, null=True, verbose_name="PIC")
+    hasil_analisa_program_kerja = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Hasil Analisa Program Kerja",
+    )
     target_bulanan = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Bulanan")
     realisasi = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi")
     deviasi = models.CharField(max_length=255, blank=True, null=True, verbose_name="Deviasi")
@@ -907,16 +1401,23 @@ class RKMItem(models.Model):
         return f"{self.summary} - {self.no_item}"
 
     def save(self, *args, **kwargs):
-        if not self.sasaran and self.km_item:
-            self.sasaran = self.km_item.indikator_kinerja_kunci
+        if self.km_item:
+            if not self.sasaran:
+                self.sasaran = self.km_item.indikator_kinerja_kunci
+            if not self.kpi_indikator:
+                self.kpi_indikator = self.km_item.indikator_kinerja_kunci
+            if not self.kpi_satuan:
+                self.kpi_satuan = self.km_item.satuan
+            if not self.kpi_target:
+                self.kpi_target = self.km_item.target
         super().save(*args, **kwargs)
 
 # =========================================================
-# PROFIL RISIKO UNIT / BIDANG (RE-ASSESSMENT)
+# PROFIL RISIKO UNIT / BIDANG
 # =========================================================
 
 class ReAssessmentSummary(models.Model):
-    judul = models.CharField(max_length=200, verbose_name="Judul Re-Assessment")
+    judul = models.CharField(max_length=200, verbose_name="Judul Profil Risiko")
     tahun = models.PositiveIntegerField(verbose_name="Tahun")
     unit_bisnis = models.ForeignKey(
         Group,
@@ -950,7 +1451,7 @@ class ReAssessmentSummary(models.Model):
 
     class Meta:
         verbose_name = "Profil Risiko Unit/Bidang"
-        verbose_name_plural = "TRANSAKSI UNIT — Profil Risiko (Re-Assessment)"
+        verbose_name_plural = "TRANSAKSI UNIT - Profil Risiko Bidang/Unit Bisnis"
         ordering = ["-tahun", "judul"]
 
     def __str__(self):
@@ -1394,7 +1895,7 @@ class ReAssessmentItem(models.Model):
 
     class Meta:
         verbose_name = "Item Risiko Unit/Bidang"
-        verbose_name_plural = "TRANSAKSI UNIT — Item Re-Assessment"
+        verbose_name_plural = "TRANSAKSI UNIT - Item Risiko Bidang/Unit Bisnis"
         ordering = ["summary", "no_item", "no_risiko"]
         constraints = [
             models.UniqueConstraint(
@@ -1413,12 +1914,12 @@ class ReAssessmentItem(models.Model):
         if self.summary and self.summary.rkm:
             if self.summary.rkm.unit_bisnis_id != self.unit_bisnis_id:
                 raise ValidationError(
-                    "Unit bisnis Re-Assessment harus sama dengan unit bisnis RKM."
+                    "Unit bisnis Profil Risiko harus sama dengan unit bisnis RKM."
                 )
 
             if self.summary.rkm.kontrak_manajemen_id != self.summary.kontrak_manajemen_id:
                 raise ValidationError(
-                    "Kontrak Manajemen Re-Assessment harus sama dengan Kontrak Manajemen pada RKM."
+                    "Kontrak Manajemen Profil Risiko harus sama dengan Kontrak Manajemen pada RKM."
                 )
         
     def _get_active_matrix(self):
@@ -1547,7 +2048,7 @@ class KPMRSummary(models.Model):
         ReAssessmentSummary,
         on_delete=models.PROTECT,
         related_name="kpmr_summary",
-        verbose_name="Re-Assessment",
+        verbose_name="Profil Risiko Bidang/Unit Bisnis",
     )
     dibuat_pada = models.DateTimeField(auto_now_add=True, verbose_name="Dibuat Pada")
 
@@ -1602,7 +2103,7 @@ class KPMRSummary(models.Model):
             notes.append("Output perlakuan risiko belum diisi")
 
         if not notes:
-            return "Dihitung otomatis dari Re-Assessment"
+            return "Dihitung otomatis dari Profil Risiko"
 
         return "; ".join(notes)
 
@@ -1678,7 +2179,7 @@ class KPMRItem(models.Model):
         ReAssessmentItem,
         on_delete=models.PROTECT,
         related_name="kpmr_item",
-        verbose_name="Re-Assessment Item",
+        verbose_name="Item Risiko Bidang/Unit Bisnis",
     )
     perlakuan_risiko = models.TextField(blank=True, null=True, verbose_name="Perlakuan Risiko")
     bukti = models.TextField(blank=True, null=True, verbose_name="Bukti")
@@ -2214,7 +2715,7 @@ class ProfilRisikoKorporatSumber(models.Model):
         ReAssessmentItem,
         on_delete=models.PROTECT,
         related_name="mendukung_risiko_korporat",
-        verbose_name="Risiko Bidang / Unit (Re-Assessment)",
+        verbose_name="Risiko Bidang / Unit",
     )
 
     no_penyebab_risiko = models.CharField(

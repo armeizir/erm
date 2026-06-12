@@ -1,6 +1,9 @@
+from django import forms
 from django.contrib import admin, messages
 from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin, UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group, User
+from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -8,15 +11,22 @@ from django.utils.html import format_html
 from django.http import HttpResponse
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import Image, SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.styles import ParagraphStyle
 from masterdata.models import MasterBUMN, TahunBuku, PeriodeLaporan
 
 from django.contrib.auth import get_user_model
 from django.db import models
 from decimal import Decimal
+from pathlib import Path
+from xml.sax.saxutils import escape
 
 from .models import (
+    AppSetting,
+    KnowledgeBaseArticle,
+    KnowledgeBaseCategory,
     KontrakManajemen,
     BagianKontrakManajemen,
     ItemKontrakManajemen,
@@ -75,6 +85,24 @@ admin.site.index_title = "Dashboard Manajemen Risiko"
 # AUTH / GROUP
 # =========================================================
 
+def assigned_unit_businesses_for_user(user):
+    if not user.is_authenticated:
+        return Group.objects.none()
+    if user.is_superuser:
+        return Group.objects.all()
+    return Group.objects.filter(
+        penugasan_pengguna__user=user,
+        penugasan_pengguna__aktif=True,
+    ).distinct()
+
+
+def user_can_access_unit(request, unit_id):
+    if request.user.is_superuser:
+        return True
+    if not unit_id:
+        return False
+    return assigned_unit_businesses_for_user(request.user).filter(pk=unit_id).exists()
+
 try:
     admin.site.unregister(Group)
 except admin.sites.NotRegistered:
@@ -110,12 +138,143 @@ class PenugasanUnitBisnisGroupInline(admin.TabularInline):
 @admin.register(Group)
 class CustomGroupAdmin(BaseGroupAdmin):
     inlines = [PenugasanUnitBisnisGroupInline]
-    list_display = ("name",)
+    list_display = ("name", "jenis_group", "jumlah_permission")
+    list_filter = ("permissions__content_type__app_label",)
     search_fields = ("name",)
     ordering = ("name",)
 
     def get_queryset(self, request):
-        return super().get_queryset(request).order_by("name")
+        return super().get_queryset(request).prefetch_related("permissions").order_by("name")
+
+    def get_inline_instances(self, request, obj=None):
+        if obj and self._is_permission_role(obj):
+            return []
+        return super().get_inline_instances(request, obj)
+
+    def _is_permission_role(self, obj):
+        return str(obj.name or "").startswith("ROLE - ")
+
+    @admin.display(description="Jenis")
+    def jenis_group(self, obj):
+        return "Role Permission" if self._is_permission_role(obj) else "Bidang / Unit Bisnis"
+
+    @admin.display(description="Permissions")
+    def jumlah_permission(self, obj):
+        return obj.permissions.count()
+
+
+class AppSettingForm(forms.ModelForm):
+    ai_api_key = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=True),
+        label="API Key AI",
+        help_text="Kosongkan jika belum menggunakan AI. Nilai disimpan di database lokal aplikasi.",
+    )
+
+    class Meta:
+        model = AppSetting
+        fields = "__all__"
+
+
+@admin.register(AppSetting)
+class AppSettingAdmin(admin.ModelAdmin):
+    form = AppSettingForm
+    list_display = (
+        "nama_aplikasi",
+        "logo_preview",
+        "ldap_status",
+        "ai_status",
+        "masked_ai_key",
+        "diperbarui_pada",
+    )
+    readonly_fields = ("logo_preview", "masked_ai_key", "diperbarui_pada")
+    fieldsets = (
+        ("Identitas Aplikasi & Logo", {
+            "fields": (
+                "nama_aplikasi",
+                "subtitle_aplikasi",
+                "logo",
+                "logo_preview",
+                "tampilkan_logo",
+                "warna_header",
+                "warna_teks_header",
+            )
+        }),
+        ("LDAP / Active Directory", {
+            "fields": (
+                "ldap_aktif",
+                "ldap_server",
+                "ldap_base_dn",
+                "ldap_domain",
+                "ldap_user_filter",
+                "ldap_email_domain",
+                "ldap_debug",
+            ),
+            "description": "Pengaturan login LDAP. Jika LDAP dimatikan, login lokal superuser tetap bisa digunakan.",
+        }),
+        ("API AI ChatGPT", {
+            "fields": (
+                "ai_aktif",
+                "ai_provider",
+                "ai_model",
+                "ai_base_url",
+                "ai_api_key",
+                "masked_ai_key",
+                "ai_temperature",
+            ),
+            "description": "Digunakan untuk modul AI insight/chat. Untuk produksi, pastikan akses admin dibatasi.",
+        }),
+        ("Lain-lain", {
+            "fields": (
+                "support_email",
+                "footer_laporan",
+                "diperbarui_pada",
+            )
+        }),
+    )
+
+    def has_module_permission(self, request):
+        return super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        return super().has_view_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request):
+        return (
+            super().has_add_permission(request)
+            and not AppSetting.objects.exists()
+        )
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def logo_preview(self, obj):
+        if obj and obj.logo:
+            return format_html(
+                '<img src="{}" style="max-width: 260px; max-height: 90px; object-fit: contain;" />',
+                obj.logo.url,
+            )
+        return "-"
+
+    logo_preview.short_description = "Preview Logo"
+
+    def ldap_status(self, obj):
+        return "Aktif" if obj.ldap_aktif else "Nonaktif"
+
+    ldap_status.short_description = "LDAP"
+
+    def ai_status(self, obj):
+        return "Aktif" if obj.ai_aktif else "Nonaktif"
+
+    ai_status.short_description = "AI"
+
+    def masked_ai_key(self, obj):
+        return obj.masked_ai_api_key if obj else "-"
+
+    masked_ai_key.short_description = "API Key Tersimpan"
 
 
 @admin.register(User)
@@ -446,6 +605,47 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
     search_fields = ("judul", "unit_bisnis__name", "template__nama")
     ordering = ("-tahun", "judul")
 
+    def _has_km_permission(self, request, action):
+        return (
+            request.user.has_perm(f"risk.{action}_kontrakmanajemen")
+            or request.user.has_perm(f"km.{action}_kontrakmanajemen")
+        )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def has_module_permission(self, request):
+        return self._has_km_permission(request, "view")
+
+    def has_view_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "view") or self._has_km_permission(request, "change")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "change")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_add_permission(self, request):
+        return self._has_km_permission(request, "add")
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "delete")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser and db_field.name == "unit_bisnis":
+            kwargs["queryset"] = assigned_unit_businesses_for_user(request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
     def save_model(self, request, obj, form, change):
         is_new = obj.pk is None
         super().save_model(request, obj, form, change)
@@ -507,8 +707,141 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
 
         return riwayat.jabatan if riwayat else "-"
 
+    def bulan_indonesia(self, nomor_bulan):
+        bulan = [
+            "",
+            "Januari",
+            "Februari",
+            "Maret",
+            "April",
+            "Mei",
+            "Juni",
+            "Juli",
+            "Agustus",
+            "September",
+            "Oktober",
+            "November",
+            "Desember",
+        ]
+        if 1 <= nomor_bulan <= 12:
+            return bulan[nomor_bulan]
+        return "-"
+
+    def format_angka_km(self, nilai):
+        if nilai in (None, ""):
+            return ""
+        try:
+            angka = Decimal(str(nilai))
+        except Exception:
+            return str(nilai)
+
+        if angka == angka.to_integral_value():
+            return str(int(angka))
+        return f"{angka:.2f}".rstrip("0").rstrip(".")
+
+    def paragraph_km(self, text, style):
+        return Paragraph(escape(str(text or "")), style)
+
+    def decimal_km(self, nilai):
+        if nilai in (None, ""):
+            return None
+        try:
+            cleaned = str(nilai).strip().replace("%", "").replace(",", ".")
+            if "-" in cleaned and not cleaned.startswith("-"):
+                cleaned = cleaned.split("-", 1)[0].strip()
+            return Decimal(cleaned)
+        except Exception:
+            return None
+
+    def calculate_km_score(self, item, target, realisasi):
+        if target is None or realisasi is None or target == 0:
+            return None, None
+        if item.polaritas == "negatif":
+            pencapaian = (target / realisasi * Decimal("100")) if realisasi else None
+        else:
+            pencapaian = realisasi / target * Decimal("100")
+        if pencapaian is None:
+            return None, None
+        bobot = Decimal(str(item.bobot or 0))
+        nilai = bobot * pencapaian / Decimal("100")
+        return pencapaian, nilai
+
+    def indikator_km(self, pencapaian):
+        if pencapaian is None:
+            return "-"
+        if pencapaian >= Decimal("100"):
+            return "Tercapai"
+        if pencapaian >= Decimal("95"):
+            return "Hampir Tercapai"
+        return "Perlu Peningkatan"
+
+    def realisasi_field_for_bulan(self, bulan):
+        fields = {
+            1: "realisasi_januari",
+            2: "realisasi_februari",
+            3: "realisasi_maret",
+            4: "realisasi_april",
+            5: "realisasi_mei",
+            6: "realisasi_juni",
+            7: "realisasi_juli",
+            8: "realisasi_agustus",
+            9: "realisasi_september",
+            10: "realisasi_oktober",
+            11: "realisasi_november",
+            12: "realisasi_desember",
+        }
+        return fields.get(bulan)
+
+    def rkm_laporan_km(self, kontrak, request):
+        rkm_qs = RKMSummary.objects.filter(kontrak_manajemen=kontrak).order_by("-tahun", "-bulan")
+        tahun = request.GET.get("tahun")
+        bulan = request.GET.get("bulan")
+        if tahun:
+            rkm_qs = rkm_qs.filter(tahun=tahun)
+        if bulan:
+            rkm_qs = rkm_qs.filter(bulan=bulan)
+        return rkm_qs.select_related("penandatangan_laporan_km", "unit_bisnis").first()
+
+    def km_logo_flowable(self):
+        logo_path = None
+        app_setting = AppSetting.objects.first()
+        if app_setting and app_setting.logo:
+            candidate = Path(app_setting.logo.path)
+            if candidate.exists():
+                logo_path = candidate
+
+        if not logo_path:
+            candidate = Path(settings.MEDIA_ROOT) / "system/logo/pln_batam_logo.png"
+            if candidate.exists():
+                logo_path = candidate
+
+        if logo_path:
+            return Image(str(logo_path), width=100, height=50)
+
+        return Table(
+            [[
+                Paragraph("<b>PLN</b>", ParagraphStyle(
+                    "KMLogoPLN",
+                    parent=getSampleStyleSheet()["Normal"],
+                    fontName="Helvetica-Bold",
+                    fontSize=11,
+                    leading=12,
+                    alignment=TA_CENTER,
+                )),
+                Paragraph("Batam", ParagraphStyle(
+                    "KMLogoBatam",
+                    parent=getSampleStyleSheet()["Normal"],
+                    fontName="Helvetica-Bold",
+                    fontSize=10,
+                    leading=11,
+                )),
+            ]],
+            colWidths=[34, 58],
+        )
+
     def pdf_view(self, request, kontrak_id):
         kontrak = get_object_or_404(KontrakManajemen, pk=kontrak_id)
+        rkm = self.rkm_laporan_km(kontrak, request)
 
         response = HttpResponse(content_type="application/pdf")
         response["Content-Disposition"] = (
@@ -518,42 +851,116 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
         doc = SimpleDocTemplate(
             response,
             pagesize=landscape(A4),
-            rightMargin=20,
-            leftMargin=20,
-            topMargin=20,
-            bottomMargin=20,
+            rightMargin=14,
+            leftMargin=14,
+            topMargin=14,
+            bottomMargin=14,
         )
 
         styles = getSampleStyleSheet()
-        normal = styles["Normal"]
-        title = styles["Title"]
+        normal = ParagraphStyle(
+            "KMNormal",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=5.8,
+            leading=6.8,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        )
+        normal_center = ParagraphStyle(
+            "KMNormalCenter",
+            parent=normal,
+            alignment=TA_CENTER,
+        )
+        header_style = ParagraphStyle(
+            "KMHeader",
+            parent=normal_center,
+            fontName="Helvetica-Bold",
+            textColor=colors.white,
+        )
+        section_style = ParagraphStyle(
+            "KMSection",
+            parent=normal,
+            fontName="Helvetica-Bold",
+        )
+        title_style = ParagraphStyle(
+            "KMTitle",
+            parent=styles["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=13,
+            alignment=TA_CENTER,
+            spaceAfter=2,
+        )
 
         elements = []
 
-        elements.append(
-            Paragraph(
-                "KONTRAK MANAJEMEN TAHUN {}".format(kontrak.tahun),
-                title,
-            )
-        )
-        elements.append(Paragraph(str(kontrak.judul), styles["Heading2"]))
-        elements.append(
-            Paragraph(
-                "Bidang / Unit Bisnis: {}".format(kontrak.unit_bisnis),
-                normal,
-            )
-        )
-        elements.append(Spacer(1, 12))
+        tanggal = kontrak.tanggal_kontrak
+        bulan_laporan = rkm.bulan if rkm else (tanggal.month if tanggal else 1)
+        tahun_label = rkm.tahun if rkm else (tanggal.year if tanggal else kontrak.tahun)
+        bulan_label = self.bulan_indonesia(bulan_laporan)
+        periode_label = f"S.D {bulan_label.upper()} {tahun_label}"
+        unit_label = str(kontrak.unit_bisnis or kontrak.judul or "").upper()
+        realisasi_field = self.realisasi_field_for_bulan(bulan_laporan)
+        rkm_items = {
+            item.km_item_id: item
+            for item in rkm.item.select_related("km_item")
+        } if rkm else {}
 
-        data = [[
-            "NO",
-            "INDIKATOR KINERJA KUNCI",
-            "FORMULA",
-            "SATUAN",
-            "BOBOT",
-            "TARGET",
-            "POLARITAS",
-        ]]
+        header_table = Table(
+            [[
+                self.km_logo_flowable(),
+                [
+                    Paragraph(
+                        f"PENCAPAIAN KONTRAK MANAJEMEN TAHUN {kontrak.tahun}",
+                        title_style,
+                    ),
+                    Paragraph(unit_label, title_style),
+                    Paragraph(periode_label, title_style),
+                ],
+                "",
+            ]],
+            colWidths=[110, 590, 110],
+        )
+        header_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "LEFT"),
+            ("ALIGN", (1, 0), (1, 0), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(header_table)
+
+        data = [
+            [
+                self.paragraph_km("NO", header_style),
+                self.paragraph_km("INDIKATOR KINERJA KUNCI", header_style),
+                self.paragraph_km("FORMULA", header_style),
+                self.paragraph_km("SATUAN", header_style),
+                self.paragraph_km("BOBOT", header_style),
+                self.paragraph_km(f"TARGET {kontrak.tahun}", header_style),
+                self.paragraph_km(periode_label, header_style),
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            [
+                self.paragraph_km("1", header_style),
+                self.paragraph_km("2", header_style),
+                self.paragraph_km("3", header_style),
+                self.paragraph_km("4", header_style),
+                self.paragraph_km("5", header_style),
+                self.paragraph_km("6", header_style),
+                self.paragraph_km("TARGET", header_style),
+                self.paragraph_km("REALISASI", header_style),
+                self.paragraph_km("PENCAPAIAN", header_style),
+                self.paragraph_km("NILAI", header_style),
+                self.paragraph_km("INDIKATOR", header_style),
+                self.paragraph_km("KETERANGAN", header_style),
+            ],
+        ]
 
         items = (
             ItemKontrakManajemen.objects
@@ -563,13 +970,43 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
         )
 
         current_bagian = None
+        section_rows = []
+        total_bobot = Decimal("0")
+        total_nilai = Decimal("0")
+        has_nilai = False
+        items_list = list(items)
 
-        for item in items:
+        for item in items_list:
+            if not (
+                item.indikator_kinerja_kunci
+                or item.formula
+                or item.target
+                or item.bobot
+            ):
+                continue
+
             if item.master_bagian_id and item.master_bagian != current_bagian:
                 current_bagian = item.master_bagian
+                subtotal_bobot = sum(
+                    Decimal(str(i.bobot or 0))
+                    for i in items_list
+                    if i.master_bagian_id == current_bagian.id
+                    and (
+                        i.indikator_kinerja_kunci
+                        or i.formula
+                        or i.target
+                        or i.bobot
+                    )
+                )
+                section_rows.append(len(data))
                 data.append([
-                    current_bagian.kode_bagian,
-                    Paragraph(f"<b>{current_bagian.nama_bagian}</b>", normal),
+                    self.paragraph_km(current_bagian.kode_bagian, section_style),
+                    self.paragraph_km(current_bagian.nama_bagian, section_style),
+                    "",
+                    "",
+                    self.paragraph_km(self.format_angka_km(subtotal_bobot), section_style),
+                    "",
+                    "",
                     "",
                     "",
                     "",
@@ -577,74 +1014,193 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
                     "",
                 ])
 
-            data.append([
-                item.no_urut,
-                Paragraph(item.indikator_kinerja_kunci or "", normal),
-                Paragraph(item.formula or "", normal),
-                item.satuan or "",
-                item.bobot or "",
-                item.target or "",
+            total_bobot += Decimal(str(item.bobot or 0))
+            rkm_item = rkm_items.get(item.id)
+            target_bulanan = (
+                rkm_item.target_akumulasi or rkm_item.target_bulanan
+                if rkm_item else ""
+            )
+            realisasi = ""
+            if rkm_item:
+                realisasi = (
+                    (getattr(rkm_item, realisasi_field, None) if realisasi_field else None)
+                    or rkm_item.jumlah_realisasi
+                    or rkm_item.realisasi
+                    or ""
+                )
+            target_value = self.decimal_km(target_bulanan) or self.decimal_km(item.target)
+            realisasi_value = self.decimal_km(realisasi)
+            pencapaian, nilai = self.calculate_km_score(item, target_value, realisasi_value)
+            if nilai is not None:
+                has_nilai = True
+                total_nilai += nilai
+            polaritas = (
                 item.get_polaritas_display()
                 if hasattr(item, "get_polaritas_display")
-                else item.polaritas,
+                else item.polaritas
+            )
+            indikator = item.indikator_kinerja_kunci or ""
+            if polaritas:
+                indikator = f"{indikator}\n({polaritas})"
+
+            data.append([
+                self.paragraph_km(item.no_urut, normal_center),
+                self.paragraph_km(indikator, normal),
+                self.paragraph_km(item.formula or "", normal),
+                self.paragraph_km(item.satuan or "", normal_center),
+                self.paragraph_km(self.format_angka_km(item.bobot), normal_center),
+                self.paragraph_km(item.target or "", normal_center),
+                self.paragraph_km(target_bulanan or item.target or "", normal_center),
+                self.paragraph_km(realisasi, normal_center),
+                self.paragraph_km(f"{self.format_angka_km(pencapaian)}%" if pencapaian is not None else "", normal_center),
+                self.paragraph_km(self.format_angka_km(nilai), normal_center),
+                self.paragraph_km(self.indikator_km(pencapaian), normal_center),
+                self.paragraph_km(
+                    rkm_item.hasil_analisa_program_kerja or rkm_item.keterangan
+                    if rkm_item else "",
+                    normal,
+                ),
             ])
+
+        total_row_index = len(data)
+        data.append([
+            "",
+            self.paragraph_km("TOTAL", section_style),
+            "",
+            "",
+            self.paragraph_km(self.format_angka_km(total_bobot), section_style),
+            "",
+            "",
+            "",
+            "",
+            self.paragraph_km(self.format_angka_km(total_nilai) if has_nilai else "", section_style),
+            "",
+            "",
+        ])
 
         table = Table(
             data,
-            colWidths=[35, 230, 270, 60, 50, 70, 70],
-            repeatRows=1,
+            colWidths=[28, 150, 190, 42, 36, 52, 52, 52, 52, 42, 44, 70],
+            repeatRows=2,
         )
 
-        table.setStyle(TableStyle([
+        table_style = TableStyle([
             ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("SPAN", (6, 0), (11, 0)),
+            ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#0070C0")),
+            ("TEXTCOLOR", (0, 0), (-1, 1), colors.white),
+            ("FONTNAME", (0, 0), (-1, 1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 5.8),
+            ("LEADING", (0, 0), (-1, -1), 6.8),
+            ("ALIGN", (0, 0), (-1, 1), "CENTER"),
+            ("ALIGN", (0, 2), (0, -1), "CENTER"),
+            ("ALIGN", (3, 2), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("BACKGROUND", (0, 1), (-1, -1), colors.white),
-        ]))
+            ("BACKGROUND", (0, 2), (-1, -1), colors.white),
+            ("BACKGROUND", (0, total_row_index), (-1, total_row_index), colors.HexColor("#D9EAF7")),
+            ("FONTNAME", (0, total_row_index), (-1, total_row_index), "Helvetica-Bold"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ])
+        for row_index in section_rows:
+            table_style.add(
+                "BACKGROUND",
+                (0, row_index),
+                (-1, row_index),
+                colors.HexColor("#FFC000"),
+            )
+            table_style.add("FONTNAME", (0, row_index), (-1, row_index), "Helvetica-Bold")
+
+        table.setStyle(table_style)
 
         elements.append(table)
-        elements.append(Spacer(1, 20))
+        elements.append(Spacer(1, 8))
 
-        elements.append(Paragraph("TOTAL", styles["Heading3"]))
-        elements.append(Spacer(1, 30))
-
-        nama_p1 = self.nama_user(kontrak.pihak_pertama)
-        nama_p2 = self.nama_user(kontrak.pihak_kedua)
-
-        jabatan_p1 = self.jabatan_user(
-            kontrak.pihak_pertama,
-            kontrak.tanggal_kontrak,
-        )
-        jabatan_p2 = self.jabatan_user(
-            kontrak.pihak_kedua,
-            kontrak.tanggal_kontrak,
-        )
-
-        elements.append(
-            Paragraph(
-                "Batam, Februari {}".format(kontrak.tahun),
-                normal,
-            )
-        )
-        elements.append(Spacer(1, 40))
-
-        ttd_data = [
-            ["PIHAK PERTAMA", "PIHAK KEDUA"],
-            ["", ""],
-            [f"<u>({nama_p1})</u>", f"<u>({nama_p2})</u>"],
-            [jabatan_p1, jabatan_p2],
+        legend_data = [
+            ["-", "Belum dilakukan proses pengukuran"],
+            ["", "Tercapai (NKO >= 100)"],
+            ["", "Hampir Tercapai (95 <= NKO < 100)"],
+            ["", "Perlu Peningkatan (NKO < 95)"],
         ]
-
-        ttd_table = Table(ttd_data, colWidths=[380, 380])
-        ttd_table.setStyle(TableStyle([
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        legend_table = Table(legend_data, colWidths=[16, 170])
+        legend_table.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("LEADING", (0, 0), (-1, -1), 8),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 1), (-1, 1), 60),
+            ("BACKGROUND", (0, 1), (0, 1), colors.HexColor("#00B050")),
+            ("BACKGROUND", (0, 2), (0, 2), colors.HexColor("#FFFF00")),
+            ("BACKGROUND", (0, 3), (0, 3), colors.HexColor("#FF0000")),
+            ("BOX", (0, 1), (0, 3), 0.25, colors.black),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
         ]))
 
-        elements.append(ttd_table)
+        penandatangan = (
+            rkm.penandatangan_laporan_km
+            if rkm and rkm.penandatangan_laporan_km_id
+            else kontrak.pihak_kedua
+        )
+        nama_p2 = self.nama_user(penandatangan) if penandatangan else ""
+
+        jabatan_p2 = self.jabatan_user(
+            penandatangan,
+            rkm.tanggal_selesai if rkm and rkm.tanggal_selesai else kontrak.tanggal_kontrak,
+        )
+        if jabatan_p2 == "-":
+            jabatan_p2 = ""
+
+        tanggal_text = (
+            f"{tanggal.day:02d} {self.bulan_indonesia(tanggal.month)} {tanggal.year}"
+            if tanggal
+            else f"{self.bulan_indonesia(2)} {kontrak.tahun}"
+        )
+        sign_style = ParagraphStyle(
+            "KMSign",
+            parent=normal_center,
+            fontSize=7,
+            leading=8,
+        )
+        sign_bold = ParagraphStyle(
+            "KMSignBold",
+            parent=sign_style,
+            fontName="Helvetica-Bold",
+        )
+        signature_table = Table(
+            [
+                [Paragraph(f"Batam, {tanggal_text}", sign_style)],
+                [Paragraph(escape(jabatan_p2), sign_style)],
+                [""],
+                [Paragraph(f"<u>{escape(nama_p2)}</u>", sign_bold) if nama_p2 else ""],
+            ],
+            colWidths=[220],
+            rowHeights=[12, 18, 30, 14],
+        )
+        signature_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ]))
+
+        footer_table = Table(
+            [[legend_table, "", signature_table]],
+            colWidths=[230, 360, 220],
+        )
+        footer_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("ALIGN", (0, 0), (0, 0), "LEFT"),
+            ("ALIGN", (2, 0), (2, 0), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+
+        elements.append(footer_table)
 
         doc.build(elements)
         return response
@@ -662,6 +1218,106 @@ class ItemKontrakInline(admin.TabularInline):
         "bobot",
     )
     ordering = ("no_urut",)
+
+
+class KnowledgeBaseArticleForm(forms.ModelForm):
+    class Meta:
+        model = KnowledgeBaseArticle
+        fields = "__all__"
+        widgets = {
+            "ringkasan": forms.Textarea(attrs={"rows": 3}),
+            "konten": forms.Textarea(attrs={"class": "kb-rich-editor", "rows": 24}),
+        }
+
+
+@admin.register(KnowledgeBaseCategory)
+class KnowledgeBaseCategoryAdmin(admin.ModelAdmin):
+    list_display = ("nama", "urutan", "aktif", "jumlah_artikel")
+    list_filter = ("aktif",)
+    search_fields = ("nama", "deskripsi")
+    prepopulated_fields = {"slug": ("nama",)}
+    ordering = ("urutan", "nama")
+
+    @admin.display(description="Artikel")
+    def jumlah_artikel(self, obj):
+        return obj.artikel.count()
+
+    def has_module_permission(self, request):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
+
+    def has_view_permission(self, request, obj=None):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
+
+
+@admin.register(KnowledgeBaseArticle)
+class KnowledgeBaseArticleAdmin(admin.ModelAdmin):
+    form = KnowledgeBaseArticleForm
+    list_display = (
+        "judul",
+        "kategori",
+        "audience",
+        "status",
+        "dibuat_oleh",
+        "dipublikasikan_pada",
+        "diperbarui_pada",
+    )
+    list_filter = ("status", "audience", "kategori", "dipublikasikan_pada")
+    search_fields = ("judul", "ringkasan", "konten", "tags")
+    prepopulated_fields = {"slug": ("judul",)}
+    autocomplete_fields = ("kategori", "dibuat_oleh", "diperbarui_oleh")
+    readonly_fields = ("dibuat_pada", "diperbarui_pada")
+    ordering = ("kategori__urutan", "judul")
+    date_hierarchy = "diperbarui_pada"
+
+    fieldsets = (
+        ("Informasi Artikel", {
+            "fields": (
+                "kategori",
+                "judul",
+                "slug",
+                "ringkasan",
+                "tags",
+                "audience",
+                "status",
+            )
+        }),
+        ("Konten", {
+            "fields": (
+                "konten",
+                "lampiran",
+            )
+        }),
+        ("Publikasi", {
+            "fields": (
+                "dipublikasikan_pada",
+                "dibuat_oleh",
+                "diperbarui_oleh",
+                "dibuat_pada",
+                "diperbarui_pada",
+            )
+        }),
+    )
+
+    class Media:
+        js = (
+            "https://cdn.ckeditor.com/4.22.1/full/ckeditor.js",
+            "risk/admin/knowledge_base_editor.js",
+        )
+        css = {
+            "all": ("risk/admin/knowledge_base_editor.css",)
+        }
+
+    def save_model(self, request, obj, form, change):
+        if not obj.dibuat_oleh_id:
+            obj.dibuat_oleh = request.user
+        obj.diperbarui_oleh = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_module_permission(self, request):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
+
+    def has_view_permission(self, request, obj=None):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
 
 
 @admin.register(BagianKontrakManajemen)
@@ -728,6 +1384,51 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
         "polaritas",
     )
 
+    def _has_km_permission(self, request, action):
+        return (
+            request.user.has_perm(f"risk.{action}_itemkontrakmanajemen")
+            or request.user.has_perm(f"km.{action}_kontrakmanajemenitem")
+        )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(
+            kontrak__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+        )
+
+    def has_module_permission(self, request):
+        return self._has_km_permission(request, "view")
+
+    def has_view_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "view") or self._has_km_permission(request, "change")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.kontrak.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "change")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.kontrak.unit_bisnis_id)
+
+    def has_add_permission(self, request):
+        return self._has_km_permission(request, "add")
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = self._has_km_permission(request, "delete")
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.kontrak.unit_bisnis_id)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser and db_field.name == "kontrak":
+            kwargs["queryset"] = KontrakManajemen.objects.filter(
+                unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
     def save_model(self, request, obj, form, change):
 
         if obj.master_bagian and obj.kontrak:
@@ -756,16 +1457,73 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
 class RKMItemInline(admin.TabularInline):
     model = RKMItem
     extra = 0
+    can_delete = True
     fields = (
         "no_item",
+        "kategori_rkm",
         "km_item",
-        "sasaran",
-        "target_bulanan",
-        "realisasi",
-        "deviasi",
-        "keterangan",
+        "kpi_indikator",
+        "kpi_satuan",
+        "kpi_target",
+        "inisiatif_strategis",
+        "program_kerja_utama",
+        "risiko",
+        "mitigasi_risiko",
+        "rencana_aksi",
+        "anggaran_rp_ribu",
+        "target_akumulasi",
+        "target_akumulasi_satuan",
+        "realisasi_januari",
+        "realisasi_februari",
+        "realisasi_maret",
+        "realisasi_april",
+        "realisasi_mei",
+        "realisasi_juni",
+        "realisasi_juli",
+        "realisasi_agustus",
+        "realisasi_september",
+        "realisasi_oktober",
+        "realisasi_november",
+        "realisasi_desember",
+        "jumlah_realisasi",
+        "persen_capaian",
+        "realisasi_anggaran",
+        "pic_rkm",
+        "hasil_analisa_program_kerja",
     )
     ordering = ("no_item",)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.is_approved:
+            return self.fields
+        return ()
+
+    def has_add_permission(self, request, obj=None):
+        allowed = super().has_add_permission(request, obj)
+        if not allowed:
+            return False
+        return not (obj and obj.is_approved)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed:
+            return False
+        return not (obj and obj.is_approved)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(
+            summary__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser and db_field.name == "km_item":
+            kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
+                kontrak__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(RKMSummary)
@@ -776,14 +1534,24 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         "bulan",
         "unit_bisnis",
         "kontrak_manajemen",
+        "penandatangan_laporan_km",
+        "penandatangan_laporan_rkm",
         "status",
         "status_pengajuan",
         "generate_button",
+        "km_pdf_button",
     )
     list_filter = ("tahun", "bulan", "status", "status_pengajuan", "unit_bisnis")
     search_fields = ("judul", "unit_bisnis__name", "kontrak_manajemen__judul")
     ordering = ("-tahun", "bulan", "judul")
     inlines = [RKMItemInline]
+    readonly_fields = ("rkm_lock_info",)
+    autocomplete_fields = (
+        "unit_bisnis",
+        "kontrak_manajemen",
+        "penandatangan_laporan_km",
+        "penandatangan_laporan_rkm",
+    )
 
     fieldsets = (
         ("Informasi Utama", {
@@ -794,6 +1562,13 @@ class RKMSummaryAdmin(admin.ModelAdmin):
                 "unit_bisnis",
                 "kontrak_manajemen",
                 "status",
+                "rkm_lock_info",
+            )
+        }),
+        ("Penandatangan Laporan", {
+            "fields": (
+                "penandatangan_laporan_km",
+                "penandatangan_laporan_rkm",
             )
         }),
         ("Periode", {
@@ -823,13 +1598,111 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         ]
         return custom_urls + urls
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.is_approved:
+            return (
+                "judul",
+                "tahun",
+                "bulan",
+                "unit_bisnis",
+                "kontrak_manajemen",
+                "status",
+                "tanggal_mulai",
+                "tanggal_selesai",
+                "penandatangan_laporan_km",
+                "penandatangan_laporan_rkm",
+                "pic",
+                "deadline_pengajuan",
+                "tanggal_pengajuan",
+                "status_pengajuan",
+                "rkm_lock_info",
+            )
+        return self.readonly_fields
+
+    def get_list_filter(self, request):
+        if request.user.is_superuser:
+            return self.list_filter
+        return tuple(
+            item for item in self.list_filter if item != "unit_bisnis"
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser:
+            if db_field.name == "unit_bisnis":
+                kwargs["queryset"] = assigned_unit_businesses_for_user(request.user)
+            elif db_field.name == "kontrak_manajemen":
+                kwargs["queryset"] = KontrakManajemen.objects.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+                )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None:
+            return allowed
+        if obj.is_approved:
+            return False
+        if request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None:
+            return allowed
+        if obj.is_approved:
+            return False
+        if request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
     def generate_button(self, obj):
+        if obj.is_approved:
+            return "RKM sudah disetujui/final"
         url = reverse("admin:risk_rkmsummary_generate_items", args=[obj.pk])
         return format_html('<a class="button" href="{}">Generate RKM dari KM</a>', url)
     generate_button.short_description = "Generate"
 
+    def km_pdf_button(self, obj):
+        url = reverse("admin:risk_kontrakmanajemen_pdf", args=[obj.kontrak_manajemen_id])
+        return format_html(
+            '<a class="button" href="{}?tahun={}&bulan={}" target="_blank">PDF KM</a>',
+            url,
+            obj.tahun,
+            obj.bulan,
+        )
+    km_pdf_button.short_description = "Laporan KM"
+
+    @admin.display(description="Status Kunci")
+    def rkm_lock_info(self, obj):
+        if obj and obj.is_approved:
+            return "RKM sudah disetujui/final dan tidak dapat diedit. Realisasi dicatat melalui Laporan Risiko Bulanan."
+        return "RKM masih dapat diedit sebelum status Final/Disetujui."
+
     def generate_items_view(self, request, rkm_id, *args, **kwargs):
         rkm = get_object_or_404(RKMSummary, pk=rkm_id)
+        if rkm.is_approved:
+            self.message_user(
+                request,
+                "RKM sudah disetujui/final sehingga item tidak dapat digenerate ulang.",
+                level=messages.ERROR,
+            )
+            change_url = reverse("admin:risk_rkmsummary_change", args=[rkm.pk])
+            return redirect(change_url)
+        if not user_can_access_unit(request, rkm.unit_bisnis_id):
+            raise PermissionDenied
         created_count = rkm.generate_items_from_km()
 
         self.message_user(
@@ -847,19 +1720,148 @@ class RKMItemAdmin(admin.ModelAdmin):
     list_display = (
         "summary",
         "no_item",
+        "kategori_rkm",
         "km_item",
-        "sasaran",
-        "target_bulanan",
-        "realisasi",
-        "deviasi",
+        "kpi_indikator",
+        "program_kerja_utama",
+        "target_akumulasi",
+        "jumlah_realisasi",
+        "persen_capaian",
+        "pic_rkm",
     )
-    list_filter = ("summary__tahun", "summary__bulan", "summary__unit_bisnis")
+    list_filter = ("summary__tahun", "summary__bulan", "summary__unit_bisnis", "kategori_rkm")
     search_fields = (
         "summary__judul",
         "km_item__indikator_kinerja_kunci",
         "sasaran",
+        "kpi_indikator",
+        "program_kerja_utama",
+        "risiko",
+        "pic_rkm",
     )
     ordering = ("summary", "no_item")
+    fieldsets = (
+        ("Acuan", {
+            "fields": (
+                "summary",
+                "no_item",
+                "kategori_rkm",
+                "km_item",
+            )
+        }),
+        ("KPI", {
+            "fields": (
+                "kpi_indikator",
+                "kpi_satuan",
+                "kpi_target",
+            )
+        }),
+        ("Program Kerja", {
+            "fields": (
+                "inisiatif_strategis",
+                "program_kerja_utama",
+                "risiko",
+                "mitigasi_risiko",
+                "rencana_aksi",
+                "anggaran_rp_ribu",
+                "target_akumulasi",
+                "target_akumulasi_satuan",
+            )
+        }),
+        ("Realisasi Bulanan", {
+            "fields": (
+                "realisasi_januari",
+                "realisasi_februari",
+                "realisasi_maret",
+                "realisasi_april",
+                "realisasi_mei",
+                "realisasi_juni",
+                "realisasi_juli",
+                "realisasi_agustus",
+                "realisasi_september",
+                "realisasi_oktober",
+                "realisasi_november",
+                "realisasi_desember",
+            )
+        }),
+        ("Hasil", {
+            "fields": (
+                "jumlah_realisasi",
+                "persen_capaian",
+                "realisasi_anggaran",
+                "pic_rkm",
+                "hasil_analisa_program_kerja",
+            )
+        }),
+        ("Data Lama", {
+            "classes": ("collapse",),
+            "fields": (
+                "sasaran",
+                "target_bulanan",
+                "realisasi",
+                "deviasi",
+                "keterangan",
+            )
+        }),
+    )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(summary__unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def get_list_filter(self, request):
+        if request.user.is_superuser:
+            return self.list_filter
+        return tuple(
+            item for item in self.list_filter if item != "summary__unit_bisnis"
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "summary":
+            summary_qs = RKMSummary.objects.exclude(
+                status="Final",
+            ).exclude(
+                status_pengajuan="Disetujui",
+            )
+            if not request.user.is_superuser:
+                summary_qs = summary_qs.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user),
+                )
+            kwargs["queryset"] = summary_qs
+        elif not request.user.is_superuser:
+            if db_field.name == "km_item":
+                kwargs["queryset"] = ItemKontrakManajemen.objects.filter(
+                    kontrak__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+                )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None:
+            return allowed
+        if obj.summary.is_approved:
+            return False
+        if request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None:
+            return allowed
+        if obj.summary.is_approved:
+            return False
+        if request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
 
 
 # =========================================================
@@ -931,6 +1933,40 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
     )
 
     inlines = [ReAssessmentItemInline]
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser:
+            if db_field.name == "unit_bisnis":
+                kwargs["queryset"] = assigned_unit_businesses_for_user(request.user)
+            elif db_field.name == "kontrak_manajemen":
+                kwargs["queryset"] = KontrakManajemen.objects.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+                )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
 
 class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
     model = ProfilRisikoKorporatSumber
@@ -1101,6 +2137,32 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     )
     inlines = [ProfilRisikoKorporatSumberByReassessmentInline]
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(
+            summary__unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+        )
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.summary.unit_bisnis_id)
+
     def unit_bisnis_summary(self, obj):
         return obj.summary.unit_bisnis if obj.summary_id else "-"
     unit_bisnis_summary.short_description = "Bidang / Unit Bisnis"
@@ -1110,6 +2172,11 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     jumlah_relasi_korporat.short_description = "Relasi Korporat"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser and db_field.name == "summary":
+            kwargs["queryset"] = ReAssessmentSummary.objects.filter(
+                unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+            )
+
         if db_field.name == "km_item":
             object_id = request.resolver_match.kwargs.get("object_id")
 
@@ -1202,7 +2269,7 @@ class KPMRSummaryAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
         self.message_user(
             request,
-            "KPMR berhasil disimpan dan item dihitung otomatis dari Re-Assessment.",
+            "KPMR berhasil disimpan dan item dihitung otomatis dari Profil Risiko Bidang/Unit Bisnis.",
             level=messages.SUCCESS,
         )
 
@@ -1447,6 +2514,7 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
         "kode_perusahaan",
         "status",
         "dibuat_pada",
+        "pdf_button",
     )
     list_filter = ("tahun", "status")
     search_fields = ("judul", "nama_perusahaan", "kode_perusahaan")
@@ -1467,6 +2535,390 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
             "fields": ("catatan",)
         }),
     )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:summary_id>/pdf/",
+                self.admin_site.admin_view(self.pdf_view),
+                name="risk_profilrisikokorporatsummary_pdf",
+            ),
+        ]
+        return custom_urls + urls
+
+    def pdf_button(self, obj):
+        url = reverse("admin:risk_profilrisikokorporatsummary_pdf", args=[obj.pk])
+        return format_html(
+            '<a class="button" href="{}" target="_blank">PDF</a>',
+            url,
+        )
+    pdf_button.short_description = "PDF"
+
+    def pdf_text(self, text, style):
+        escaped = escape(str(text or "")).replace("\n", "<br/>")
+        return Paragraph(escaped, style)
+
+    def pdf_label(self, value):
+        return str(value) if value not in (None, "") else "-"
+
+    def timeline_label(self, obj):
+        months = [
+            str(month)
+            for month in range(1, 13)
+            if getattr(obj, f"timeline_{month}", 0)
+        ]
+        return ", ".join(months) if months else "-"
+
+    def pdf_view(self, request, summary_id):
+        summary = get_object_or_404(ProfilRisikoKorporatSummary, pk=summary_id)
+        items = list(
+            summary.item
+            .select_related(
+                "bumn",
+                "rkap_item",
+                "sasaran_kbumn",
+                "kategori_risiko",
+                "taksonomi_t3",
+                "matrix_cell_inheren__level_risiko",
+                "matrix_cell_residual__level_risiko",
+            )
+            .prefetch_related(
+                "daftar_penyebab__pemilik_risiko",
+                "daftar_penyebab__jenis_existing_control",
+                "daftar_penyebab__penilaian_efektivitas_kontrol",
+                "daftar_penyebab__kategori_dampak",
+                "sumber_risiko__reassessment_item__summary__unit_bisnis",
+                "rencana_perlakuan_items__opsi_perlakuan_risiko",
+                "rencana_perlakuan_items__pos_anggaran",
+                "rencana_perlakuan_items__jenis_program_dalam_rkap",
+                "rencana_perlakuan_items__jenis_rencana_perlakuan_risiko",
+            )
+            .order_by("no_item", "no_risiko")
+        )
+
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="Profil_Risiko_Korporat_{summary.tahun}.pdf"'
+        )
+
+        doc = SimpleDocTemplate(
+            response,
+            pagesize=landscape(A4),
+            rightMargin=18,
+            leftMargin=18,
+            topMargin=18,
+            bottomMargin=18,
+        )
+
+        styles = getSampleStyleSheet()
+        normal = ParagraphStyle(
+            "PRKNormal",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=6.4,
+            leading=7.6,
+            alignment=TA_LEFT,
+        )
+        normal_center = ParagraphStyle(
+            "PRKNormalCenter",
+            parent=normal,
+            alignment=TA_CENTER,
+        )
+        header = ParagraphStyle(
+            "PRKHeader",
+            parent=normal_center,
+            fontName="Helvetica-Bold",
+            textColor=colors.white,
+        )
+        section = ParagraphStyle(
+            "PRKSection",
+            parent=normal,
+            fontName="Helvetica-Bold",
+            fontSize=7,
+            leading=8,
+        )
+        title = ParagraphStyle(
+            "PRKTitle",
+            parent=styles["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            leading=16,
+            alignment=TA_CENTER,
+            spaceAfter=6,
+        )
+        subtitle = ParagraphStyle(
+            "PRKSubtitle",
+            parent=normal_center,
+            fontSize=8,
+            leading=10,
+            spaceAfter=8,
+        )
+
+        elements = [
+            Paragraph("LAPORAN PROFIL RISIKO KORPORAT", title),
+            Paragraph(f"{escape(summary.nama_perusahaan)} - {summary.tahun}", subtitle),
+        ]
+
+        info_table = Table(
+            [
+                [
+                    self.pdf_text("Judul", section),
+                    self.pdf_text(summary.judul, normal),
+                    self.pdf_text("Kode BUMN", section),
+                    self.pdf_text(summary.kode_perusahaan, normal),
+                ],
+                [
+                    self.pdf_text("Status", section),
+                    self.pdf_text(summary.status or "-", normal),
+                    self.pdf_text("Jumlah Risiko", section),
+                    self.pdf_text(len(items), normal),
+                ],
+                [
+                    self.pdf_text("Catatan", section),
+                    self.pdf_text(summary.catatan or "-", normal),
+                    "",
+                    "",
+                ],
+            ],
+            colWidths=[80, 300, 80, 300],
+        )
+        info_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#9CA3AF")),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E5E7EB")),
+            ("BACKGROUND", (2, 0), (2, 1), colors.HexColor("#E5E7EB")),
+            ("SPAN", (1, 2), (3, 2)),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 10))
+
+        overview_data = [[
+            self.pdf_text("No", header),
+            self.pdf_text("Sasaran Korporat", header),
+            self.pdf_text("Peristiwa Risiko", header),
+            self.pdf_text("Kategori", header),
+            self.pdf_text("T3", header),
+            self.pdf_text("Inheren", header),
+            self.pdf_text("Residual", header),
+            self.pdf_text("Status", header),
+        ]]
+        for item in items:
+            overview_data.append([
+                self.pdf_text(item.no_risiko or item.no_item, normal_center),
+                self.pdf_text(item.sasaran_korporat, normal),
+                self.pdf_text(item.peristiwa_risiko, normal),
+                self.pdf_text(item.kategori_risiko, normal),
+                self.pdf_text(item.taksonomi_t3, normal),
+                self.pdf_text(
+                    f"D:{self.pdf_label(item.dampak)} K:{self.pdf_label(item.kemungkinan)} "
+                    f"L:{self.pdf_label(item.level_risiko)} {item.get_level_name('inheren') or ''}",
+                    normal_center,
+                ),
+                self.pdf_text(
+                    f"D:{self.pdf_label(item.residual_dampak)} K:{self.pdf_label(item.residual_kemungkinan)} "
+                    f"L:{self.pdf_label(item.residual_level_risiko)} {item.get_level_name('residual') or ''}",
+                    normal_center,
+                ),
+                self.pdf_text(item.status or "-", normal_center),
+            ])
+
+        overview_table = Table(
+            overview_data,
+            colWidths=[28, 140, 180, 100, 110, 82, 82, 58],
+            repeatRows=1,
+        )
+        overview_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#6B7280")),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (0, 1), (0, -1), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(self.pdf_text("Ringkasan Risiko", section))
+        elements.append(overview_table)
+        elements.append(Spacer(1, 10))
+
+        for item in items:
+            elements.append(self.pdf_text(f"Detail Risiko {item.no_risiko or item.no_item}", section))
+            detail_table = Table(
+                [
+                    [
+                        self.pdf_text("Sasaran", section),
+                        self.pdf_text(item.sasaran_korporat, normal),
+                        self.pdf_text("Sasaran KBUMN", section),
+                        self.pdf_text(item.sasaran_kbumn, normal),
+                    ],
+                    [
+                        self.pdf_text("Peristiwa Risiko", section),
+                        self.pdf_text(item.peristiwa_risiko, normal),
+                        self.pdf_text("Deskripsi", section),
+                        self.pdf_text(item.deskripsi_peristiwa_risiko or "-", normal),
+                    ],
+                    [
+                        self.pdf_text("RKAP", section),
+                        self.pdf_text(item.rkap_item or "-", normal),
+                        self.pdf_text("BUMN", section),
+                        self.pdf_text(f"{item.nama_bumn} ({item.kode_bumn})", normal),
+                    ],
+                ],
+                colWidths=[75, 315, 75, 315],
+            )
+            detail_table.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#9CA3AF")),
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
+                ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#F3F4F6")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            elements.append(detail_table)
+            elements.append(Spacer(1, 4))
+
+            penyebab_rows = [[
+                self.pdf_text("No", header),
+                self.pdf_text("Pemilik", header),
+                self.pdf_text("Penyebab", header),
+                self.pdf_text("KRI / Threshold", header),
+                self.pdf_text("Existing Control", header),
+                self.pdf_text("Dampak", header),
+            ]]
+            for penyebab in item.daftar_penyebab.all():
+                penyebab_rows.append([
+                    self.pdf_text(penyebab.no_penyebab_risiko or penyebab.urutan, normal_center),
+                    self.pdf_text(penyebab.pemilik_risiko or "-", normal),
+                    self.pdf_text(penyebab.penyebab_risiko or "-", normal),
+                    self.pdf_text(
+                        f"{penyebab.key_risk_indicators or '-'}\n"
+                        f"Aman: {self.pdf_label(penyebab.threshold_aman)}; "
+                        f"Hati-hati: {self.pdf_label(penyebab.threshold_hati_hati)}; "
+                        f"Bahaya: {self.pdf_label(penyebab.threshold_bahaya)}",
+                        normal,
+                    ),
+                    self.pdf_text(
+                        f"{self.pdf_label(penyebab.jenis_existing_control)}\n"
+                        f"{self.pdf_label(penyebab.existing_control)}\n"
+                        f"Efektivitas: {self.pdf_label(penyebab.penilaian_efektivitas_kontrol)}",
+                        normal,
+                    ),
+                    self.pdf_text(
+                        f"{self.pdf_label(penyebab.kategori_dampak)}\n"
+                        f"{self.pdf_label(penyebab.deskripsi_dampak)}",
+                        normal,
+                    ),
+                ])
+            if len(penyebab_rows) == 1:
+                penyebab_rows.append(["", "", self.pdf_text("Belum ada penyebab risiko.", normal), "", "", ""])
+
+            penyebab_table = Table(
+                penyebab_rows,
+                colWidths=[28, 90, 170, 170, 170, 152],
+                repeatRows=1,
+            )
+            penyebab_table.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#6B7280")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            elements.append(penyebab_table)
+            elements.append(Spacer(1, 4))
+
+            sumber_rows = [[
+                self.pdf_text("Unit/Bidang", header),
+                self.pdf_text("Risiko Bidang / Unit", header),
+                self.pdf_text("Kode Penyebab", header),
+                self.pdf_text("Penyebab", header),
+                self.pdf_text("Keterangan", header),
+            ]]
+            for sumber in item.sumber_risiko.all():
+                reassessment = sumber.reassessment_item
+                unit = reassessment.summary.unit_bisnis if reassessment and reassessment.summary_id else "-"
+                sumber_rows.append([
+                    self.pdf_text(unit, normal),
+                    self.pdf_text(reassessment.peristiwa_risiko if reassessment else "-", normal),
+                    self.pdf_text(sumber.kode_penyebab_risiko or "-", normal_center),
+                    self.pdf_text(sumber.penyebab_risiko or "-", normal),
+                    self.pdf_text(sumber.keterangan or "-", normal),
+                ])
+            if len(sumber_rows) == 1:
+                sumber_rows.append(["", self.pdf_text("Belum ada sumber risiko bidang/unit.", normal), "", "", ""])
+
+            sumber_table = Table(
+                sumber_rows,
+                colWidths=[100, 230, 90, 220, 140],
+                repeatRows=1,
+            )
+            sumber_table.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#6B7280")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            elements.append(sumber_table)
+            elements.append(Spacer(1, 4))
+
+            rencana_rows = [[
+                self.pdf_text("No", header),
+                self.pdf_text("Opsi / Jenis", header),
+                self.pdf_text("Rencana", header),
+                self.pdf_text("Output", header),
+                self.pdf_text("Biaya / Pos / PRK", header),
+                self.pdf_text("PIC / Timeline", header),
+                self.pdf_text("Status", header),
+            ]]
+            for rencana in item.rencana_perlakuan_items.all():
+                jenis = ", ".join(
+                    str(jenis_rencana)
+                    for jenis_rencana in rencana.jenis_rencana_perlakuan_risiko.all()
+                )
+                rencana_rows.append([
+                    self.pdf_text(rencana.urutan, normal_center),
+                    self.pdf_text(f"{self.pdf_label(rencana.opsi_perlakuan_risiko)}\n{jenis or '-'}", normal),
+                    self.pdf_text(rencana.rencana_perlakuan_risiko or "-", normal),
+                    self.pdf_text(rencana.output_perlakuan_risiko or "-", normal),
+                    self.pdf_text(
+                        f"{self.pdf_label(rencana.biaya_perlakuan_risiko)}\n"
+                        f"{self.pdf_label(rencana.pos_anggaran)}\n"
+                        f"PRK: {self.pdf_label(rencana.prk)}",
+                        normal,
+                    ),
+                    self.pdf_text(f"{self.pdf_label(rencana.pic)}\nBulan: {self.timeline_label(rencana)}", normal),
+                    self.pdf_text(rencana.status or "-", normal_center),
+                ])
+            if len(rencana_rows) == 1:
+                rencana_rows.append(["", "", self.pdf_text("Belum ada rencana perlakuan risiko.", normal), "", "", "", ""])
+
+            rencana_table = Table(
+                rencana_rows,
+                colWidths=[28, 118, 180, 145, 115, 115, 79],
+                repeatRows=1,
+            )
+            rencana_table.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#6B7280")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            elements.append(rencana_table)
+            elements.append(Spacer(1, 8))
+
+        doc.build(elements)
+        return response
 
 
 class ProfilRisikoKorporatPenyebabInline(admin.StackedInline):
@@ -1745,6 +3197,11 @@ try:
 except Exception:
     pass
 
+try:
+    risk_admin_site.register(AppSetting, AppSettingAdmin)
+except admin.sites.AlreadyRegistered:
+    pass
+
 risk_admin_site.register(BagianKontrakManajemen, BagianKontrakManajemenAdmin)
 risk_admin_site.register(ItemKontrakManajemen, ItemKontrakManajemenAdmin)
 risk_admin_site.register(RKMSummary, RKMSummaryAdmin)
@@ -1778,6 +3235,16 @@ risk_admin_site.register(KompositRisikoTriwulan, KompositRisikoTriwulanAdmin)
 risk_admin_site.register(RoadmapProgram, RoadmapProgramAdmin)
 risk_admin_site.register(RoadmapPenilaianSemester, RoadmapPenilaianSemesterAdmin)
 risk_admin_site.register(RKAPItem, RKAPItemAdmin)
+
+try:
+    risk_admin_site.register(KnowledgeBaseCategory, KnowledgeBaseCategoryAdmin)
+except admin.sites.AlreadyRegistered:
+    pass
+
+try:
+    risk_admin_site.register(KnowledgeBaseArticle, KnowledgeBaseArticleAdmin)
+except admin.sites.AlreadyRegistered:
+    pass
 
 try:
     risk_admin_site.register(KontrakManajemen, KontrakManajemenAdmin)
