@@ -3,10 +3,12 @@ from dateutil.relativedelta import relativedelta
 from dataclasses import dataclass
 from statistics import mean, median
 from typing import Any
+import json
 import math
 import random
 
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import httpx
 
 from .models import (
     MonteCarloKorporatConfig,
@@ -18,6 +20,7 @@ from .models import (
     MultiMetricMonteCarloResult,
     MultiMetricAIInsightKorporat,
 )
+from risk.models import AppSetting
 
 def _percentile(values, q):
     if not values:
@@ -78,6 +81,111 @@ def _decimal_18(value, digits=4):
 
 def _decimal_probability(value):
     return _decimal(value, digits=2, max_digits=6)
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    if not text:
+        return {}
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(cleaned[start:end + 1])
+    return {}
+
+
+def _gemini_generate_management_language(setting: AppSetting, prompt: str) -> dict[str, str]:
+    model_name = setting.ai_model or "gemini-3.1-flash-lite"
+    if model_name.startswith("gpt-"):
+        model_name = "gemini-3.1-flash-lite"
+    base_url = setting.ai_base_url or "https://generativelanguage.googleapis.com/v1beta"
+    if "api.openai.com" in base_url:
+        base_url = "https://generativelanguage.googleapis.com/v1beta"
+    base_url = base_url.rstrip("/")
+    url = f"{base_url}/models/{model_name}:generateContent"
+    response = httpx.post(
+        url,
+        params={"key": setting.ai_api_key},
+        json={
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": prompt}],
+                }
+            ],
+            "generationConfig": {
+                "temperature": float(setting.ai_temperature or 0.2),
+                "responseMimeType": "application/json",
+            },
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        return {}
+    parts = ((candidates[0].get("content") or {}).get("parts") or [])
+    text = "\n".join(part.get("text", "") for part in parts).strip()
+    return _extract_json_object(text)
+
+
+def _polish_multi_metric_insight_with_ai(
+    result,
+    executive_summary: str,
+    key_findings: str,
+    recommended_actions: str,
+) -> tuple[str, str, str]:
+    setting = AppSetting.get_solo()
+    if not setting.ai_aktif or not setting.ai_api_key:
+        return executive_summary, key_findings, recommended_actions
+    if setting.ai_provider != AppSetting.AI_PROVIDER_GEMINI:
+        return executive_summary, key_findings, recommended_actions
+
+    prompt = f"""
+Anda adalah konsultan Enterprise Risk Management untuk Direksi PLN Batam.
+
+Tugas:
+1. Ubah teks AI Insight berikut menjadi bahasa manajemen yang ringkas, formal, dan mudah dibaca eksekutif.
+2. Pertahankan semua angka penting. Jangan menambah fakta baru.
+3. Gunakan Bahasa Indonesia.
+4. Hindari istilah terlalu teknis jika bisa dijelaskan secara manajerial.
+5. Kembalikan JSON valid saja dengan key:
+   executive_summary, key_findings, recommended_actions.
+
+Konteks hasil simulasi:
+- Risiko: {result.corporate_risk_item}
+- Periode forecast: {result.forecast_periode}
+- Status target: {result.target_status or "-"}
+- Status risiko: {result.risk_status or "-"}
+- Composite score: {result.composite_score}
+- P80 score: {result.p80_score}
+
+Teks awal:
+{{
+  "executive_summary": {json.dumps(executive_summary, ensure_ascii=False)},
+  "key_findings": {json.dumps(key_findings, ensure_ascii=False)},
+  "recommended_actions": {json.dumps(recommended_actions, ensure_ascii=False)}
+}}
+"""
+
+    try:
+        data = _gemini_generate_management_language(setting, prompt)
+    except Exception:
+        return executive_summary, key_findings, recommended_actions
+
+    return (
+        data.get("executive_summary") or executive_summary,
+        data.get("key_findings") or key_findings,
+        data.get("recommended_actions") or recommended_actions,
+    )
 
 
 def _replace_result(model, lookup, defaults):
@@ -1514,6 +1622,13 @@ def generate_rule_based_ai_insight_for_multi_metric_result(result):
             "\n6. Karena probabilitas target tidak tercapai atau potential loss melewati risk appetite, "
             "siapkan rencana mitigasi demand/penjualan dan trigger eskalasi bulanan."
         )
+
+    executive_summary, key_findings, recommended_actions = _polish_multi_metric_insight_with_ai(
+        result,
+        executive_summary,
+        key_findings,
+        recommended_actions,
+    )
 
     insight, _ = MultiMetricAIInsightKorporat.objects.update_or_create(
         multi_metric_result=result,

@@ -14,8 +14,10 @@ from django.utils.text import slugify
 
 class AppSetting(models.Model):
     AI_PROVIDER_OPENAI = "openai"
+    AI_PROVIDER_GEMINI = "gemini"
     AI_PROVIDER_CHOICES = (
         (AI_PROVIDER_OPENAI, "OpenAI / ChatGPT"),
+        (AI_PROVIDER_GEMINI, "Google Gemini API"),
         ("other", "Provider lain"),
     )
 
@@ -94,7 +96,7 @@ class AppSetting(models.Model):
     )
     ai_aktif = models.BooleanField(
         default=False,
-        verbose_name="AI ChatGPT Aktif",
+        verbose_name="AI Aktif",
     )
     ai_provider = models.CharField(
         max_length=30,

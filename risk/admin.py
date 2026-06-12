@@ -212,7 +212,7 @@ class AppSettingAdmin(admin.ModelAdmin):
             ),
             "description": "Pengaturan login LDAP. Jika LDAP dimatikan, login lokal superuser tetap bisa digunakan.",
         }),
-        ("API AI ChatGPT", {
+        ("API AI / Bahasa Manajemen", {
             "fields": (
                 "ai_aktif",
                 "ai_provider",
@@ -222,7 +222,11 @@ class AppSettingAdmin(admin.ModelAdmin):
                 "masked_ai_key",
                 "ai_temperature",
             ),
-            "description": "Digunakan untuk modul AI insight/chat. Untuk produksi, pastikan akses admin dibatasi.",
+            "description": (
+                "Digunakan untuk memoles AI Insight menjadi bahasa manajemen. "
+                "Untuk free tier, pilih Google Gemini API dan isi API key dari Google AI Studio. "
+                "Jika AI tidak aktif atau API gagal, sistem tetap memakai insight rule-based."
+            ),
         }),
         ("Lain-lain", {
             "fields": (
