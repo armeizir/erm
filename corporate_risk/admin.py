@@ -996,7 +996,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     )
 
     readonly_fields = (
-        "executive_summary_html",
         "risk_prediction_flow_html",
         "target_prediction_cards_html",
         "target_prediction_table_html",
@@ -1047,9 +1046,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "distribution_type",
                 "scenario_percentile",
             )
-        }),
-        ("Executive Summary", {
-            "fields": ("executive_summary_html",)
         }),
         ("Prediksi Risiko / Target RKAP", {
             "fields": (
