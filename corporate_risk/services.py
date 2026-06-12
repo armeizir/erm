@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from statistics import mean, median
 from typing import Any
 import json
+import logging
 import math
 import random
 
@@ -21,6 +22,8 @@ from .models import (
     MultiMetricAIInsightKorporat,
 )
 from risk.models import AppSetting
+
+logger = logging.getLogger(__name__)
 
 def _percentile(values, q):
     if not values:
@@ -137,6 +140,16 @@ def _gemini_generate_management_language(setting: AppSetting, prompt: str) -> di
     return _extract_json_object(text)
 
 
+def _coerce_ai_text(value, fallback: str) -> str:
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or fallback
+    if isinstance(value, list):
+        cleaned = "\n".join(str(item).strip() for item in value if str(item).strip())
+        return cleaned or fallback
+    return fallback
+
+
 def _polish_multi_metric_insight_with_ai(
     result,
     executive_summary: str,
@@ -153,12 +166,18 @@ def _polish_multi_metric_insight_with_ai(
 Anda adalah konsultan Enterprise Risk Management untuk Direksi PLN Batam.
 
 Tugas:
-1. Ubah teks AI Insight berikut menjadi bahasa manajemen yang ringkas, formal, dan mudah dibaca eksekutif.
-2. Pertahankan semua angka penting. Jangan menambah fakta baru.
+1. Tulis ulang insight menjadi memo manajemen untuk Direksi, bukan sekadar parafrase template.
+2. Pertahankan semua angka penting dan konteks risiko. Jangan menambah fakta baru.
 3. Gunakan Bahasa Indonesia.
-4. Hindari istilah terlalu teknis jika bisa dijelaskan secara manajerial.
-5. Kembalikan JSON valid saja dengan key:
+4. Gunakan gaya yang tajam, natural, dan berorientasi keputusan.
+5. Jangan memakai kalimat template seperti "prioritaskan mitigasi pada metric dengan kontribusi risiko terbesar" kecuali dibuat spesifik.
+6. Kembalikan JSON valid saja dengan key:
    executive_summary, key_findings, recommended_actions.
+
+Format isi:
+- executive_summary: 1-2 paragraf pendek, diawali dengan implikasi manajemen utama.
+- key_findings: 3-5 poin ringkas dalam baris terpisah; jelaskan sinyal risiko, driver, dan dampak terhadap target.
+- recommended_actions: 3-5 aksi spesifik dalam format 30/60/90 hari atau trigger eskalasi, bukan daftar generik.
 
 Konteks hasil simulasi:
 - Risiko: {result.corporate_risk_item}
@@ -178,13 +197,18 @@ Teks awal:
 
     try:
         data = _gemini_generate_management_language(setting, prompt)
-    except Exception:
+    except Exception as exc:
+        logger.exception("Gemini AI polish failed for multi metric result %s: %s", result.pk, exc)
+        return executive_summary, key_findings, recommended_actions
+
+    if not data:
+        logger.warning("Gemini AI polish returned empty response for multi metric result %s", result.pk)
         return executive_summary, key_findings, recommended_actions
 
     return (
-        data.get("executive_summary") or executive_summary,
-        data.get("key_findings") or key_findings,
-        data.get("recommended_actions") or recommended_actions,
+        _coerce_ai_text(data.get("executive_summary"), executive_summary),
+        _coerce_ai_text(data.get("key_findings"), key_findings),
+        _coerce_ai_text(data.get("recommended_actions"), recommended_actions),
     )
 
 
