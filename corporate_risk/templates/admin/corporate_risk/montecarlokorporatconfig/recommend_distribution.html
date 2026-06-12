@@ -1,0 +1,99 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block content %}
+<div id="content-main">
+    <p>
+        <a href="{{ change_url }}" class="button">Kembali ke konfigurasi</a>
+    </p>
+
+    <div class="module" style="padding:16px; margin-bottom:16px;">
+        <h2 style="margin-top:0;">Rekomendasi Model Distribusi</h2>
+        <table style="width:100%;">
+            <tbody>
+                <tr>
+                    <th style="width:220px; text-align:left;">Risiko Korporat</th>
+                    <td>{{ config.corporate_risk_item }}</td>
+                </tr>
+                <tr>
+                    <th style="text-align:left;">Metric</th>
+                    <td>{{ config.metric_name }}{% if config.metric_unit %} ({{ config.metric_unit }}){% endif %}</td>
+                </tr>
+                <tr>
+                    <th style="text-align:left;">Rekomendasi Sistem</th>
+                    <td><strong>{{ recommendation.recommended_label }}</strong></td>
+                </tr>
+                <tr>
+                    <th style="text-align:left;">Jumlah Histori</th>
+                    <td>{{ recommendation.history_count }} data, {{ recommendation.growth_count }} growth rate</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="module" style="padding:16px; margin-bottom:16px;">
+        <h2 style="margin-top:0;">Statistik Growth Historis</h2>
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Mean</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Std Dev</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Median</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Min</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Max</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Skewness</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="padding:8px;">{{ recommendation.growth_mean|default:"-" }}</td>
+                    <td style="padding:8px;">{{ recommendation.growth_std|default:"-" }}</td>
+                    <td style="padding:8px;">{{ recommendation.growth_median|default:"-" }}</td>
+                    <td style="padding:8px;">{{ recommendation.growth_min|default:"-" }}</td>
+                    <td style="padding:8px;">{{ recommendation.growth_max|default:"-" }}</td>
+                    <td style="padding:8px;">{{ recommendation.growth_skewness|default:"-" }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="module" style="padding:16px; margin-bottom:16px;">
+        <h2 style="margin-top:0;">Kandidat Distribusi</h2>
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Distribusi</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Keterangan</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for candidate in recommendation.candidates %}
+                    <tr{% if candidate.recommended %} style="background:#f0fdf4;"{% endif %}>
+                        <td style="padding:8px; width:240px;">
+                            <strong>{{ candidate.label }}</strong>
+                            {% if candidate.recommended %}
+                                <span style="display:inline-block; margin-left:8px; padding:2px 6px; border-radius:4px; background:#16a34a; color:white; font-size:11px;">Direkomendasikan</span>
+                            {% endif %}
+                        </td>
+                        <td style="padding:8px;">{{ candidate.reason }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <form method="post" class="module" style="padding:16px;">
+        {% csrf_token %}
+        <h2 style="margin-top:0;">Konfirmasi Sebelum Simulasi</h2>
+        <div class="form-row">
+            {{ form.distribution_type.errors }}
+            <label for="{{ form.distribution_type.id_for_label }}"><strong>{{ form.distribution_type.label }}</strong></label>
+            {{ form.distribution_type }}
+        </div>
+        <div class="submit-row">
+            <input type="submit" value="Lanjutkan Prediksi Monte Carlo" class="default">
+            <a href="{{ change_url }}" class="button cancel-link">Batal</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -27,6 +27,8 @@ from corporate_risk.models import (
 
 from risk.models import (
     AppSetting,
+    KnowledgeBaseArticle,
+    KnowledgeBaseCategory,
     KontrakManajemen,
     BagianKontrakManajemen,
     ItemKontrakManajemen,
@@ -136,6 +138,7 @@ class RiskAdminSite(AdminSite):
             ("Profil Risiko Unit/Bidang", stats["reassessment"], "/admin/risk/reassessmentsummary/"),
             ("KPMR", stats["kpmr"], "/admin/risk/kpmrsummary/"),
             ("Laporan Bulanan", stats["monthly_report"], reverse("risk_admin:monthly_report_monthlyriskreport_changelist")),
+            ("Knowledge Base", stats["knowledge_base"], reverse("risk_admin:risk_knowledgebasearticle_changelist")),
             ("Organisasi", stats["organization"], reverse("risk_admin:masterdata_organizationunit_changelist")),
         ]
         return [
@@ -284,6 +287,13 @@ class RiskAdminSite(AdminSite):
                             item("Periode Laporan", reverse("risk_admin:masterdata_periodelaporan_changelist")),
                         ],
                     },
+                    {
+                        "title": "Knowledge Base",
+                        "items": [
+                            item("Kategori Knowledge Base", reverse("risk_admin:risk_knowledgebasecategory_changelist")),
+                            item("Artikel Knowledge Base", reverse("risk_admin:risk_knowledgebasearticle_changelist")),
+                        ],
+                    },
                 ],
             },
         ]
@@ -344,6 +354,10 @@ class RiskAdminSite(AdminSite):
             "users": User.objects.count(),
             "units": Group.objects.count(),
             "settings": AppSetting.objects.count(),
+            "knowledge_base": (
+                KnowledgeBaseCategory.objects.count()
+                + KnowledgeBaseArticle.objects.count()
+            ),
             "masters": (
                 KategoriRisiko.objects.count()
                 + MasterJenisExistingControl.objects.count()
@@ -523,6 +537,22 @@ class RiskAdminSite(AdminSite):
                     {
                         "label": "Organization Unit",
                         "url": reverse("risk_admin:masterdata_organizationunit_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Knowledge Base",
+                "level": "support",
+                "color": "settings",
+                "count": stats["knowledge_base"],
+                "items": [
+                    {
+                        "label": "Kategori Knowledge Base",
+                        "url": reverse("risk_admin:risk_knowledgebasecategory_changelist"),
+                    },
+                    {
+                        "label": "Artikel Knowledge Base",
+                        "url": reverse("risk_admin:risk_knowledgebasearticle_changelist"),
                     },
                 ],
             },

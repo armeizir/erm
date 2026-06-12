@@ -1,14 +1,12 @@
 from __future__ import annotations
 from dateutil.relativedelta import relativedelta
 from dataclasses import dataclass
-from statistics import mean
+from statistics import mean, median
 from typing import Any
 import math
 import random
 
-from decimal import Decimal
-
-from django.db import transaction
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from .models import (
     MonteCarloKorporatConfig,
@@ -41,15 +39,60 @@ def _percentile(values, q):
 
 def _safe_float(value):
     try:
-        return float(value or 0)
+        number = float(value or 0)
+        if not math.isfinite(number):
+            return 0.0
+        return number
     except Exception:
         return 0.0
 
 
-def _decimal(value, digits=4):
+def _decimal(value, digits=4, max_digits=24):
     if value in (None, ""):
         return None
-    return Decimal(str(round(_safe_float(value), digits)))
+    number = _safe_float(value)
+    if not math.isfinite(number):
+        return None
+
+    integer_digits = max(max_digits - digits, 1)
+    quantizer = Decimal(1).scaleb(-digits)
+    # SQLite stores large NUMERIC values as floats in some cases. A mathematical
+    # max like 99999999999999.9999 can round up to 100000000000000 and break
+    # Django's Decimal converter on read, so keep a small safety margin.
+    max_abs = (Decimal(10) ** integer_digits) * Decimal("0.99")
+
+    try:
+        decimal_value = Decimal(str(number))
+        if decimal_value > max_abs:
+            decimal_value = max_abs
+        elif decimal_value < -max_abs:
+            decimal_value = -max_abs
+        return decimal_value.quantize(quantizer, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
+
+
+def _decimal_18(value, digits=4):
+    return _decimal(value, digits=digits, max_digits=18)
+
+
+def _decimal_probability(value):
+    return _decimal(value, digits=2, max_digits=6)
+
+
+def _replace_result(model, lookup, defaults):
+    existing_pk = (
+        model.objects
+        .filter(**lookup)
+        .values_list("pk", flat=True)
+        .first()
+    )
+
+    if existing_pk:
+        model.objects.filter(pk=existing_pk).update(**defaults)
+        return model.objects.get(pk=existing_pk)
+
+    return model.objects.create(**lookup, **defaults)
 
 
 def _growth_rates(values):
@@ -70,7 +113,168 @@ def _growth_rates(values):
     return rates
 
 
-def _simulate_metric(values, months_ahead=9, n_simulations=10000, actual_total=None):
+def _stdev(values):
+    if len(values) < 2:
+        return 0.0
+    avg = mean(values)
+    return math.sqrt(mean([(value - avg) ** 2 for value in values]))
+
+
+def _skewness(values):
+    if len(values) < 3:
+        return 0.0
+    avg = mean(values)
+    std = _stdev(values)
+    if std <= 0:
+        return 0.0
+    return mean([((value - avg) / std) ** 3 for value in values])
+
+
+def _distribution_label(distribution_type):
+    labels = dict(MonteCarloKorporatConfig.DISTRIBUTION_CHOICES)
+    return labels.get(distribution_type, distribution_type)
+
+
+def _distribution_reason(distribution_type, values, rates):
+    if distribution_type == "normal":
+        return "Pola growth relatif simetris dan tidak terlihat sangat condong."
+    if distribution_type == "lognormal":
+        return "Data bernilai positif dan growth condong ke kanan, cocok untuk variabel yang tidak boleh negatif."
+    if distribution_type == "triangular":
+        return "Data histori terbatas, tetapi nilai minimum, paling mungkin, dan maksimum masih dapat dibaca."
+    if distribution_type == "uniform":
+        return "Sebaran histori relatif datar atau ketidakpastian dianggap sama di rentang minimum-maksimum."
+    if distribution_type == "beta":
+        return "Data terlihat berada dalam rentang terbatas sehingga cocok dimodelkan sebagai proporsi/range bounded."
+    if distribution_type == "gamma":
+        return "Data positif dan condong ke kanan, cocok untuk nilai dengan ekor kanan."
+    if distribution_type == "weibull":
+        return "Data positif dan cocok untuk pola risiko/waktu kejadian dengan ekor kanan."
+    if distribution_type == "empirical":
+        return "Histori masih terbatas atau pola tidak stabil, sehingga sampling langsung dari data historis lebih aman."
+    return "Distribusi kandidat untuk simulasi."
+
+
+def recommend_monte_carlo_distribution(values):
+    values = [_safe_float(value) for value in values if value not in (None, "")]
+    rates = _growth_rates(values)
+    sample = rates if len(rates) >= 2 else values
+    sample = [value for value in sample if math.isfinite(value)]
+
+    if len(sample) < 3:
+        recommended = "empirical"
+    else:
+        skew = _skewness(sample)
+        min_value = min(sample)
+        max_value = max(sample)
+        avg_value = mean(sample)
+        std_value = _stdev(sample)
+        bounded_range = max_value - min_value
+        cv = abs(std_value / avg_value) if avg_value else 0
+        all_positive_values = all(value > 0 for value in values)
+
+        if len(sample) < 5:
+            recommended = "triangular"
+        elif all_positive_values and skew > 1.0:
+            recommended = "lognormal"
+        elif min_value >= 0 and max_value <= 1:
+            recommended = "beta"
+        elif all_positive_values and skew > 0.6 and cv > 0.5:
+            recommended = "gamma"
+        elif abs(skew) <= 0.5:
+            recommended = "normal"
+        elif bounded_range > 0 and std_value / bounded_range < 0.18:
+            recommended = "uniform"
+        elif all_positive_values and skew > 0.3:
+            recommended = "weibull"
+        else:
+            recommended = "empirical"
+
+    candidates = []
+    for value, label in MonteCarloKorporatConfig.DISTRIBUTION_CHOICES:
+        candidates.append({
+            "value": value,
+            "label": label,
+            "recommended": value == recommended,
+            "reason": _distribution_reason(value, values, rates),
+        })
+
+    return {
+        "recommended": recommended,
+        "recommended_label": _distribution_label(recommended),
+        "history_count": len(values),
+        "growth_count": len(rates),
+        "growth_mean": mean(rates) if rates else None,
+        "growth_std": _stdev(rates) if rates else None,
+        "growth_min": min(rates) if rates else None,
+        "growth_max": max(rates) if rates else None,
+        "growth_median": median(rates) if rates else None,
+        "growth_skewness": _skewness(rates) if len(rates) >= 3 else None,
+        "candidates": candidates,
+    }
+
+
+def _sample_beta_from_rates(rates):
+    min_rate = min(rates)
+    max_rate = max(rates)
+    if max_rate <= min_rate:
+        return rates[0]
+    normalized = [(rate - min_rate) / (max_rate - min_rate) for rate in rates]
+    avg = mean(normalized)
+    variance = mean([(value - avg) ** 2 for value in normalized])
+    if variance <= 0 or avg <= 0 or avg >= 1:
+        sample = random.betavariate(2, 2)
+    else:
+        common = (avg * (1 - avg) / variance) - 1
+        alpha = max(avg * common, 0.5)
+        beta = max((1 - avg) * common, 0.5)
+        sample = random.betavariate(alpha, beta)
+    return min_rate + sample * (max_rate - min_rate)
+
+
+def _sample_growth(rates, avg_growth, std_growth, distribution_type):
+    if distribution_type == "empirical":
+        return random.choice(rates)
+
+    if distribution_type == "triangular":
+        return random.triangular(min(rates), max(rates), avg_growth)
+
+    if distribution_type == "uniform":
+        return random.uniform(min(rates), max(rates))
+
+    if distribution_type == "lognormal":
+        gross_rates = [max(1 + rate, 0.0001) for rate in rates]
+        logs = [math.log(value) for value in gross_rates]
+        return random.lognormvariate(mean(logs), _stdev(logs)) - 1
+
+    if distribution_type == "beta":
+        return _sample_beta_from_rates(rates)
+
+    if distribution_type == "gamma":
+        shift = abs(min(rates)) + 0.0001 if min(rates) <= 0 else 0
+        shifted = [rate + shift for rate in rates]
+        avg = mean(shifted)
+        variance = _stdev(shifted) ** 2
+        if avg <= 0 or variance <= 0:
+            return avg_growth
+        shape = max((avg ** 2) / variance, 0.1)
+        scale = max(variance / avg, 0.0001)
+        return random.gammavariate(shape, scale) - shift
+
+    if distribution_type == "weibull":
+        shift = abs(min(rates)) + 0.0001 if min(rates) <= 0 else 0
+        shifted = [rate + shift for rate in rates]
+        avg = mean(shifted)
+        if avg <= 0:
+            return avg_growth
+        shape = 1.5
+        scale = avg / math.gamma(1 + (1 / shape))
+        return random.weibullvariate(scale, shape) - shift
+
+    return random.gauss(avg_growth, std_growth)
+
+
+def _simulate_metric(values, months_ahead=9, n_simulations=10000, actual_total=None, distribution_type="normal"):
     if len(values) < 3:
         raise ValueError("Data histori metric belum cukup. Minimal 3 periode.")
 
@@ -94,7 +298,7 @@ def _simulate_metric(values, months_ahead=9, n_simulations=10000, actual_total=N
         future_total = 0.0
 
         for month_idx in range(months_ahead):
-            sampled_growth = random.gauss(avg_growth, std_growth)
+            sampled_growth = _sample_growth(rates, avg_growth, std_growth, distribution_type)
 
             # guardrail supaya hasil tidak terlalu liar
             sampled_growth = max(min(sampled_growth, 3.0), -0.95)
@@ -160,6 +364,8 @@ def _simulate_metric(values, months_ahead=9, n_simulations=10000, actual_total=N
         "max_total": max(simulation_totals) if simulation_totals else 0.0,
         "growth_mean": avg_growth,
         "growth_std": std_growth,
+        "distribution_type": distribution_type,
+        "distribution_label": _distribution_label(distribution_type),
         "projection_rows": projection_rows,
         "simulation_totals": simulation_totals,
     }
@@ -390,13 +596,13 @@ def _build_multi_metric_history_rows(metric_results):
     return rows
 
 
-@transaction.atomic
 def run_multi_metric_monte_carlo_for_korporat_item(
     item,
     forecast_periode,
     months_ahead=9,
     n_simulations=10000,
     scenario_percentile=80,
+    distribution_type="normal",
 ):
     metrics = list(
         RiskMetric.objects.filter(
@@ -457,6 +663,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             months_ahead=months_ahead,
             n_simulations=n_simulations,
             actual_total=actual_ytd_total,
+            distribution_type=distribution_type,
         )
 
         weight = _safe_float(metric.weight)
@@ -601,6 +808,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                     months_ahead=months_ahead,
                     n_simulations=n_simulations,
                     actual_total=metric_row.get("actual_total"),
+                    distribution_type=distribution_type,
                 )
                 target_analysis = _build_target_analysis(
                     simulation_totals=simulation["simulation_totals"],
@@ -716,19 +924,22 @@ def run_multi_metric_monte_carlo_for_korporat_item(
 
     status_hasil = _status_from_score(scenario_score)
 
-    result, _created = MultiMetricMonteCarloResult.objects.update_or_create(
-        corporate_risk_item=item,
-        forecast_periode=forecast_periode,
-        defaults={
-            "composite_score": Decimal(str(round(composite_score, 4))),
-            "p80_score": Decimal(str(round(p80_score, 4))),
+    result = _replace_result(
+        MultiMetricMonteCarloResult,
+        {
+            "corporate_risk_item": item,
+            "forecast_periode": forecast_periode,
+        },
+        {
+            "composite_score": _decimal_18(composite_score) or Decimal("0"),
+            "p80_score": _decimal_18(p80_score) or Decimal("0"),
             "forecast_total": _decimal(target_analysis.get("forecast_total")),
             "target_value": _decimal(target_analysis.get("target_value")),
             "target_gap": _decimal(target_analysis.get("target_gap")) or Decimal("0"),
             "average_selling_price": _decimal(target_analysis.get("average_selling_price")) or Decimal("0"),
             "potential_loss": _decimal(target_analysis.get("potential_loss")) or Decimal("0"),
-            "probability_achieve_target": _decimal(target_analysis.get("probability_achieve_target"), 2),
-            "probability_not_achieve_target": _decimal(target_analysis.get("probability_not_achieve_target"), 2),
+            "probability_achieve_target": _decimal_probability(target_analysis.get("probability_achieve_target")),
+            "probability_not_achieve_target": _decimal_probability(target_analysis.get("probability_not_achieve_target")),
             "target_status": target_analysis.get("target_status", ""),
             "risk_status": target_analysis.get("risk_status", ""),
             "worst_case_value": _decimal(target_analysis.get("worst_case_value")),
@@ -737,6 +948,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "var_95": _decimal(target_analysis.get("var_95")) or Decimal("0"),
             "requires_mitigation": bool(target_analysis.get("requires_mitigation", False)),
             "status_hasil": status_hasil,
+            "distribution_type": distribution_type,
             "metric_snapshot": {
                 "metrics": metric_results,
             },
@@ -744,6 +956,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 "months_ahead": months_ahead,
                 "n_simulations": n_simulations,
                 "scenario_percentile": scenario_percentile,
+                "distribution_type": distribution_type,
                 "composite_score": composite_score,
                 "p80_score": p80_score,
                 "scenario_score": scenario_score,
@@ -809,8 +1022,11 @@ def _build_status_hasil(realization_percent: float | None) -> str:
 
 def _safe_float(value: Any) -> float:
     try:
-        return float(value or 0)
-    except (TypeError, ValueError):
+        number = float(value or 0)
+        if not math.isfinite(number):
+            return 0.0
+        return number
+    except (TypeError, ValueError, OverflowError):
         return 0.0
 
 
@@ -857,6 +1073,7 @@ def _simulate_projection(
     actual_values: list[float],
     months_ahead: int,
     n_simulations: int,
+    distribution_type: str = "normal",
 ) -> dict[str, Any]:
     if len(actual_values) < 3:
         raise ValueError("Data histori belum cukup untuk simulasi time series bulanan.")
@@ -880,7 +1097,7 @@ def _simulate_projection(
         simulated = current
         future_total = 0.0
         for month_idx in range(months_ahead):
-            sampled_growth = random.gauss(avg_growth, std_growth)
+            sampled_growth = _sample_growth(growth_rates, avg_growth, std_growth, distribution_type)
 
             # guard rail agar proyeksi tidak terlalu liar
             sampled_growth = max(min(sampled_growth, 3.0), -0.95)
@@ -925,6 +1142,8 @@ def _simulate_projection(
     return {
         "growth_mean": avg_growth,
         "growth_std": std_growth,
+        "distribution_type": distribution_type,
+        "distribution_label": _distribution_label(distribution_type),
         "projection_rows": projection_rows,
         "summary": {
             "actual_ytd_total": sum(actual_values),
@@ -944,7 +1163,6 @@ def _simulate_projection(
     }
 
 
-@transaction.atomic
 def run_monte_carlo_for_korporat_item(item, forecast_periode, months_ahead: int = 9):
     config = (
         MonteCarloKorporatConfig.objects
@@ -963,6 +1181,7 @@ def run_monte_carlo_for_korporat_item(item, forecast_periode, months_ahead: int 
         actual_values=history_values,
         months_ahead=months_ahead,
         n_simulations=int(config.n_simulations or 1000),
+        distribution_type=config.distribution_type or "normal",
     )
 
     summary = simulation_snapshot.get("summary", {})
@@ -1029,30 +1248,35 @@ def run_monte_carlo_for_korporat_item(item, forecast_periode, months_ahead: int 
         "p95_total": p95_total,
         "target_analysis": target_analysis,
         "realization_percent": realization_percent or 0.0,
+        "distribution_type": config.distribution_type or "normal",
+        "distribution_label": _distribution_label(config.distribution_type or "normal"),
     })
 
     # =========================
     # KUNCI AGAR TIDAK DOBEL
     # =========================
-    result, _created = MonteCarloKorporatResult.objects.update_or_create(
-        corporate_risk_item=item,
-        forecast_periode=forecast_periode,
-        metric_name=config.metric_name,
-        defaults={
-            "mean_value": mean_value,
-            "p50_value": p50_value,
-            "p80_value": p80_value,
-            "p90_value": p90_value,
-            "min_value": min_value,
-            "max_value": max_value,
-            "probability_meet_target": probability_meet_target,
-            "target_value": target_value,
+    result = _replace_result(
+        MonteCarloKorporatResult,
+        {
+            "corporate_risk_item": item,
+            "forecast_periode": forecast_periode,
+            "metric_name": config.metric_name,
+        },
+        {
+            "mean_value": _decimal_18(mean_value),
+            "p50_value": _decimal_18(p50_value),
+            "p80_value": _decimal_18(p80_value),
+            "p90_value": _decimal_18(p90_value),
+            "min_value": _decimal_18(min_value),
+            "max_value": _decimal_18(max_value),
+            "probability_meet_target": _decimal_probability(probability_meet_target),
+            "target_value": _decimal_18(target_value),
             "forecast_total": _decimal(target_analysis.get("forecast_total")),
             "target_gap": _decimal(target_analysis.get("target_gap")) or Decimal("0"),
             "average_selling_price": _decimal(target_analysis.get("average_selling_price")) or Decimal("0"),
             "potential_loss": _decimal(target_analysis.get("potential_loss")) or Decimal("0"),
-            "probability_achieve_target": _decimal(target_analysis.get("probability_achieve_target"), 2),
-            "probability_not_achieve_target": _decimal(target_analysis.get("probability_not_achieve_target"), 2),
+            "probability_achieve_target": _decimal_probability(target_analysis.get("probability_achieve_target")),
+            "probability_not_achieve_target": _decimal_probability(target_analysis.get("probability_not_achieve_target")),
             "target_status": target_analysis.get("target_status", ""),
             "risk_status": target_analysis.get("risk_status", ""),
             "worst_case_value": _decimal(target_analysis.get("worst_case_value")) or _decimal(p5_total),
@@ -1075,6 +1299,8 @@ def run_monte_carlo_for_korporat_item(item, forecast_periode, months_ahead: int 
 def generate_rule_based_ai_insight_for_result(result):
     summary = (result.simulation_snapshot or {}).get("summary", {})
     projection_rows = (result.simulation_snapshot or {}).get("projection_rows", [])
+    metric_name = result.metric_name or "metric risiko"
+    metric_lower = metric_name.lower()
 
     actual_ytd = float(summary.get("actual_ytd_total") or 0)
     p80_total = float(summary.get("p80_total") or 0)
@@ -1109,11 +1335,52 @@ def generate_rule_based_ai_insight_for_result(result):
             tren = "meningkat"
         elif last_mean < first_mean * 0.9:
             tren = "menurun"
-        else:
-            tren = "relatif stabil"
+    else:
+        tren = "relatif stabil"
+
+    if "piutang" in metric_lower:
+        risk_label = "risiko saldo piutang"
+        driver_1 = "Volatilitas historis saldo piutang dan pola pembayaran pelanggan."
+        driver_3 = "Adanya potensi peningkatan outstanding atau keterlambatan pembayaran pada periode proyeksi."
+        driver_4 = "Risiko utama adalah tekanan terhadap arus kas, aging piutang, dan potensi penurunan kolektibilitas."
+        actions = (
+            "1. Percepat penagihan dan monitoring aging piutang secara berkala.\n"
+            "2. Prioritaskan penyelesaian pelanggan/saldo dengan risiko keterlambatan terbesar.\n"
+            "3. Koordinasikan rencana penurunan outstanding dengan unit komersial dan keuangan.\n"
+            "4. Tetapkan trigger eskalasi untuk saldo piutang yang melewati risk appetite.\n"
+            "5. Evaluasi efektivitas kebijakan pembayaran, reminder, dan mekanisme penagihan."
+        )
+    elif "cyber" in metric_lower or "siber" in metric_lower or "incident" in metric_lower:
+        risk_label = "risiko siber"
+        driver_1 = "Volatilitas historis incident cyber yang tinggi."
+        driver_3 = "Adanya potensi lonjakan ancaman pada periode proyeksi."
+        driver_4 = (
+            "Risiko utama bukan hanya jumlah threat, tetapi kemungkinan eskalasi "
+            "menjadi insiden yang mengganggu atau merusak sistem."
+        )
+        actions = (
+            "1. Perkuat monitoring dan early warning untuk aset IT/OT kritikal.\n"
+            "2. Tingkatkan kesiapan incident response dan containment playbook.\n"
+            "3. Prioritaskan hardening, patching, dan segmentasi jaringan pada sistem kritikal.\n"
+            "4. Lakukan evaluasi berkala atas kontrol mitigasi agar threat tidak berkembang "
+            "menjadi gangguan operasional.\n"
+            "5. Fokuskan pengendalian pada zero tolerance terhadap insiden yang merusak sistem."
+        )
+    else:
+        risk_label = f"risiko pada metric {metric_name}"
+        driver_1 = f"Volatilitas historis {metric_name}."
+        driver_3 = "Adanya potensi perubahan nilai pada periode proyeksi."
+        driver_4 = "Risiko utama adalah deviasi terhadap target, threshold, atau risk appetite yang ditetapkan."
+        actions = (
+            "1. Monitor realisasi dan deviasi terhadap target secara berkala.\n"
+            "2. Identifikasi driver utama yang memengaruhi perubahan proyeksi.\n"
+            "3. Tetapkan trigger eskalasi saat proyeksi melewati risk appetite.\n"
+            "4. Evaluasi efektivitas kontrol dan rencana mitigasi berjalan.\n"
+            "5. Perbarui data historis agar simulasi mencerminkan kondisi terbaru."
+        )
 
     executive_summary = (
-        f"Berdasarkan hasil simulasi Monte Carlo, risiko siber pada item "
+        f"Berdasarkan hasil simulasi Monte Carlo untuk metric '{metric_name}', {risk_label} pada item "
         f"'{result.corporate_risk_item}' menunjukkan profil eksposur {tingkat} "
         f"dengan tingkat kemungkinan indikatif {kemungkinan}. "
         f"Proyeksi hingga akhir periode memperlihatkan pola {tren}, dengan "
@@ -1124,20 +1391,10 @@ def generate_rule_based_ai_insight_for_result(result):
     )
 
     key_drivers = (
-        "1. Volatilitas historis incident cyber yang tinggi.\n"
+        f"1. {driver_1}\n"
         f"2. Proyeksi mean sisa periode sebesar {future_mean_total:,.3f}.\n"
-        "3. Adanya potensi lonjakan ancaman pada periode proyeksi.\n"
-        "4. Risiko utama bukan hanya jumlah threat, tetapi kemungkinan eskalasi "
-        "menjadi insiden yang mengganggu atau merusak sistem."
-    )
-
-    recommended_actions = (
-        "1. Perkuat monitoring dan early warning untuk aset IT/OT kritikal.\n"
-        "2. Tingkatkan kesiapan incident response dan containment playbook.\n"
-        "3. Prioritaskan hardening, patching, dan segmentasi jaringan pada sistem kritikal.\n"
-        "4. Lakukan evaluasi berkala atas kontrol mitigasi agar threat tidak berkembang "
-        "menjadi gangguan operasional.\n"
-        "5. Fokuskan pengendalian pada zero tolerance terhadap insiden yang merusak sistem."
+        f"3. {driver_3}\n"
+        f"4. {driver_4}"
     )
 
     insight, _ = AIInsightKorporat.objects.update_or_create(
@@ -1146,7 +1403,7 @@ def generate_rule_based_ai_insight_for_result(result):
         defaults={
             "executive_summary": executive_summary,
             "key_drivers": key_drivers,
-            "recommended_actions": recommended_actions,
+            "recommended_actions": actions,
         },
     )
     return insight

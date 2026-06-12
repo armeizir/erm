@@ -1,6 +1,8 @@
 import json
+from django import forms
 from django.contrib import admin, messages
 from django.shortcuts import get_object_or_404, redirect
+from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
 from riskproject.admin_site import risk_admin_site
@@ -22,7 +24,15 @@ from .services import (
     run_multi_metric_monte_carlo_for_korporat_item,
     generate_rule_based_ai_insight_for_result,
     generate_rule_based_ai_insight_for_multi_metric_result,
+    recommend_monte_carlo_distribution,
 )
+
+class MonteCarloDistributionRecommendationForm(forms.Form):
+    distribution_type = forms.ChoiceField(
+        label="Distribusi yang digunakan",
+        choices=MonteCarloKorporatConfig.DISTRIBUTION_CHOICES,
+    )
+
 
 @admin.register(MonteCarloKorporatConfig)
 class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
@@ -80,6 +90,12 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
         return format_html('<a class="button" href="{}">Jalankan Monte Carlo</a>', url)
     run_button.short_description = "Proses"
 
+    def has_module_permission(self, request):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
+
+    def has_view_permission(self, request, obj=None):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
+
     def run_monte_carlo_view(self, request, config_id, *args, **kwargs):
         config = get_object_or_404(MonteCarloKorporatConfig, pk=config_id)
 
@@ -99,6 +115,58 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
             )
 
         forecast_periode = histories.last().periode
+        history_values = [h.metric_value for h in histories]
+        recommendation = recommend_monte_carlo_distribution(history_values)
+        recommended_distribution = recommendation.get("recommended") or config.distribution_type
+
+        if request.method != "POST":
+            form = MonteCarloDistributionRecommendationForm(
+                initial={"distribution_type": recommended_distribution},
+            )
+            context = {
+                **self.admin_site.each_context(request),
+                "title": "Rekomendasi Model Distribusi Monte Carlo",
+                "opts": self.model._meta,
+                "config": config,
+                "histories": histories,
+                "recommendation": recommendation,
+                "form": form,
+                "change_url": reverse(
+                    f"{self.admin_site.name}:corporate_risk_montecarlokorporatconfig_change",
+                    args=[config.pk],
+                ),
+            }
+            return TemplateResponse(
+                request,
+                "admin/corporate_risk/montecarlokorporatconfig/recommend_distribution.html",
+                context,
+            )
+
+        form = MonteCarloDistributionRecommendationForm(request.POST)
+        if not form.is_valid():
+            context = {
+                **self.admin_site.each_context(request),
+                "title": "Rekomendasi Model Distribusi Monte Carlo",
+                "opts": self.model._meta,
+                "config": config,
+                "histories": histories,
+                "recommendation": recommendation,
+                "form": form,
+                "change_url": reverse(
+                    f"{self.admin_site.name}:corporate_risk_montecarlokorporatconfig_change",
+                    args=[config.pk],
+                ),
+            }
+            return TemplateResponse(
+                request,
+                "admin/corporate_risk/montecarlokorporatconfig/recommend_distribution.html",
+                context,
+            )
+
+        selected_distribution = form.cleaned_data["distribution_type"]
+        if config.distribution_type != selected_distribution:
+            config.distribution_type = selected_distribution
+            config.save(update_fields=["distribution_type", "updated_at"])
 
         try:
             result = run_monte_carlo_for_korporat_item(
@@ -159,6 +227,12 @@ class MonteCarloKorporatHistoryAdmin(admin.ModelAdmin):
             )
         }),
     )
+
+    def has_module_permission(self, request):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
+
+    def has_view_permission(self, request, obj=None):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
 
 @admin.register(MonteCarloKorporatResult)
 class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
@@ -243,6 +317,12 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+    def has_module_permission(self, request):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
+
+    def has_view_permission(self, request, obj=None):
+        return bool(request.user and request.user.is_active and request.user.is_staff)
 
     def _fmt(self, value, digits=3):
         if value is None or value == "":
@@ -563,6 +643,8 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         actual_ytd = float(summary.get("actual_ytd_total") or 0)
         p80_total = float(summary.get("p80_total") or 0)
         full_year_expected = float(summary.get("full_year_expected") or 0)
+        metric_name = obj.metric_name or "Metric Risiko"
+        metric_lower = metric_name.lower()
 
         realization_percent = 0.0
         if p80_total > 0:
@@ -579,13 +661,72 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         else:
             tingkat = "berada pada level sangat tinggi"
 
+        if "piutang" in metric_lower:
+            title = "Analisis Proyeksi Risiko Saldo Piutang"
+            subject = "saldo piutang"
+            risk_context = (
+                "menunjukkan potensi tekanan terhadap arus kas dan kolektibilitas piutang"
+            )
+            interpretation = (
+                "Hal ini perlu dibaca sebagai sinyal kewaspadaan atas potensi peningkatan saldo piutang, "
+                "keterlambatan pembayaran, dan kebutuhan penguatan proses penagihan pada sisa periode tahun berjalan."
+            )
+            mitigation_intro = (
+                "Fokus utama mitigasi adalah menekan pertumbuhan saldo piutang, mempercepat penagihan, "
+                "dan menjaga kualitas kolektibilitas agar tidak berkembang menjadi eksposur kerugian."
+            )
+            actions = [
+                "Percepatan penagihan dan monitoring aging piutang",
+                "Prioritisasi penyelesaian piutang dengan saldo dan risiko keterlambatan terbesar",
+                "Koordinasi dengan unit komersial/keuangan untuk rencana penurunan outstanding",
+                "Evaluasi kebijakan pembayaran, reminder, dan eskalasi pelanggan berisiko",
+            ]
+        elif "cyber" in metric_lower or "siber" in metric_lower or "incident" in metric_lower:
+            title = "Analisis Proyeksi Risiko Siber"
+            subject = "ancaman/incident cyber terhadap sistem IT dan OT"
+            risk_context = "menunjukkan bahwa eksposur risiko siber"
+            interpretation = (
+                "Hal ini menunjukkan bahwa meskipun ancaman telah terjadi, posisi saat ini masih perlu dibaca "
+                "sebagai sinyal kewaspadaan untuk sisa periode tahun berjalan."
+            )
+            mitigation_intro = (
+                "Fokus utama mitigasi bukan hanya menurunkan jumlah threat, tetapi memastikan threat tersebut "
+                "tidak berkembang menjadi insiden yang mengganggu operasional atau merusak sistem kritikal."
+            )
+            actions = [
+                "Penguatan deteksi dini dan monitoring ancaman siber",
+                "Peningkatan respons insiden dan containment pada sistem IT/OT",
+                "Penguatan kontrol keamanan pada aset kritikal",
+                "Pencegahan eskalasi ancaman menjadi gangguan operasional",
+            ]
+        else:
+            title = f"Analisis Proyeksi {metric_name}"
+            subject = metric_name
+            risk_context = "menunjukkan profil eksposur risiko"
+            interpretation = (
+                "Hal ini perlu dibaca sebagai sinyal monitoring untuk melihat apakah realisasi berjalan "
+                "masih sesuai dengan risk appetite dan target periode berjalan."
+            )
+            mitigation_intro = (
+                "Fokus utama mitigasi adalah menjaga realisasi tetap dalam batas yang dapat diterima "
+                "dan memperkuat kontrol pada driver utama risiko."
+            )
+            actions = [
+                "Monitoring realisasi dan deviasi terhadap target secara berkala",
+                "Identifikasi driver utama yang menyebabkan perubahan proyeksi",
+                "Penetapan trigger eskalasi saat proyeksi melewati risk appetite",
+                "Evaluasi efektivitas rencana mitigasi berjalan",
+            ]
+
+        action_items = "".join(f"<li>{action}</li>" for action in actions)
+
         html = f"""
         <div style="margin-top:20px; padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #ddd;">
-        <h3 style="margin-bottom:10px;">Analisis Proyeksi Risiko Siber</h3>
+        <h3 style="margin-bottom:10px;">{title}</h3>
 
         <p>
-            Berdasarkan hasil simulasi Monte Carlo, proyeksi ancaman/incident cyber terhadap sistem IT dan OT
-            menunjukkan bahwa eksposur risiko {tingkat}. Full year expected tercatat sebesar
+            Berdasarkan hasil simulasi Monte Carlo, proyeksi <strong>{metric_name}</strong> untuk {subject}
+            {risk_context} {tingkat}. Full year expected tercatat sebesar
             <strong>{self._fmt(full_year_expected, 3)}</strong>, dengan skenario konservatif (P80)
             sebesar <strong>{self._fmt(p80_total, 3)}</strong>.
         </p>
@@ -593,22 +734,16 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         <p>
             Realisasi year-to-date saat ini sebesar <strong>{self._fmt(actual_ytd, 3)}</strong> atau
             <strong>{self._fmt(realization_percent, 2)}</strong>% terhadap skenario konservatif.
-            Hal ini menunjukkan bahwa meskipun ancaman telah terjadi, posisi saat ini masih perlu dibaca
-            sebagai sinyal kewaspadaan untuk sisa periode tahun berjalan.
+            {interpretation}
         </p>
 
         <p>
-            Dengan target perusahaan yang tidak mentoleransi insiden sampai merusak sistem, maka fokus utama
-            mitigasi bukan hanya menurunkan jumlah threat, tetapi memastikan threat tersebut tidak berkembang
-            menjadi insiden yang mengganggu operasional atau merusak sistem kritikal.
+            {mitigation_intro}
         </p>
 
         <p><strong>Fokus mitigasi yang direkomendasikan:</strong></p>
         <ul>
-            <li>Penguatan deteksi dini dan monitoring ancaman siber</li>
-            <li>Peningkatan respons insiden dan containment pada sistem IT/OT</li>
-            <li>Penguatan kontrol keamanan pada aset kritikal</li>
-            <li>Pencegahan eskalasi ancaman menjadi gangguan operasional</li>
+            {action_items}
         </ul>
         </div>
         """
@@ -823,9 +958,14 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
 
 @admin.register(MultiMetricMonteCarloResult)
 class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
+    change_form_template = (
+        "admin/corporate_risk/multimetricmontecarloresult/change_form.html"
+    )
+
     list_display = (
         "corporate_risk_item",
         "forecast_periode",
+        "distribution_type",
         "composite_score",
         "p80_score",
         "target_status",
@@ -843,6 +983,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "target_status",
         "risk_status",
         "requires_mitigation",
+        "distribution_type",
     )
 
     search_fields = (
@@ -860,6 +1001,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "target_prediction_cards_html",
         "target_prediction_table_html",
         "forecasting_predictor_html",
+        "distribution_recommendation_html",
         "target_distribution_chart_html",
         "mitigation_recommendation_html",
         "metric_contribution_html",
@@ -890,6 +1032,23 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     )
 
     fieldsets = (
+        ("Informasi Utama", {
+            "fields": (
+                "corporate_risk_item",
+                "forecast_periode",
+            )
+        }),
+        ("Pengaturan Forecasting / Monte Carlo", {
+            "fields": (
+                "forecasting_method",
+                "forecast_periods",
+                "prediction_interval",
+                "n_simulations",
+                "distribution_recommendation_html",
+                "distribution_type",
+                "scenario_percentile",
+            )
+        }),
         ("Executive Summary", {
             "fields": ("executive_summary_html",)
         }),
@@ -903,19 +1062,8 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "mitigation_recommendation_html",
             )
         }),
-        ("Pengaturan Forecasting / Monte Carlo", {
+        ("Hasil Simulasi", {
             "fields": (
-                "forecasting_method",
-                "forecast_periods",
-                "prediction_interval",
-                "n_simulations",
-                "scenario_percentile",
-            )
-        }),
-        ("Informasi Utama", {
-            "fields": (
-                "corporate_risk_item",
-                "forecast_periode",
                 "composite_score",
                 "p80_score",
                 "forecast_total",
@@ -1315,6 +1463,76 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
     forecasting_predictor_html.short_description = "Pilihan Forecasting / Prediksi Time Series"
 
+    def distribution_recommendation_html(self, obj):
+        if not obj or not obj.corporate_risk_item_id:
+            return mark_safe(
+                "<div style='padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'>"
+                "Pilih dan simpan Item Risiko Korporat terlebih dahulu untuk melihat rekomendasi distribusi."
+                "</div>"
+            )
+
+        metrics = RiskMetric.objects.filter(
+            corporate_risk_item=obj.corporate_risk_item,
+            is_active=True,
+        ).order_by("name")
+
+        if not metrics.exists():
+            return mark_safe(
+                "<div style='padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;'>"
+                "Belum ada Risk Metric aktif untuk item risiko ini."
+                "</div>"
+            )
+
+        rows = []
+        for metric in metrics:
+            histories = MonteCarloMetricHistory.objects.filter(metric=metric)
+            if obj.forecast_periode_id and obj.forecast_periode.tanggal_selesai:
+                histories = histories.filter(tanggal_data__lte=obj.forecast_periode.tanggal_selesai)
+            histories = histories.order_by("tanggal_data", "id")
+            values = [history.metric_value for history in histories]
+            recommendation = recommend_monte_carlo_distribution(values)
+            rows.append(
+                f"""
+                <tr>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{metric.name}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{len(values)}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;"><strong>{recommendation.get("recommended_label")}</strong></td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{self._fmt(recommendation.get("growth_mean"), 6) if recommendation.get("growth_mean") is not None else "-"}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{self._fmt(recommendation.get("growth_std"), 6) if recommendation.get("growth_std") is not None else "-"}</td>
+                </tr>
+                """
+            )
+
+        selected_label = dict(MonteCarloKorporatConfig.DISTRIBUTION_CHOICES).get(
+            obj.distribution_type,
+            obj.distribution_type,
+        )
+
+        return mark_safe(
+            f"""
+            <div style="padding:14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
+                <p style="margin-top:0;">
+                    <strong>Distribusi yang dipilih:</strong> {selected_label}. Gunakan rekomendasi di bawah sebagai dasar
+                    memilih field <strong>Model Distribusi Monte Carlo</strong> sebelum menyimpan prediksi.
+                </p>
+                <table style="width:100%;border-collapse:collapse;background:#fff;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Metric</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Data</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Rekomendasi</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Mean Growth</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Std Growth</th>
+                        </tr>
+                    </thead>
+                    <tbody>{''.join(rows)}</tbody>
+                </table>
+            </div>
+            """
+        )
+
+    distribution_recommendation_html.short_description = "Rekomendasi Model Distribusi"
+
     def target_distribution_chart_html(self, obj):
         analysis = self._target_analysis(obj)
         distribution = analysis.get("distribution_sample") or []
@@ -1502,17 +1720,20 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             months_ahead=obj.forecast_periods or 9,
             n_simulations=obj.n_simulations or 10000,
             scenario_percentile=obj.scenario_percentile,
+            distribution_type=obj.distribution_type or "normal",
         )
 
         result.forecasting_method = obj.forecasting_method or result.forecasting_method
         result.forecast_periods = obj.forecast_periods or result.forecast_periods
         result.prediction_interval = obj.prediction_interval or result.prediction_interval
         result.n_simulations = obj.n_simulations or result.n_simulations
+        result.distribution_type = obj.distribution_type or result.distribution_type
         result.save(update_fields=[
             "forecasting_method",
             "forecast_periods",
             "prediction_interval",
             "n_simulations",
+            "distribution_type",
             "updated_at",
         ])
 
@@ -1535,6 +1756,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         obj.status_hasil = result.status_hasil
         obj.metric_snapshot = result.metric_snapshot
         obj.simulation_snapshot = result.simulation_snapshot
+        obj.distribution_type = result.distribution_type
         obj.pk = result.pk
         obj._state.adding = False
 
@@ -2108,26 +2330,6 @@ class MultiMetricAIInsightKorporatAdmin(admin.ModelAdmin):
     readonly_fields = (
         "created_at",
     )
-
-try:
-    risk_admin_site.register(MonteCarloKorporatConfig, MonteCarloKorporatConfigAdmin)
-except Exception:
-    pass
-
-try:
-    risk_admin_site.register(MonteCarloKorporatHistory, MonteCarloKorporatHistoryAdmin)
-except Exception:
-    pass
-
-try:
-    risk_admin_site.register(MonteCarloKorporatResult, MonteCarloKorporatResultAdmin)
-except Exception:
-    pass
-
-try:
-    risk_admin_site.register(AIInsightKorporat, AIInsightKorporatAdmin)
-except Exception:
-    pass
 
 try:
     risk_admin_site.register(MonteCarloMetricHistory, MonteCarloMetricHistoryAdmin)

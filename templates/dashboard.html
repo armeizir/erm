@@ -53,6 +53,25 @@
             line-height: 1.5;
         }
 
+        .hero-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+
+        .hero-actions .button {
+            width: auto;
+            min-width: 180px;
+            border-color: rgba(255, 255, 255, 0.36);
+            background: rgba(255, 255, 255, 0.16);
+            color: #fff;
+        }
+
+        .hero-actions .button:hover {
+            background: rgba(255, 255, 255, 0.24);
+        }
+
         .filters,
         .stats,
         .content {
@@ -715,6 +734,11 @@
             Monitoring profil risiko korporat dan profil risiko bidang/unit bisnis PLN Batam. Pilih tahun dan bulan
             untuk melihat perkembangan laporan risiko bulanan, heatmap 5x5, drilldown, dan export Excel RCC.
         </p>
+        <div class="hero-actions">
+            <a class="button" href="{% url 'risk_admin:risk_knowledgebasearticle_changelist' %}">
+                Knowledge Base
+            </a>
+        </div>
     </section>
 
     <form method="get" class="filters">

@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
+from django.utils.text import slugify
 
 
 # =========================================================
@@ -165,6 +166,126 @@ class AppSetting(models.Model):
         if len(self.ai_api_key) <= 8:
             return "********"
         return f"{self.ai_api_key[:4]}...{self.ai_api_key[-4:]}"
+
+
+class KnowledgeBaseCategory(models.Model):
+    nama = models.CharField(max_length=120, unique=True, verbose_name="Nama Kategori")
+    slug = models.SlugField(max_length=140, unique=True, blank=True)
+    deskripsi = models.TextField(blank=True, default="", verbose_name="Deskripsi")
+    urutan = models.PositiveIntegerField(default=1, verbose_name="Urutan")
+    aktif = models.BooleanField(default=True, verbose_name="Aktif")
+
+    class Meta:
+        verbose_name = "Knowledge Base - Kategori"
+        verbose_name_plural = "KNOWLEDGE BASE — Kategori"
+        ordering = ["urutan", "nama"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.nama)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.nama
+
+
+class KnowledgeBaseArticle(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_PUBLISHED = "published"
+    STATUS_ARCHIVED = "archived"
+
+    STATUS_CHOICES = (
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_PUBLISHED, "Published"),
+        (STATUS_ARCHIVED, "Archived"),
+    )
+
+    AUDIENCE_CHOICES = (
+        ("all", "Semua Pengguna"),
+        ("strategic", "Strategic Level"),
+        ("management", "Management Level"),
+        ("operational", "Operational Level"),
+        ("evaluation", "Evaluation Level"),
+        ("admin", "Administrator"),
+    )
+
+    kategori = models.ForeignKey(
+        KnowledgeBaseCategory,
+        on_delete=models.PROTECT,
+        related_name="artikel",
+        verbose_name="Kategori",
+    )
+    judul = models.CharField(max_length=220, verbose_name="Judul")
+    slug = models.SlugField(max_length=240, unique=True, blank=True)
+    ringkasan = models.TextField(blank=True, default="", verbose_name="Ringkasan")
+    konten = models.TextField(verbose_name="Konten Knowledge Base")
+    tags = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Tag",
+        help_text="Pisahkan tag dengan koma. Contoh: ERM, Profil Risiko, Monte Carlo",
+    )
+    audience = models.CharField(
+        max_length=20,
+        choices=AUDIENCE_CHOICES,
+        default="all",
+        verbose_name="Target Pengguna",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_DRAFT,
+        verbose_name="Status",
+    )
+    lampiran = models.FileField(
+        upload_to="knowledge_base/",
+        blank=True,
+        null=True,
+        verbose_name="Lampiran",
+    )
+    dibuat_oleh = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="knowledge_base_dibuat",
+        verbose_name="Dibuat Oleh",
+    )
+    diperbarui_oleh = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="knowledge_base_diperbarui",
+        verbose_name="Diperbarui Oleh",
+    )
+    dipublikasikan_pada = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Dipublikasikan Pada",
+    )
+    dibuat_pada = models.DateTimeField(auto_now_add=True, verbose_name="Dibuat Pada")
+    diperbarui_pada = models.DateTimeField(auto_now=True, verbose_name="Diperbarui Pada")
+
+    class Meta:
+        verbose_name = "Knowledge Base - Artikel"
+        verbose_name_plural = "KNOWLEDGE BASE — Artikel"
+        ordering = ["kategori__urutan", "judul"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.judul) or "knowledge-base"
+            slug = base_slug
+            counter = 2
+            while KnowledgeBaseArticle.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.judul
 
 
 class TaksonomiT3(models.Model):
@@ -1013,6 +1134,24 @@ class RKMSummary(models.Model):
         choices=STATUS_PENGAJUAN_CHOICES,
         default="Belum",
         verbose_name="Status Pengajuan",
+    )
+
+    penandatangan_laporan_km = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="rkm_laporan_km_ditandatangani",
+        verbose_name="Penandatangan Laporan KM",
+    )
+
+    penandatangan_laporan_rkm = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="rkm_laporan_rkm_ditandatangani",
+        verbose_name="Penandatangan Laporan RKM",
     )
 
     dibuat_pada = models.DateTimeField(

@@ -12,8 +12,14 @@ class MonteCarloKorporatConfig(TimeStampedModel):
     ]
 
     DISTRIBUTION_CHOICES = [
-        ("normal", "Normal"),
+        ("normal", "Distribusi Normal (Gaussian)"),
+        ("lognormal", "Lognormal"),
         ("triangular", "Triangular"),
+        ("uniform", "Uniform"),
+        ("beta", "Beta"),
+        ("gamma", "Gamma"),
+        ("weibull", "Weibull"),
+        ("empirical", "Empirical Distribution"),
     ]
 
     corporate_risk_item = models.OneToOneField(
@@ -383,6 +389,13 @@ class MultiMetricMonteCarloResult(models.Model):
         default=10000,
         verbose_name="Monte Carlo Trials",
         help_text="Standar Crystal Ball biasanya 10,000 trials.",
+    )
+    distribution_type = models.CharField(
+        max_length=20,
+        choices=MonteCarloKorporatConfig.DISTRIBUTION_CHOICES,
+        default="normal",
+        verbose_name="Model Distribusi Monte Carlo",
+        help_text="Pilih model distribusi setelah melihat rekomendasi sistem.",
     )
     composite_score = models.DecimalField(
         max_digits=18,
