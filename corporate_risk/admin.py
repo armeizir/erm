@@ -1005,7 +1005,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "target_distribution_chart_html",
         "mitigation_recommendation_html",
         "metric_contribution_html",
-        "composite_interpretation_html",
         "multi_metric_history_rows_html",
         "multi_metric_projection_rows_html",
         "multi_metric_chart_html",
@@ -1086,9 +1085,6 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         }),
         ("Kontribusi Metric", {
             "fields": ("metric_contribution_html",)
-        }),
-        ("Narasi Analisis Sistem", {
-            "fields": ("composite_interpretation_html",)
         }),
         ("Histori Aktual Multi Metric", {
             "fields": ("multi_metric_history_rows_html",)
