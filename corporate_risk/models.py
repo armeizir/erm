@@ -454,6 +454,12 @@ class MultiMetricMonteCarloResult(models.Model):
         ordering = ("-created_at",)
         unique_together = ("corporate_risk_item", "forecast_periode")
 
+    # Dampak terhadap target sesuai referensi Excel:
+    # dampak = target - (Best/Base/Worst)
+    dampak_best_case = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    dampak_base_case = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+    dampak_worst_case = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+
     def __str__(self):
         return f"{self.corporate_risk_item} - {self.forecast_periode}"
     

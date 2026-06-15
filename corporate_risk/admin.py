@@ -1007,6 +1007,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "metric_contribution_html",
         "multi_metric_history_rows_html",
         "multi_metric_projection_rows_html",
+        "multi_metric_descriptive_projection_rows_html",
         "multi_metric_chart_html",
         "composite_score",
         "p80_score",
@@ -1023,6 +1024,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "baseline_value",
         "best_case_value",
         "var_95",
+        "dampak_best_case",
+        "dampak_base_case",
+        "dampak_worst_case",
         "requires_mitigation",
         "status_hasil",
         "metric_snapshot_html",
@@ -1073,6 +1077,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "baseline_value",
                 "best_case_value",
                 "var_95",
+                "dampak_best_case",
+                "dampak_base_case",
+                "dampak_worst_case",
                 "target_status",
                 "risk_status",
                 "requires_mitigation",
@@ -1083,8 +1090,11 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         ("Kontribusi Metric", {
             "fields": ("metric_contribution_html",)
         }),
-        ("Histori Aktual Multi Metric", {
+        ("Histori Aktual Multi Metric (Tahap 1)", {
             "fields": ("multi_metric_history_rows_html",)
+        }),
+        ("Analisis Deskriptif Prediksi (Tahap 2)", {
+            "fields": ("multi_metric_descriptive_projection_rows_html",)
         }),
         ("Proyeksi Bulanan Multi Metric", {
             "fields": ("multi_metric_projection_rows_html",)
@@ -1141,6 +1151,15 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     def _fmt(self, value, digits=2):
         try:
             return f"{float(value):,.{digits}f}"
+        except Exception:
+            return "-"
+
+    def _fmt_paren_negative(self, value, digits=2):
+        try:
+            num = float(value)
+            if num < 0:
+                return f"({abs(num):,.{digits}f})"
+            return f"{num:,.{digits}f}"
         except Exception:
             return "-"
 
@@ -1207,12 +1226,17 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             ("Baseline P50", obj.baseline_value, ""),
             ("Best Case P95", obj.best_case_value, ""),
             ("VaR 95%", obj.var_95, ""),
+            ("Dampak Best (T-Best)", obj.dampak_best_case, ""),
+            ("Dampak Base (T-Base)", obj.dampak_base_case, ""),
+            ("Dampak Worst (T-Worst)", obj.dampak_worst_case, ""),
         ]
         card_html = "".join(
             f"""
             <div style="padding:14px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
                 <div style="font-size:12px;color:#64748b;text-transform:uppercase;font-weight:700;">{label}</div>
-                <div style="font-size:22px;font-weight:800;color:#14345f;margin-top:6px;">{self._fmt(value, 2)}{suffix}</div>
+                <div style="font-size:22px;font-weight:800;color:#14345f;margin-top:6px;">{
+                    self._fmt_paren_negative(value, 2) if 'Dampak' in label else self._fmt(value, 2)
+                }{suffix}</div>
             </div>
             """
             for label, value, suffix in cards
@@ -1835,7 +1859,59 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         """
         return mark_safe(html)
 
-    multi_metric_history_rows_html.short_description = "Histori Aktual Multi Metric"
+    multi_metric_history_rows_html.short_description = "Histori Aktual Multi Metric (Tahap 1)"
+
+    def multi_metric_descriptive_projection_rows_html(self, obj):
+        snapshot = obj.simulation_snapshot or {}
+        descriptive = snapshot.get("descriptive_projection_rows", []) or []
+        stats = snapshot.get("descriptive_stats") or {}
+
+        if not descriptive:
+            return mark_safe(
+                "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
+                "Tahap 2 (Analisis Deskriptif) belum tersedia. Generate ulang Multi Metric Monte Carlo Result."
+                "</div>"
+            )
+
+        stats_html = ""
+        try:
+            stats_html = f"""
+            <div style="padding:10px 12px;margin-bottom:10px;background:#eef7fb;border:1px solid #cfe3ec;border-radius:6px;color:#24586a;font-size:13px;">
+                Window SMA: <strong>{stats.get('sma_window','-')}</strong>,
+                f_p50: <strong>{self._fmt(stats.get('f_p50'), 3)}</strong>,
+                f_p15: <strong>{self._fmt(stats.get('f_p15'), 3)}</strong>,
+                Std Dev: <strong>{self._fmt(stats.get('std_dev') or stats.get('std_dev', None) or stats.get('std_dev'), 3)}</strong>
+            </div>
+            """
+        except Exception:
+            stats_html = ""
+
+        rows = []
+        for row in descriptive:
+            bulan = row.get("bulan") or f"Bulan-{row.get('bulan_index')}"
+            rows.append(f"""
+                <tr>
+                    <td style="padding:8px;border:1px solid #ddd;">{bulan}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:800;">{self._fmt(row.get('f_p50'), 3)}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;">{self._fmt(row.get('f_p15'), 3)}</td>
+                    <td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:800;">{self._fmt(row.get('std_dev'), 3)}</td>
+                </tr>
+            """)
+
+        return mark_safe(f"""
+            {stats_html}
+            <table style="border-collapse:collapse;width:100%;font-size:13px;">
+                <thead>
+                    <tr style="background:#f3f4f6;">
+                        <th style="padding:8px;border:1px solid #ddd;">Bulan</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">F P50</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">F P15</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Std Dev (P50-P15)</th>
+                    </tr>
+                </thead>
+                <tbody>{''.join(rows)}</tbody>
+            </table>
+        """)
 
 
     def multi_metric_projection_rows_html(self, obj):

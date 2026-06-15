@@ -408,100 +408,112 @@ def _sample_growth(rates, avg_growth, std_growth, distribution_type):
     return random.gauss(avg_growth, std_growth)
 
 
-def _simulate_metric(values, months_ahead=9, n_simulations=10000, actual_total=None, distribution_type="normal"):
+def _simulate_metric(
+    values,
+    months_ahead=9,
+    n_simulations=10000,
+    actual_total=None,
+    distribution_type="normal",
+    sma_window: int | None = None,
+):
+    """
+    Excel reference (KK Risiko Cyber):
+    - SMA untuk f_p50 (median forecast)
+    - P15 (percentile 0.15) dari histori untuk menghitung Std Dev per bulan: StdDev = P50 - P15
+    - Sampling langsung dari Normal(mu=f_p50, sigma=StdDev) per bulan
+    - Total percentiles (P5/P50/P95) HARUS dari distribution total (simulation_totals)
+    """
     if len(values) < 3:
         raise ValueError("Data histori metric belum cukup. Minimal 3 periode.")
 
     values = [_safe_float(v) for v in values]
-    rates = _growth_rates(values)
+    values = [v for v in values if math.isfinite(v)]
+    if not values:
+        raise ValueError("Data histori metric kosong/invalid.")
 
-    if len(rates) < 2:
-        raise ValueError("Data histori metric belum cukup untuk menghitung growth rate.")
+    window = int(sma_window or min(len(values), 3))
+    window = max(1, window)
 
-    avg_growth = mean(rates)
-    variance = mean([(r - avg_growth) ** 2 for r in rates])
-    std_growth = math.sqrt(variance)
+    f_p50 = mean(values[-window:])
+    f_p15 = _percentile(values, 0.15)
+    std_dev = f_p50 - f_p15
+    sigma = max(abs(std_dev), 0.0001)
 
-    current = values[-1]
     actual_total = _safe_float(actual_total) if actual_total is not None else sum(values)
-    monthly_results = [[] for _ in range(months_ahead)]
-    simulation_totals = []
 
+    simulation_totals: list[float] = []
     for _ in range(n_simulations):
-        simulated = current
-        future_total = 0.0
+        total = float(actual_total)
+        for _month_idx in range(months_ahead):
+            sampled = random.gauss(f_p50, sigma)
+            sampled = max(sampled, 0.0)
+            total += sampled
+        simulation_totals.append(total)
 
-        for month_idx in range(months_ahead):
-            sampled_growth = _sample_growth(rates, avg_growth, std_growth, distribution_type)
+    # Percentile total dari distribusi total (bukan penjumlahan per-bulan)
+    p5_total = _percentile(simulation_totals, 0.05)
+    p20_total = _percentile(simulation_totals, 0.20)
+    p40_total = _percentile(simulation_totals, 0.40)
+    p50_total = _percentile(simulation_totals, 0.50)
+    p60_total = _percentile(simulation_totals, 0.60)
+    p80_total = _percentile(simulation_totals, 0.80)
+    p90_total = _percentile(simulation_totals, 0.90)
+    p95_total = _percentile(simulation_totals, 0.95)
 
-            # guardrail supaya hasil tidak terlalu liar
-            sampled_growth = max(min(sampled_growth, 3.0), -0.95)
+    future_mean_total = months_ahead * f_p50
+    full_year_expected = float(actual_total) + future_mean_total
 
-            simulated = simulated * (1 + sampled_growth)
-            simulated = max(simulated, 0)
-            future_total += simulated
-
-            monthly_results[month_idx].append(simulated)
-
-        simulation_totals.append(actual_total + future_total)
-
+    # Projection rows untuk UI (P15 + Std Dev per bulan; P50/Mean konstan mengikuti SMA)
     projection_rows = []
-    mean_total = 0
-    p20_total = 0
-    p40_total = 0
-    p60_total = 0
-    p80_total = 0
-    p90_total = 0
-
-    for idx, month_values in enumerate(monthly_results):
-        mean_value = mean(month_values)
-        p15_value = _percentile(month_values, 0.158655254)
-        p20_value = _percentile(month_values, 0.20)
-        p40_value = _percentile(month_values, 0.40)
-        p50_value = _percentile(month_values, 0.50)
-        p60_value = _percentile(month_values, 0.60)
-        p80_value = _percentile(month_values, 0.80)
-        stdev_f_value = p50_value - p15_value
-
+    for idx in range(months_ahead):
         projection_rows.append({
             "bulan_index": idx + 1,
-            "mean": mean_value,
-            "p15": p15_value,
-            "p20": p20_value,
-            "p40": p40_value,
-            "p50": p50_value,
-            "p60": p60_value,
-            "p80": p80_value,
-            "stdev_f": stdev_f_value,
+            "mean": f_p50,
+            "p15": f_p15,
+            "p50": f_p50,
+            "p20": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.20),
+            "p40": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.40),
+            "p60": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.60),
+            "p80": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.80),
+            "stdev_f": abs(f_p50 - f_p15),
         })
 
-        mean_total += mean_value
-        p20_total += p20_value
-        p40_total += p40_value
-        p60_total += p60_value
-        p80_total += p80_value
-        p90_total += _percentile(month_values, 0.90)
+    # safeguard: jika spread simulasi/sampling terlalu sempit sehingga stdev_f jadi 0,
+    # gunakan fallback stdev histori (atau minimal epsilon)
+    fallback_sigma = max(_stdev(values), 0.0001)
+    if abs(f_p50 - f_p15) == 0:
+        for row in projection_rows:
+            row["stdev_f"] = fallback_sigma
 
     return {
-        "actual_total": actual_total,
-        "future_mean_total": mean_total,
-        "full_year_expected": actual_total + mean_total,
-        "p5_total": _percentile(simulation_totals, 0.05),
-        "p20_total": p20_total,
-        "p40_total": p40_total,
-        "p50_total": _percentile(simulation_totals, 0.50),
-        "p60_total": p60_total,
-        "p80_total": p80_total,
-        "p90_total": p90_total,
-        "p95_total": _percentile(simulation_totals, 0.95),
-        "min_total": min(simulation_totals) if simulation_totals else 0.0,
-        "max_total": max(simulation_totals) if simulation_totals else 0.0,
-        "growth_mean": avg_growth,
-        "growth_std": std_growth,
+        "actual_total": float(actual_total),
+        "future_mean_total": float(future_mean_total),
+        "full_year_expected": float(full_year_expected),
+        "p5_total": float(p5_total),
+        "p20_total": float(p20_total),
+        "p40_total": float(p40_total),
+        "p50_total": float(p50_total),
+        "p60_total": float(p60_total),
+        "p80_total": float(p80_total),
+        "p90_total": float(p90_total),
+        "p95_total": float(p95_total),
+        "min_total": float(min(simulation_totals) if simulation_totals else 0.0),
+        "max_total": float(max(simulation_totals) if simulation_totals else 0.0),
         "distribution_type": distribution_type,
         "distribution_label": _distribution_label(distribution_type),
         "projection_rows": projection_rows,
         "simulation_totals": simulation_totals,
+        "descriptive_stats": {
+            "mean": float(mean(values)),
+            "std": float(_stdev(values)),
+            "min": float(min(values)),
+            "max": float(max(values)),
+            "skewness": float(_skewness(values)),
+            "sma_window": window,
+            "f_p50": float(f_p50),
+            "f_p15": float(f_p15),
+            "std_dev": float(std_dev),
+        },
     }
 
 
@@ -685,43 +697,43 @@ def _build_multi_metric_history_rows(metric_results):
     if not metric_results:
         return []
 
-    total_periods = max(
-        len(metric_row.get("history_rows", []))
-        for metric_row in metric_results
-    )
+    # Bug 4: gabungkan by tanggal (bukan index)
+    all_dates = sorted(set(
+        h.get("tanggal")
+        for mr in metric_results
+        for h in (mr.get("history_rows") or [])
+        if h.get("tanggal")
+    ))
 
     rows = []
-
-    for idx in range(total_periods):
+    for tanggal in all_dates:
         actual_score_total = 0.0
-        periode = "-"
-        tanggal = None
+        periode_label = "-"
         metric_values = []
 
         for metric_row in metric_results:
-            history_rows = metric_row.get("history_rows", [])
-
-            if idx >= len(history_rows):
+            history_rows = metric_row.get("history_rows", []) or []
+            matching = next(
+                (h for h in history_rows if h.get("tanggal") == tanggal),
+                None
+            )
+            if not matching:
                 continue
 
-            history = history_rows[idx]
             weight_ratio = _safe_float(metric_row.get("weight_ratio"))
-
-            periode = history.get("periode") or periode
-            tanggal = history.get("tanggal") or tanggal
-
-            actual_score = _safe_float(history.get("actual_score"))
+            actual_score = _safe_float(matching.get("actual_score"))
             actual_score_total += actual_score * weight_ratio
+            periode_label = matching.get("periode") or periode_label
 
             metric_values.append({
                 "metric_name": metric_row.get("metric_name") or "-",
-                "actual": history.get("actual"),
+                "actual": matching.get("actual"),
                 "actual_score": actual_score,
                 "weight_ratio": weight_ratio,
             })
 
         rows.append({
-            "periode": periode,
+            "periode": periode_label,
             "tanggal": tanggal,
             "actual_score": round(actual_score_total, 4),
             "metric_values": metric_values,
@@ -789,15 +801,18 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             and h.tanggal_data.year == forecast_year
             and h.tanggal_data <= forecast_periode.tanggal_selesai
         )
+        # Bug 3: fallback salah — jangan menjumlahkan seluruh histori
         if actual_ytd_total <= 0:
-            actual_ytd_total = sum(values)
+            actual_ytd_total = _safe_float(values[-1]) if values else 0.0
 
+        # Excel reference uses SMA+Normal (not growth-rate)
         simulation = _simulate_metric(
             values=values,
             months_ahead=months_ahead,
             n_simulations=n_simulations,
             actual_total=actual_ytd_total,
-            distribution_type=distribution_type,
+            distribution_type="normal",
+            sma_window=3,
         )
 
         weight = _safe_float(metric.weight)
@@ -915,6 +930,8 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "p80_total": simulation["p80_total"],
             "p95_total": simulation["p95_total"],
             "projection_rows": enriched_projection_rows,
+            # descriptive_stats dari _simulate_metric (untuk Tahap 2)
+            "descriptive_stats": simulation.get("descriptive_stats", {}),
         })
 
         if not target_analysis and metric.is_target_metric:
@@ -930,19 +947,24 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     if not target_analysis:
         for metric_row in metric_results:
             if metric_row.get("target_value") not in (None, ""):
-                metric_obj = next((m for m in metrics if m.id == metric_row.get("metric_id")), None)
+                metric_obj = next(
+                    (m for m in metrics if m.id == metric_row.get("metric_id")),
+                    None,
+                )
                 histories = list(
                     MonteCarloMetricHistory.objects.filter(metric=metric_obj)
                     .filter(tanggal_data__lte=forecast_periode.tanggal_selesai)
                     .select_related("periode")
                     .order_by("tanggal_data", "id")
                 )
+
                 simulation = _simulate_metric(
                     values=[_safe_float(h.metric_value) for h in histories],
                     months_ahead=months_ahead,
                     n_simulations=n_simulations,
                     actual_total=metric_row.get("actual_total"),
-                    distribution_type=distribution_type,
+                    distribution_type="normal",
+                    sma_window=3,
                 )
                 target_analysis = _build_target_analysis(
                     simulation_totals=simulation["simulation_totals"],
@@ -1051,10 +1073,42 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             for row in multi_metric_projection_rows
         ],
     }
+    # Tahap 2: tampilkan deskriptif prediksi sebelum simulasi (Excel-style)
+    # Ambil descriptive rows dari metric target (jika ada), jika tidak: dari metric pertama.
+    descriptive_projection_rows = []
+    descriptive_stats = {}
+    source_metric_for_descriptive = target_metric_row or (metric_results[0] if metric_results else None)
+    if source_metric_for_descriptive and source_metric_for_descriptive.get("projection_rows"):
+        # projection_rows untuk metric hasil berisi mean_score/p15_score dst; tapi yang kita butuhkan F P50/F P15/Std Dev
+        # untuk UI Excel: gunakan proyeksi mentah dari _simulate_metric tersimpan di simulation snapshot per metric.
+        # Karena sekarang projection_rows metric_results adalah score-normalized, kita bangun ulang berdasarkan stdev_f yang tersimpan di projection_rows.
+        for idx, row in enumerate(source_metric_for_descriptive.get("projection_rows", [])):
+            descriptive_projection_rows.append({
+                "bulan_index": idx + 1,
+                "f_p50": row.get("p50"),
+                "f_p15": row.get("p15"),
+                "std_dev": row.get("stdev_f"),
+                "mean": row.get("mean"),
+            })
+        descriptive_stats = source_metric_for_descriptive.get("descriptive_stats", {}) or {}
+
     if target_analysis:
         chart_series["target_distribution"] = target_analysis.get("distribution_sample", [])
         chart_series["target_value"] = target_analysis.get("target_value")
         chart_series["target_monthly_projection"] = target_projection_rows
+
+    # Dampak Excel: Target - (Best/Base/Worst)
+    # Best  = P95 total
+    # Base  = P50 total
+    # Worst = P5 total
+    dampak_best_case = None
+    dampak_base_case = None
+    dampak_worst_case = None
+    if target_analysis:
+        target_val = _safe_float(target_analysis.get("target_value"))
+        dampak_best_case = target_val - _safe_float(target_analysis.get("best_case_value"))
+        dampak_base_case = target_val - _safe_float(target_analysis.get("baseline_value"))
+        dampak_worst_case = target_val - _safe_float(target_analysis.get("worst_case_value"))
 
     status_hasil = _status_from_score(scenario_score)
 
@@ -1072,6 +1126,9 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "target_gap": _decimal(target_analysis.get("target_gap")) or Decimal("0"),
             "average_selling_price": _decimal(target_analysis.get("average_selling_price")) or Decimal("0"),
             "potential_loss": _decimal(target_analysis.get("potential_loss")) or Decimal("0"),
+            "dampak_best_case": _decimal(dampak_best_case),
+            "dampak_base_case": _decimal(dampak_base_case),
+            "dampak_worst_case": _decimal(dampak_worst_case),
             "probability_achieve_target": _decimal_probability(target_analysis.get("probability_achieve_target")),
             "probability_not_achieve_target": _decimal_probability(target_analysis.get("probability_not_achieve_target")),
             "target_status": target_analysis.get("target_status", ""),
@@ -1097,7 +1154,12 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 "status_hasil": status_hasil,
                 "target_analysis": target_analysis,
                 "target_projection_rows": target_projection_rows,
+                # Tahap 1
                 "history_rows": multi_metric_history_rows,
+                # Tahap 2
+                "descriptive_projection_rows": descriptive_projection_rows,
+                "descriptive_stats": descriptive_stats,
+                # Multi metric projection (untuk grafik & score bulanan)
                 "projection_rows": multi_metric_projection_rows,
                 "chart_series": chart_series,
             },
