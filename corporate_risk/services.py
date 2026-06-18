@@ -548,6 +548,7 @@ def _build_target_analysis(
         return {}
 
     totals = [float(value) for value in simulation_totals]
+    total_simulation = len(totals)
     target = _safe_float(target_value)
     selling_price = _safe_float(average_selling_price)
     threshold = _safe_float(risk_appetite_threshold)
@@ -598,9 +599,9 @@ def _build_target_analysis(
         "risk_appetite_value": appetite_value,
         "achieved_count": achieved_count,
         "not_achieved_count": not_achieved_count,
-        "total_simulation": len(totals),
+        "total_simulation": total_simulation,
         "recommendation": recommendation,
-        "distribution_sample": totals[:1000],
+        "distribution_sample": totals,
     }
 
 
@@ -763,6 +764,10 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     distribution_type="normal",
     selected_distribution_justification="",
 ):
+    n_simulations = int(n_simulations or 10000)
+    if n_simulations < 1000:
+        raise ValueError("Monte Carlo Trials minimal 1,000. Rekomendasi 10,000 trials untuk hasil yang lebih stabil.")
+
     metrics = list(
         RiskMetric.objects.filter(
             corporate_risk_item=item,
@@ -1186,6 +1191,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
 
     if target_analysis:
         chart_series["target_distribution"] = target_analysis.get("distribution_sample", [])
+        chart_series["target_distribution_total_simulation"] = target_analysis.get("total_simulation") or n_simulations
         chart_series["target_value"] = target_analysis.get("target_value")
         chart_series["target_monthly_projection"] = target_projection_rows
 
@@ -1491,7 +1497,7 @@ def run_monte_carlo_for_korporat_item(item, forecast_periode, months_ahead: int 
     simulation_snapshot = _simulate_projection(
         actual_values=history_values,
         months_ahead=months_ahead,
-        n_simulations=int(config.n_simulations or 1000),
+        n_simulations=int(config.n_simulations or 10000),
         distribution_type=config.distribution_type or "normal",
     )
 

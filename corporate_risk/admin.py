@@ -93,6 +93,13 @@ class MultiMetricMonteCarloResultForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        n_simulations = cleaned_data.get("n_simulations")
+        if n_simulations is not None and n_simulations < 1000:
+            self.add_error(
+                "n_simulations",
+                "Monte Carlo Trials minimal 1,000. Rekomendasi 10,000 trials untuk hasil yang lebih stabil.",
+            )
+
         history_errors = self._metric_history_readiness_errors(
             cleaned_data.get("corporate_risk_item"),
             cleaned_data.get("forecast_periode"),
@@ -1803,7 +1810,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         chart_id = f"targetDistributionChart_{obj.id}"
         values = [float(v) for v in distribution]
         target_value = float(obj.target_value or 0)
-        trials = len(values)
+        trials = analysis.get("total_simulation") or obj.n_simulations or len(values)
 
         return mark_safe(
             f"""
@@ -1818,7 +1825,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 </div>
                 <div style="padding:10px 12px;border:1px solid #d9e1ec;border-radius:10px;background:#fff;">
                     <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;">Trials</div>
-                    <div style="font-size:20px;font-weight:800;color:#0d2e5e;">{self._fmt(trials or obj.n_simulations or 10000, 0)}</div>
+                    <div style="font-size:20px;font-weight:800;color:#0d2e5e;">{self._fmt(trials, 0)}</div>
                 </div>
                 <div style="padding:10px 12px;border:1px solid #d9e1ec;border-radius:10px;background:#fff;">
                     <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;">Cut-off Target</div>
@@ -1841,6 +1848,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 if (existing) existing.destroy();
                 const values = {json.dumps(values)};
                 const targetValue = {json.dumps(target_value)};
+                const totalTrials = {json.dumps(int(trials or len(values)))};
                 const minValue = Math.min(...values);
                 const maxValue = Math.max(...values);
                 const binCount = Math.min(44, Math.max(18, Math.round(Math.sqrt(values.length))));
@@ -1914,7 +1922,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                         maintainAspectRatio: false,
                         plugins: {{
                             legend: {{ position: "bottom" }},
-                            title: {{ display: true, text: "Forecast DMP - " + values.length.toLocaleString("en-US") + " Trials" }}
+                            title: {{ display: true, text: "Forecast DMP - " + totalTrials.toLocaleString("en-US") + " Trials" }}
                         }},
                         scales: {{
                             x: {{ title: {{ display: true, text: "Forecast Total" }} }},

@@ -1,11 +1,13 @@
 from datetime import date
+from types import SimpleNamespace
 
+from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase
 
-from corporate_risk.admin import MultiMetricMonteCarloResultForm
+from corporate_risk.admin import MultiMetricMonteCarloResultAdmin, MultiMetricMonteCarloResultForm
 from corporate_risk.models import MonteCarloMetricHistory, MultiMetricMonteCarloResult, RiskMetric
-from corporate_risk.services import recommend_monte_carlo_distribution
+from corporate_risk.services import _build_target_analysis, recommend_monte_carlo_distribution
 from masterdata.models import MasterBUMN, PeriodeLaporan, TahunBuku
 from risk.models import ProfilRisikoKorporatItem, ProfilRisikoKorporatSummary
 
@@ -74,8 +76,8 @@ class MultiMetricMonteCarloResultFormTests(TestCase):
             tanggal_selesai=date(2026, 3, 31),
         )
 
-    def test_add_form_blocks_metric_with_less_than_three_history_periods(self):
-        form = MultiMetricMonteCarloResultForm(data={
+    def _form_data(self, **overrides):
+        data = {
             "corporate_risk_item": self.item.pk,
             "forecast_periode": self.forecast_periode.pk,
             "scenario_percentile": 80,
@@ -84,14 +86,11 @@ class MultiMetricMonteCarloResultFormTests(TestCase):
             "prediction_interval": "5_95",
             "n_simulations": 10000,
             "distribution_type": "empirical",
-        })
+        }
+        data.update(overrides)
+        return data
 
-        self.assertFalse(form.is_valid())
-        errors = form.errors.as_text()
-        self.assertIn("Data histori belum cukup", errors)
-        self.assertIn("Jumlah Breach Cyber IT/OT: 0/3 periode", errors)
-
-    def test_add_form_allows_metric_with_three_history_periods(self):
+    def _add_three_history_periods(self):
         periods = [
             ("2026-01", "Januari 2026", date(2026, 1, 1), date(2026, 1, 31), 1),
             ("2026-02", "Februari 2026", date(2026, 2, 1), date(2026, 2, 28), 2),
@@ -114,15 +113,57 @@ class MultiMetricMonteCarloResultFormTests(TestCase):
                 metric_value=value,
             )
 
-        form = MultiMetricMonteCarloResultForm(data={
-            "corporate_risk_item": self.item.pk,
-            "forecast_periode": self.forecast_periode.pk,
-            "scenario_percentile": 80,
-            "forecasting_method": "best_fit_normal_growth",
-            "forecast_periods": 9,
-            "prediction_interval": "5_95",
-            "n_simulations": 10000,
-            "distribution_type": "empirical",
-        })
+    def test_add_form_blocks_metric_with_less_than_three_history_periods(self):
+        form = MultiMetricMonteCarloResultForm(data=self._form_data())
+
+        self.assertFalse(form.is_valid())
+        errors = form.errors.as_text()
+        self.assertIn("Data histori belum cukup", errors)
+        self.assertIn("Jumlah Breach Cyber IT/OT: 0/3 periode", errors)
+
+    def test_add_form_allows_metric_with_three_history_periods(self):
+        self._add_three_history_periods()
+        form = MultiMetricMonteCarloResultForm(data=self._form_data())
 
         self.assertNotIn("Data histori belum cukup", form.errors.as_text())
+
+    def test_add_form_requires_minimum_one_thousand_trials(self):
+        self._add_three_history_periods()
+
+        form = MultiMetricMonteCarloResultForm(data=self._form_data(n_simulations=999))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("minimal 1,000", form.errors.as_text())
+
+
+class MultiMetricMonteCarloTrialsDisplayTests(SimpleTestCase):
+    def test_target_analysis_keeps_actual_trial_count_and_full_distribution(self):
+        analysis = _build_target_analysis(
+            simulation_totals=list(range(10000)),
+            target_value=5000,
+        )
+
+        self.assertEqual(analysis["total_simulation"], 10000)
+        self.assertEqual(len(analysis["distribution_sample"]), 10000)
+
+    def test_output_distribution_chart_uses_total_simulation_for_trials_label(self):
+        admin = MultiMetricMonteCarloResultAdmin(MultiMetricMonteCarloResult, AdminSite())
+        obj = SimpleNamespace(
+            id=1,
+            n_simulations=10000,
+            target_value=50,
+            baseline_value=50,
+            probability_achieve_target=50,
+            simulation_snapshot={
+                "target_analysis": {
+                    "distribution_sample": [45, 48, 50, 52, 55],
+                    "total_simulation": 10000,
+                    "target_value": 50,
+                }
+            },
+        )
+
+        html = str(admin.target_distribution_chart_html(obj))
+
+        self.assertIn("10,000", html)
+        self.assertIn("const totalTrials = 10000", html)

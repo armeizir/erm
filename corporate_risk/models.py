@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from core.models import TimeStampedModel
 from masterdata.models import PeriodeLaporan
 from risk.models import ProfilRisikoKorporatItem
@@ -387,8 +388,9 @@ class MultiMetricMonteCarloResult(models.Model):
     )
     n_simulations = models.PositiveIntegerField(
         default=10000,
+        validators=[MinValueValidator(1000)],
         verbose_name="Monte Carlo Trials",
-        help_text="Standar Crystal Ball biasanya 10,000 trials.",
+        help_text="Minimal 1,000 trials. Rekomendasi 10,000 trials untuk hasil yang lebih stabil.",
     )
     distribution_type = models.CharField(
         max_length=20,
