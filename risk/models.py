@@ -5,7 +5,7 @@ from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
-from django.utils.text import slugify
+from django.utils.text import Truncator, slugify
 
 
 # =========================================================
@@ -2446,8 +2446,26 @@ class ProfilRisikoKorporatItem(models.Model):
     def kode_bumn(self):
         return self.bumn.kode if self.bumn_id else ""
 
+    def get_peristiwa_risiko_text(self):
+        return self.peristiwa_risiko or "Peristiwa risiko belum diisi"
+
+    @property
+    def short_label(self):
+        nomor = self.no_item or self.no_risiko or self.pk or "-"
+        peristiwa = Truncator(self.get_peristiwa_risiko_text()).chars(110)
+        return f"#{nomor} - {peristiwa}"
+
+    @property
+    def display_label(self):
+        profil_obj = getattr(self, "summary", None)
+        profil = str(profil_obj) if profil_obj else "Profil risiko korporat belum dipilih"
+        return f"{self.short_label} | {profil}"
+
+    def get_display_label(self):
+        return self.display_label
+
     def __str__(self):
-        return f"{self.summary} - {self.no_item}"
+        return self.display_label
 
 
 class ProfilRisikoKorporatPenyebab(models.Model):

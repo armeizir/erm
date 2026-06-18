@@ -1,14 +1,37 @@
-venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# Django
+*.log
+local_settings.py
 db.sqlite3
 *.sqlite3
 *.sqlite3.*
-db.sqlite3.backup*
-db_*backup*
-.env
-staticfiles/
 media/
+staticfiles/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Backups / exports
+*.backup
+*.bak
+*_backup*
 prod_exports/
 prod_exports*.tar.gz
-.DS_Store
+exports/
+tmp/

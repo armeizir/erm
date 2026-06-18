@@ -5,7 +5,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
-from django.utils.html import format_html
+from django.utils.html import escape, format_html
 from riskproject.admin_site import risk_admin_site
 from django.utils.safestring import mark_safe
 
@@ -28,6 +28,21 @@ from .services import (
     recommend_monte_carlo_distribution,
 )
 
+
+def risk_item_label_html(item):
+    if not item:
+        return "-"
+    title = item.get_display_label() if hasattr(item, "get_display_label") else str(item)
+    short = getattr(item, "short_label", None) or title
+    summary = getattr(item, "summary", None)
+    return format_html(
+        '<span title="{}">{}</span><br><span class="helptext">{}</span>',
+        title,
+        short,
+        summary or "",
+    )
+
+
 class MonteCarloDistributionRecommendationForm(forms.Form):
     distribution_type = forms.ChoiceField(
         label="Distribusi yang digunakan",
@@ -35,10 +50,52 @@ class MonteCarloDistributionRecommendationForm(forms.Form):
     )
 
 
+class MultiMetricMonteCarloResultForm(forms.ModelForm):
+    class Meta:
+        model = MultiMetricMonteCarloResult
+        fields = "__all__"
+
+    def _aggregate_recommendation(self, item, forecast_periode):
+        if not item:
+            return ""
+        counts = {}
+        metrics = RiskMetric.objects.filter(corporate_risk_item=item, is_active=True)
+        for metric in metrics:
+            histories = MonteCarloMetricHistory.objects.filter(metric=metric)
+            if forecast_periode and getattr(forecast_periode, "tanggal_selesai", None):
+                histories = histories.filter(tanggal_data__lte=forecast_periode.tanggal_selesai)
+            values = list(histories.order_by("tanggal_data", "id").values_list("metric_value", flat=True))
+            recommendation = recommend_monte_carlo_distribution(values)
+            recommended = recommendation.get("recommended") or "empirical"
+            counts[recommended] = counts.get(recommended, 0) + 1
+        if not counts:
+            return ""
+        return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+    def clean(self):
+        cleaned_data = super().clean()
+        selected = cleaned_data.get("distribution_type") or ""
+        justification = (cleaned_data.get("selected_distribution_justification") or "").strip()
+        recommended = (
+            self.instance.recommended_distribution
+            or self._aggregate_recommendation(
+                cleaned_data.get("corporate_risk_item"),
+                cleaned_data.get("forecast_periode"),
+            )
+        )
+
+        if selected and recommended and selected != recommended and not justification:
+            raise forms.ValidationError(
+                "Justifikasi wajib diisi jika memilih model distribusi yang berbeda dari rekomendasi sistem."
+            )
+
+        return cleaned_data
+
+
 @admin.register(MonteCarloKorporatConfig)
 class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
     list_display = (
-        "corporate_risk_item",
+        "corporate_risk_item_display",
         "metric_name",
         "metric_unit",
         "direction",
@@ -74,6 +131,10 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
             )
         }),
     )
+
+    @admin.display(description="Item Risiko Korporat", ordering="corporate_risk_item__no_item")
+    def corporate_risk_item_display(self, obj):
+        return risk_item_label_html(obj.corporate_risk_item)
 
     def get_urls(self):
         urls = super().get_urls()
@@ -196,7 +257,7 @@ class MonteCarloKorporatConfigAdmin(admin.ModelAdmin):
 @admin.register(MonteCarloKorporatHistory)
 class MonteCarloKorporatHistoryAdmin(admin.ModelAdmin):
     list_display = (
-        "corporate_risk_item",
+        "corporate_risk_item_display",
         "periode",
         "tanggal_data",
         "metric_name",
@@ -235,10 +296,14 @@ class MonteCarloKorporatHistoryAdmin(admin.ModelAdmin):
     def has_view_permission(self, request, obj=None):
         return bool(request.user and request.user.is_active and request.user.is_staff)
 
+    @admin.display(description="Item Risiko Korporat", ordering="corporate_risk_item__no_item")
+    def corporate_risk_item_display(self, obj):
+        return risk_item_label_html(obj.corporate_risk_item)
+
 @admin.register(MonteCarloKorporatResult)
 class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
     list_display = (
-        "corporate_risk_item",
+        "corporate_risk_item_display",
         "forecast_periode",
         "metric_name",
         "mean_value",
@@ -248,6 +313,10 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         "created_at",
         "generate_ai_button",
     )
+
+    @admin.display(description="Item Risiko Korporat", ordering="corporate_risk_item__no_item")
+    def corporate_risk_item_display(self, obj):
+        return risk_item_label_html(obj.corporate_risk_item)
     list_filter = ("forecast_periode", "metric_name", "status_hasil")
     search_fields = (
         "corporate_risk_item__peristiwa_risiko",
@@ -816,7 +885,7 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
 @admin.register(AIInsightKorporat)
 class AIInsightKorporatAdmin(admin.ModelAdmin):
     list_display = (
-        "corporate_risk_item",
+        "corporate_risk_item_display",
         "monte_carlo_result",
         "created_at",
     )
@@ -844,11 +913,15 @@ class AIInsightKorporatAdmin(admin.ModelAdmin):
         }),
     )
 
+    @admin.display(description="Item Risiko Korporat", ordering="corporate_risk_item__no_item")
+    def corporate_risk_item_display(self, obj):
+        return risk_item_label_html(obj.corporate_risk_item)
+
 
 @admin.register(RiskMetric)
 class RiskMetricAdmin(admin.ModelAdmin):
     list_display = (
-        "corporate_risk_item",
+        "corporate_risk_item_display",
         "name",
         "unit",
         "direction",
@@ -893,6 +966,10 @@ class RiskMetricAdmin(admin.ModelAdmin):
         }),
     )
 
+    @admin.display(description="Item Risiko Korporat", ordering="corporate_risk_item__no_item")
+    def corporate_risk_item_display(self, obj):
+        return risk_item_label_html(obj.corporate_risk_item)
+
     def get_list_display(self, request):
         if (
             request.user.has_perm("corporate_risk.add_montecarlometrichistory")
@@ -906,7 +983,11 @@ class RiskMetricAdmin(admin.ModelAdmin):
         )
 
     def input_history_button(self, obj):
-        url = f"/corporate-risk/metric/{obj.pk}/bulk-input/"
+        url = reverse(
+            "risk_admin:risk_profilrisikokorporatsummary_change",
+            args=[obj.corporate_risk_item.summary_id],
+        )
+        url = f"{url}#monte-carlo-korporat"
         return format_html('<a class="button" href="{}">Input Histori</a>', url)
 
     input_history_button.short_description = "Data Historis"
@@ -959,12 +1040,13 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
 
 @admin.register(MultiMetricMonteCarloResult)
 class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
+    form = MultiMetricMonteCarloResultForm
     change_form_template = (
         "admin/corporate_risk/multimetricmontecarloresult/change_form.html"
     )
 
     list_display = (
-        "corporate_risk_item",
+        "corporate_risk_item_display",
         "forecast_periode",
         "distribution_type",
         "composite_score",
@@ -996,12 +1078,17 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "forecast_periode",
     )
 
+    @admin.display(description="Item Risiko Korporat", ordering="corporate_risk_item__no_item")
+    def corporate_risk_item_display(self, obj):
+        return risk_item_label_html(obj.corporate_risk_item)
+
     readonly_fields = (
         "risk_prediction_flow_html",
         "target_prediction_cards_html",
         "target_prediction_table_html",
         "forecasting_predictor_html",
         "distribution_recommendation_html",
+        "distribution_analysis_snapshot_html",
         "target_distribution_chart_html",
         "mitigation_recommendation_html",
         "metric_contribution_html",
@@ -1032,6 +1119,13 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         "metric_snapshot_html",
         "multi_metric_ai_insight_html",
         "created_at",
+        "recommended_distribution",
+        "distribution_reason_summary",
+        "distribution_reason_detail",
+        "distribution_limitations",
+        "distribution_confidence",
+        "distribution_data_quality_warnings",
+        "selected_distribution",
     )
 
     fieldsets = (
@@ -1049,7 +1143,20 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "n_simulations",
                 "distribution_recommendation_html",
                 "distribution_type",
+                "selected_distribution_justification",
                 "scenario_percentile",
+            )
+        }),
+        ("Traceability Analisa Distribusi", {
+            "fields": (
+                "distribution_analysis_snapshot_html",
+                "recommended_distribution",
+                "distribution_reason_summary",
+                "distribution_reason_detail",
+                "distribution_limitations",
+                "distribution_confidence",
+                "distribution_data_quality_warnings",
+                "selected_distribution",
             )
         }),
         ("Prediksi Risiko / Target RKAP", {
@@ -1508,14 +1615,46 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             histories = histories.order_by("tanggal_data", "id")
             values = [history.metric_value for history in histories]
             recommendation = recommend_monte_carlo_distribution(values)
+            warnings = recommendation.get("data_quality_warnings") or []
+            alternatives = recommendation.get("alternative_distributions") or []
+            warning_items = "".join(f"<li>{escape(warning)}</li>" for warning in warnings) or "<li>-</li>"
+            alternative_items = "".join(
+                f"<li><strong>{escape(item.get('distribution', '-'))}</strong>: "
+                f"{escape(item.get('reason', '-'))} <em>{escape(item.get('limitation', ''))}</em></li>"
+                for item in alternatives
+            ) or "<li>-</li>"
             rows.append(
                 f"""
                 <tr>
-                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{metric.name}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{escape(metric.name)}</td>
                     <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{len(values)}</td>
-                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;"><strong>{recommendation.get("recommended_label")}</strong></td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;"><strong>{escape(recommendation.get("recommended_label") or "-")}</strong></td>
                     <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{self._fmt(recommendation.get("growth_mean"), 6) if recommendation.get("growth_mean") is not None else "-"}</td>
                     <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{self._fmt(recommendation.get("growth_std"), 6) if recommendation.get("growth_std") is not None else "-"}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{escape(recommendation.get("reason_summary") or "-")}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{escape(recommendation.get("limitations") or "-")}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;"><strong>{escape(recommendation.get("confidence") or "-")}</strong></td>
+                </tr>
+                <tr>
+                    <td colspan="8" style="padding:8px 12px 14px;border-bottom:1px solid #e5e7eb;background:#fbfdff;">
+                        <details>
+                            <summary style="cursor:pointer;font-weight:600;">Lihat Analisa</summary>
+                            <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+                                <div>
+                                    <strong>Alasan Detail</strong>
+                                    <p>{escape(recommendation.get("reason_detail") or "-")}</p>
+                                </div>
+                                <div>
+                                    <strong>Warning Data Quality</strong>
+                                    <ul>{warning_items}</ul>
+                                </div>
+                                <div>
+                                    <strong>Alternatif</strong>
+                                    <ul>{alternative_items}</ul>
+                                </div>
+                            </div>
+                        </details>
+                    </td>
                 </tr>
                 """
             )
@@ -1524,14 +1663,26 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             obj.distribution_type,
             obj.distribution_type,
         )
+        selected_warning = ""
+        if obj.recommended_distribution and obj.distribution_type != obj.recommended_distribution:
+            selected_warning = (
+                "<p style='padding:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'>"
+                "Pilihan Anda berbeda dari rekomendasi sistem. Pastikan justifikasi bisnis/statistik terisi sebelum menyimpan."
+                "</p>"
+            )
 
         return mark_safe(
             f"""
             <div style="padding:14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
                 <p style="margin-top:0;">
-                    <strong>Distribusi yang dipilih:</strong> {selected_label}. Gunakan rekomendasi di bawah sebagai dasar
+                    <strong>Distribusi yang dipilih:</strong> {escape(selected_label)}. Gunakan rekomendasi di bawah sebagai dasar
                     memilih field <strong>Model Distribusi Monte Carlo</strong> sebelum menyimpan prediksi.
                 </p>
+                <p style="margin-top:0;color:#4b5563;">
+                    Catatan: simulasi multi metric saat ini memakai satu model distribusi global untuk beberapa metric.
+                    Rekomendasi agregat adalah kompromi; tinjau detail per metric sebelum override.
+                </p>
+                {selected_warning}
                 <table style="width:100%;border-collapse:collapse;background:#fff;">
                     <thead>
                         <tr>
@@ -1540,6 +1691,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                             <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Rekomendasi</th>
                             <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Mean Growth</th>
                             <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Std Growth</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Alasan Rekomendasi</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Catatan Risiko</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Confidence</th>
                         </tr>
                     </thead>
                     <tbody>{''.join(rows)}</tbody>
@@ -1549,6 +1703,66 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         )
 
     distribution_recommendation_html.short_description = "Rekomendasi Model Distribusi"
+
+    def distribution_analysis_snapshot_html(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        selected_label = dict(MonteCarloKorporatConfig.DISTRIBUTION_CHOICES).get(
+            obj.selected_distribution or obj.distribution_type,
+            obj.selected_distribution or obj.distribution_type or "-",
+        )
+        recommended_label = dict(MonteCarloKorporatConfig.DISTRIBUTION_CHOICES).get(
+            obj.recommended_distribution,
+            obj.recommended_distribution or "-",
+        )
+        warnings = obj.distribution_data_quality_warnings or []
+        warning_items = "".join(f"<li>{escape(warning)}</li>" for warning in warnings) or "<li>-</li>"
+        metric_analyses = (obj.simulation_snapshot or {}).get("distribution_analysis", {}).get("metric_analyses", [])
+        metric_blocks = []
+        for row in metric_analyses:
+            row_warnings = "".join(f"<li>{escape(warning)}</li>" for warning in (row.get("warnings") or [])) or "<li>-</li>"
+            alternatives = "".join(
+                f"<li><strong>{escape(item.get('distribution', '-'))}</strong>: "
+                f"{escape(item.get('reason', '-'))} <em>{escape(item.get('limitation', ''))}</em></li>"
+                for item in (row.get("alternative_distributions") or [])
+            ) or "<li>-</li>"
+            metric_blocks.append(
+                f"""
+                <details style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
+                    <summary style="cursor:pointer;font-weight:700;">
+                        {escape(row.get("metric_name") or "-")} - {escape(row.get("recommended_label") or row.get("recommended_distribution") or "-")}
+                        ({escape(row.get("confidence") or "-")})
+                    </summary>
+                    <p><strong>Alasan:</strong> {escape(row.get("reason_detail") or row.get("reason_summary") or "-")}</p>
+                    <p><strong>Keterbatasan:</strong> {escape(row.get("limitations") or "-")}</p>
+                    <strong>Warning</strong>
+                    <ul>{row_warnings}</ul>
+                    <strong>Alternatif</strong>
+                    <ul>{alternatives}</ul>
+                </details>
+                """
+            )
+
+        return mark_safe(
+            f"""
+            <div style="padding:14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:12px;">
+                    <div><strong>Rekomendasi Sistem</strong><br>{escape(recommended_label)}</div>
+                    <div><strong>Distribusi Dipilih</strong><br>{escape(selected_label)}</div>
+                    <div><strong>Confidence</strong><br>{escape(obj.distribution_confidence or "-")}</div>
+                </div>
+                <p><strong>Alasan agregat:</strong> {escape(obj.distribution_reason_detail or obj.distribution_reason_summary or "-")}</p>
+                <p><strong>Keterbatasan:</strong> {escape(obj.distribution_limitations or "-")}</p>
+                <p><strong>Justifikasi user:</strong> {escape(obj.selected_distribution_justification or "-")}</p>
+                <strong>Warning Data Quality</strong>
+                <ul>{warning_items}</ul>
+                <div style="display:grid;gap:10px;margin-top:12px;">{''.join(metric_blocks) or "<p>-</p>"}</div>
+            </div>
+            """
+        )
+
+    distribution_analysis_snapshot_html.short_description = "Analisa Pemilihan Distribusi Tersimpan"
 
     def target_distribution_chart_html(self, obj):
         analysis = self._target_analysis(obj)
@@ -1738,6 +1952,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             n_simulations=obj.n_simulations or 10000,
             scenario_percentile=obj.scenario_percentile,
             distribution_type=obj.distribution_type or "normal",
+            selected_distribution_justification=obj.selected_distribution_justification or "",
         )
 
         result.forecasting_method = obj.forecasting_method or result.forecasting_method
@@ -1745,12 +1960,16 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         result.prediction_interval = obj.prediction_interval or result.prediction_interval
         result.n_simulations = obj.n_simulations or result.n_simulations
         result.distribution_type = obj.distribution_type or result.distribution_type
+        result.selected_distribution = obj.distribution_type or result.selected_distribution
+        result.selected_distribution_justification = obj.selected_distribution_justification or ""
         result.save(update_fields=[
             "forecasting_method",
             "forecast_periods",
             "prediction_interval",
             "n_simulations",
             "distribution_type",
+            "selected_distribution",
+            "selected_distribution_justification",
             "updated_at",
         ])
 
@@ -1774,6 +1993,14 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         obj.metric_snapshot = result.metric_snapshot
         obj.simulation_snapshot = result.simulation_snapshot
         obj.distribution_type = result.distribution_type
+        obj.recommended_distribution = result.recommended_distribution
+        obj.distribution_reason_summary = result.distribution_reason_summary
+        obj.distribution_reason_detail = result.distribution_reason_detail
+        obj.distribution_limitations = result.distribution_limitations
+        obj.distribution_confidence = result.distribution_confidence
+        obj.distribution_data_quality_warnings = result.distribution_data_quality_warnings
+        obj.selected_distribution = result.selected_distribution
+        obj.selected_distribution_justification = result.selected_distribution_justification
         obj.pk = result.pk
         obj._state.adding = False
 

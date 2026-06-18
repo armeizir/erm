@@ -4,12 +4,11 @@ import unicodedata
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
+from django.core.management.utils import get_random_secret_key
 from django.db import transaction
 
 from risk.models import PenugasanUnitBisnis, ReAssessmentItem, ReAssessmentSummary
 
-
-DEFAULT_PASSWORD = "PLNb4t4m"
 
 USERNAME_ALIASES = {
     "ARMEIZIR NURGUMALA": "armeizir",
@@ -138,7 +137,28 @@ def permissions_for_profile_change():
     return permissions
 
 
-def get_or_create_user(name, role_label=None, jabatan=None):
+def _apply_seed_password(user, *, created, use_ldap, temporary_password=None, force_reset=False):
+    if use_ldap:
+        if created or force_reset or user.has_usable_password():
+            user.set_unusable_password()
+        return
+
+    if not (created or force_reset):
+        return
+
+    password = temporary_password or get_random_secret_key()
+    user.set_password(password)
+
+
+def get_or_create_user(
+    name,
+    role_label=None,
+    jabatan=None,
+    *,
+    use_ldap=True,
+    temporary_password=None,
+    force_reset=False,
+):
     User = get_user_model()
     normalized = normalize_name(name)
     user = None
@@ -159,7 +179,6 @@ def get_or_create_user(name, role_label=None, jabatan=None):
         first_name, last_name = split_name(name)
         user = User.objects.create_user(
             username=username,
-            password=DEFAULT_PASSWORD,
             first_name=first_name,
             last_name=last_name,
             email="",
@@ -172,8 +191,15 @@ def get_or_create_user(name, role_label=None, jabatan=None):
             user.first_name, user.last_name = split_name(name)
         user.is_staff = True
         user.is_superuser = False
-        user.set_password(DEFAULT_PASSWORD)
-        user.save()
+
+    _apply_seed_password(
+        user,
+        created=created,
+        use_ldap=use_ldap,
+        temporary_password=temporary_password,
+        force_reset=force_reset,
+    )
+    user.save()
 
     user.user_permissions.set(permissions_for_profile_access())
 
@@ -232,12 +258,19 @@ def upsert_assignment(user, unit_name, role):
     return assignment, created
 
 
-def run():
+def run(*, use_ldap=True, temporary_password=None, force_reset=False, stdout=None):
     created_users = 0
     created_assignments = 0
     with transaction.atomic():
         for unit_name, pairing_name in PAIRING_BY_UNIT.items():
-            user, created = get_or_create_user(pairing_name, "Pairing Officer", None)
+            user, created = get_or_create_user(
+                pairing_name,
+                "Pairing Officer",
+                None,
+                use_ldap=use_ldap,
+                temporary_password=temporary_password,
+                force_reset=force_reset,
+            )
             created_users += int(created)
             _, assignment_created = upsert_assignment(
                 user,
@@ -247,20 +280,28 @@ def run():
             created_assignments += int(assignment_created)
 
         for unit_name, role_label, jabatan, name in PEOPLE:
-            user, created = get_or_create_user(name, role_label, jabatan)
+            user, created = get_or_create_user(
+                name,
+                role_label,
+                jabatan,
+                use_ldap=use_ldap,
+                temporary_password=temporary_password,
+                force_reset=force_reset,
+            )
             created_users += int(created)
             _, assignment_created = upsert_assignment(user, unit_name, ROLE_MAP[role_label])
             created_assignments += int(assignment_created)
 
         deactivate_obsolete_mukhlis_user()
 
-    print(f"Created users: {created_users}")
-    print(f"Created assignments: {created_assignments}")
-    print(f"Default password for newly created users: {DEFAULT_PASSWORD}")
-    print("Summary by unit:")
+    output = stdout.write if stdout is not None else print
+    output(f"Created users: {created_users}")
+    output(f"Created assignments: {created_assignments}")
+    output("Seed completed without printing passwords.")
+    output("Summary by unit:")
     for unit in Group.objects.filter(name__in=PAIRING_BY_UNIT).order_by("name"):
         assignments = PenugasanUnitBisnis.objects.filter(unit_bisnis=unit, aktif=True)
-        print(f"- {unit.name}: {assignments.count()} active assignments")
+        output(f"- {unit.name}: {assignments.count()} active assignments")
 
 
 if __name__ == "__main__":

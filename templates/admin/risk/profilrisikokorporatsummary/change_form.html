@@ -1,0 +1,314 @@
+{% extends "admin/change_form.html" %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .mc-panel {
+    margin: 24px 0;
+    border: 1px solid var(--hairline-color);
+    border-radius: 8px;
+    background: var(--body-bg);
+    overflow: hidden;
+  }
+  .mc-panel__header {
+    padding: 18px 20px;
+    background: #0f5c6c;
+    color: #fff;
+  }
+  .mc-panel__header h2 {
+    margin: 0 0 4px;
+    color: #fff;
+    font-size: 20px;
+  }
+  .mc-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--hairline-color);
+    background: var(--darkened-bg);
+  }
+  .mc-tabs a {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--body-bg);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .mc-section {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--hairline-color);
+  }
+  .mc-section:last-child {
+    border-bottom: 0;
+  }
+  .mc-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .mc-card {
+    border: 1px solid var(--hairline-color);
+    border-radius: 8px;
+    padding: 14px;
+    background: var(--body-bg);
+  }
+  .mc-card h3 {
+    margin-top: 0;
+  }
+  .mc-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .mc-table th,
+  .mc-table td {
+    padding: 8px;
+    border-bottom: 1px solid var(--hairline-color);
+    vertical-align: top;
+  }
+  .mc-table th {
+    text-align: left;
+    background: var(--darkened-bg);
+  }
+  .mc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: end;
+  }
+  .mc-actions label {
+    display: grid;
+    gap: 4px;
+    min-width: 160px;
+  }
+  .mc-actions input,
+  .mc-actions select {
+    min-height: 32px;
+  }
+  .mc-muted {
+    color: var(--body-quiet-color);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+{{ block.super }}
+
+{% if original and monte_carlo_panel %}
+<section id="monte-carlo-korporat" class="mc-panel">
+  <div class="mc-panel__header">
+    <h2>Monte Carlo Korporat</h2>
+    <div>Risk metrics, histori bulanan, upload Excel, hasil simulasi, dan AI insight untuk {{ original }}</div>
+  </div>
+
+  <nav class="mc-tabs" aria-label="Monte Carlo Korporat">
+    <a href="#mc-risk-metrics">Risk Metrics</a>
+    <a href="#mc-input-histori">Input Histori</a>
+    <a href="#mc-upload-excel">Upload Excel</a>
+    <a href="#mc-hasil-simulasi">Hasil Simulasi</a>
+    <a href="#mc-ai-insight">AI Insight</a>
+  </nav>
+
+  <div id="mc-risk-metrics" class="mc-section">
+    <h2>Risk Metrics</h2>
+    <table class="mc-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Item Risiko</th>
+          <th>Unit</th>
+          <th>Bobot</th>
+          <th>Target Utama</th>
+          <th>Status Histori</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for metric in monte_carlo_panel.metrics %}
+        <tr>
+          <td>{{ metric.name }}</td>
+          <td><span title="{{ metric.corporate_risk_item.get_display_label }}"> {{ metric.corporate_risk_item.short_label }}</span></td>
+          <td>{{ metric.unit|default:"-" }}</td>
+          <td>{{ metric.weight }}</td>
+          <td>{% if metric.is_target_metric %}Ya{% else %}Tidak{% endif %}</td>
+          <td>
+            {% with count=metric.metric_histories.all|length %}
+              {{ count }} data
+              {% if count < 6 %}<span class="mc-muted">- perlu dilengkapi</span>{% endif %}
+            {% endwith %}
+          </td>
+          <td><a class="button" href="#metric-{{ metric.pk }}">Input Histori</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7">Belum ada Risk Metric untuk profil ini.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div id="mc-input-histori" class="mc-section">
+    <h2>Input Histori</h2>
+    <div class="mc-grid">
+      {% for metric in monte_carlo_panel.metrics %}
+      <article id="metric-{{ metric.pk }}" class="mc-card">
+        <h3>{{ metric.name }}</h3>
+        <p class="mc-muted" title="{{ metric.corporate_risk_item.get_display_label }}">{{ metric.corporate_risk_item.short_label }} | {{ metric.corporate_risk_item.summary }}</p>
+
+        <table class="mc-table">
+          <thead>
+            <tr>
+              <th>Periode</th>
+              <th>Tanggal Data</th>
+              <th>Nilai Aktual</th>
+              <th>Target</th>
+              <th>Keterangan</th>
+              {% if monte_carlo_panel.can_manage_history %}<th>Aksi</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for history in metric.metric_histories.all %}
+            <tr>
+              <form method="post" action="{{ monte_carlo_panel.save_url }}">
+                {% csrf_token %}
+                <input type="hidden" name="metric_id" value="{{ metric.pk }}">
+                <input type="hidden" name="history_id" value="{{ history.pk }}">
+                <td>
+                  <select name="periode" {% if not monte_carlo_panel.can_manage_history %}disabled{% endif %}>
+                    {% for period in monte_carlo_panel.periods %}
+                    <option value="{{ period.pk }}" {% if period.pk == history.periode_id %}selected{% endif %}>{{ period }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td><input type="date" name="tanggal_data" value="{{ history.tanggal_data|date:'Y-m-d' }}" {% if not monte_carlo_panel.can_manage_history %}readonly{% endif %}></td>
+                <td><input type="number" step="0.0001" name="metric_value" value="{{ history.metric_value }}" {% if not monte_carlo_panel.can_manage_history %}readonly{% endif %}></td>
+                <td><input type="number" step="0.0001" name="target_value" value="{{ history.target_value|default_if_none:'' }}" {% if not monte_carlo_panel.can_manage_history %}readonly{% endif %}></td>
+                <td><input type="text" name="keterangan" value="{{ history.keterangan }}" {% if not monte_carlo_panel.can_manage_history %}readonly{% endif %}></td>
+                {% if monte_carlo_panel.can_manage_history %}
+                <td class="mc-actions">
+                  <button type="submit" class="button">Simpan</button>
+                  <button type="submit" class="button" name="delete" value="1">Hapus</button>
+                </td>
+                {% endif %}
+              </form>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6">Belum ada histori untuk metric ini.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {% if monte_carlo_panel.can_manage_history %}
+        <form method="post" action="{{ monte_carlo_panel.save_url }}" class="mc-actions">
+          {% csrf_token %}
+          <input type="hidden" name="metric_id" value="{{ metric.pk }}">
+          <label>Periode
+            <select name="periode" required>
+              <option value="">Pilih periode</option>
+              {% for period in monte_carlo_panel.periods %}
+              <option value="{{ period.pk }}">{{ period }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Tanggal Data
+            <input type="date" name="tanggal_data" required>
+          </label>
+          <label>Nilai Aktual
+            <input type="number" step="0.0001" name="metric_value" required>
+          </label>
+          <label>Target
+            <input type="number" step="0.0001" name="target_value">
+          </label>
+          <label>Keterangan
+            <input type="text" name="keterangan">
+          </label>
+          <button type="submit" class="button default">Tambah/Simpan</button>
+        </form>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div id="mc-upload-excel" class="mc-section">
+    <h2>Upload Excel</h2>
+    {% if monte_carlo_panel.can_manage_history %}
+    <form method="post" action="{{ monte_carlo_panel.upload_url }}" enctype="multipart/form-data" class="mc-actions">
+      {% csrf_token %}
+      <label>Risk Metric
+        <select name="metric_id" required>
+          <option value="">Pilih metric</option>
+          {% for metric in monte_carlo_panel.metrics %}
+          <option value="{{ metric.pk }}">{{ metric.name }} - {{ metric.corporate_risk_item.short_label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>File Excel (.xlsx)
+        <input type="file" name="excel_file" accept=".xlsx" required>
+      </label>
+      <button type="submit" class="button default">Upload</button>
+      <a class="button" href="{{ monte_carlo_panel.template_url }}">Download Template</a>
+    </form>
+    {% else %}
+    <p class="mc-muted">Anda tidak memiliki permission untuk mengubah histori metric.</p>
+    {% endif %}
+  </div>
+
+  <div id="mc-hasil-simulasi" class="mc-section">
+    <h2>Hasil Simulasi</h2>
+    <table class="mc-table">
+      <thead>
+        <tr>
+          <th>Item Risiko</th>
+          <th>Periode Forecast</th>
+          <th>Composite Score</th>
+          <th>Status</th>
+          <th>Dibuat</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for result in monte_carlo_panel.results %}
+        <tr>
+          <td><span title="{{ result.corporate_risk_item.get_display_label }}">{{ result.corporate_risk_item.short_label }}</span></td>
+          <td>{{ result.forecast_periode }}</td>
+          <td>{{ result.composite_score }}</td>
+          <td>{{ result.risk_status|default:result.status_hasil }}</td>
+          <td>{{ result.created_at }}</td>
+          <td><a class="button" href="{% url 'risk_admin:corporate_risk_multimetricmontecarloresult_change' result.pk %}">Lihat</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6">Belum ada hasil simulasi untuk profil ini.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div id="mc-ai-insight" class="mc-section">
+    <h2>AI Insight</h2>
+    <table class="mc-table">
+      <thead>
+        <tr>
+          <th>Item Risiko</th>
+          <th>Executive Summary</th>
+          <th>Dibuat</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for insight in monte_carlo_panel.insights %}
+        <tr>
+          <td><span title="{{ insight.multi_metric_result.corporate_risk_item.get_display_label }}">{{ insight.multi_metric_result.corporate_risk_item.short_label }}</span></td>
+          <td>{{ insight.executive_summary|truncatechars:180 }}</td>
+          <td>{{ insight.created_at }}</td>
+          <td><a class="button" href="{% url 'risk_admin:corporate_risk_multimetricaiinsightkorporat_change' insight.pk %}">Lihat</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4">Belum ada AI insight untuk profil ini.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

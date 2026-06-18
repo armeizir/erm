@@ -5,9 +5,11 @@ from io import BytesIO
 import json
 from statistics import mean, median, pstdev
 
+from django.contrib.auth.decorators import login_required, permission_required
+from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
@@ -15,6 +17,12 @@ from monthly_report.models import MonthlyRiskReport
 from corporate_risk.models import MonteCarloMetricHistory, MultiMetricMonteCarloResult, RiskMetric
 
 from .services.kpmr_automation import kpmr_dashboard_rows, kpmr_dashboard_summary
+from .services.permissions import (
+    can_export_rcc,
+    can_view_kpmr_summary,
+    get_accessible_corporate_risk_items,
+    get_accessible_kpmr_items,
+)
 from .models import (
     ItemKontrakManajemen,
     KPMRItem,
@@ -212,7 +220,7 @@ def _get_filtered_items(request):
     if mode not in dict(MODE_CHOICES):
         mode = "inheren"
 
-    items = ProfilRisikoKorporatItem.objects.all().select_related(
+    items = get_accessible_corporate_risk_items(request.user).select_related(
         "summary", "kategori_risiko", "taksonomi_t3", "bumn", "sasaran_kbumn",
         "matrix_cell_inheren__level_risiko", "matrix_cell_residual__level_risiko"
     )
@@ -995,6 +1003,8 @@ def _export_workbook(context, params):
     return output.getvalue()
 
 
+@login_required
+@permission_required("risk.view_profilrisikokorporatitem", raise_exception=True)
 def dashboard(request):
     items, selected_summary, mode = _get_filtered_items(request)
     context = _risk_matrix_context(items, mode=mode, selected_summary=selected_summary)
@@ -1048,7 +1058,11 @@ def dashboard(request):
     return render(request, "dashboard.html", context)
 
 
+@login_required
+@permission_required("risk.view_profilrisikokorporatitem", raise_exception=True)
 def export_rcc_excel(request):
+    if not can_export_rcc(request.user):
+        raise PermissionDenied
     items, selected_summary, mode = _get_filtered_items(request)
     context = _risk_matrix_context(items, mode=mode, selected_summary=selected_summary)
     file_bytes = _export_workbook(context, request.GET)
@@ -1061,10 +1075,15 @@ def export_rcc_excel(request):
     return response
 
 
+@login_required
+@permission_required("risk.view_kpmrsummary", raise_exception=True)
+@permission_required("risk.view_kpmritem", raise_exception=True)
 def kpmr_review_view(request, summary_id):
     summary = get_object_or_404(KPMRSummary, pk=summary_id)
+    if not can_view_kpmr_summary(request.user, summary):
+        raise PermissionDenied
 
-    items = summary.item.select_related(
+    items = get_accessible_kpmr_items(request.user).filter(summary=summary).select_related(
         "reassessment_item",
         "reassessment_item__km_item"
     ).order_by("no_item")
@@ -1077,34 +1096,59 @@ def kpmr_review_view(request, summary_id):
     return render(request, "risk/kpmr_review.html", context)
 
 
-@csrf_exempt
+@login_required
+@permission_required("risk.change_kpmritem", raise_exception=True)
+@require_POST
 def kpmr_update_item(request):
-    if request.method == "POST":
-        data = json.loads(request.body)
+    try:
+        if request.content_type == "application/json":
+            data = json.loads(request.body or "{}")
+        else:
+            data = request.POST
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Payload JSON tidak valid."}, status=400)
 
-        item_id = data.get("id")
-        field = data.get("field")
-        value = data.get("value")
+    item_id = data.get("id") or data.get("item_id")
+    field = data.get("field")
+    value = data.get("value")
 
-        try:
-            item = KPMRItem.objects.get(id=item_id)
+    if not item_id:
+        return JsonResponse({"ok": False, "error": "Item KPMR wajib diisi."}, status=400)
 
-            if field == "perlakuan_risiko":
-                item.perlakuan_risiko = value
-            elif field == "bukti":
-                item.bukti = value
-            elif field == "nilai_kpmr":
-                item.nilai_kpmr = int(value) if value else None
-            elif field == "status_kpmr":
-                item.status_kpmr = value
-            elif field == "catatan":
-                item.catatan = value
+    item = get_object_or_404(get_accessible_kpmr_items(request.user), pk=item_id)
 
-            item.save()
+    allowed_fields = {
+        "perlakuan_risiko",
+        "bukti",
+        "nilai_kpmr",
+        "status_kpmr",
+        "catatan",
+    }
+    if field not in allowed_fields:
+        return JsonResponse({"ok": False, "error": "Field tidak diizinkan."}, status=400)
 
-            return JsonResponse({"status": "success"})
+    try:
+        if field == "nilai_kpmr":
+            if value in (None, ""):
+                clean_value = None
+            else:
+                clean_value = int(value)
+                if clean_value < 0 or clean_value > 100:
+                    return JsonResponse(
+                        {"ok": False, "error": "Nilai KPMR harus berada pada rentang 0 sampai 100."},
+                        status=400,
+                    )
+        elif field == "status_kpmr":
+            valid_statuses = {choice[0] for choice in KPMRItem.STATUS_CHOICES}
+            if value not in valid_statuses:
+                return JsonResponse({"ok": False, "error": "Status KPMR tidak valid."}, status=400)
+            clean_value = value
+        else:
+            clean_value = "" if value is None else str(value)
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "Nilai input tidak valid."}, status=400)
 
-        except Exception as e:
-            return JsonResponse({"status": "error", "message": str(e)})
+    setattr(item, field, clean_value)
+    item.save(update_fields=[field])
 
-    return JsonResponse({"status": "invalid"})
+    return JsonResponse({"ok": True, "status": "success"})

@@ -84,8 +84,6 @@ class RiskAdminSite(AdminSite):
             for model in app.get("models", [])
             if model.get("admin_url")
         }
-        if self._can_access_metric_history_input(request):
-            allowed_urls.add(self.metric_history_input_url)
         return allowed_urls
 
     def _can_access_metric_history_input(self, request):
@@ -174,7 +172,6 @@ class RiskAdminSite(AdminSite):
                     {
                         "title": "Monte Carlo Korporat",
                         "items": [
-                            item("Input Histori / Upload Excel", self.metric_history_input_url),
                             item("Risk Metrics", "/admin/corporate_risk/riskmetric/"),
                             item("Metric History", "/admin/corporate_risk/montecarlometrichistory/"),
                             item("Multi Metric Monte Carlo Results", "/admin/corporate_risk/multimetricmontecarloresult/"),
@@ -424,7 +421,6 @@ class RiskAdminSite(AdminSite):
                 "color": "montecarlo",
                 "count": stats["monte_carlo"],
                 "items": [
-                    {"label": "Input Histori / Upload Excel", "url": self.metric_history_input_url},
                     {"label": "Risk Metrics", "url": "/admin/corporate_risk/riskmetric/"},
                     {"label": "Metric History", "url": "/admin/corporate_risk/montecarlometrichistory/"},
                     {"label": "Multi Metric Monte Carlo Results", "url": "/admin/corporate_risk/multimetricmontecarloresult/"},

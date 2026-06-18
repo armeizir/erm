@@ -21,6 +21,7 @@ from .models import (
     MultiMetricMonteCarloResult,
     MultiMetricAIInsightKorporat,
 )
+from .distribution_analysis import analyze_distribution_recommendation
 from risk.models import AppSetting
 
 logger = logging.getLogger(__name__)
@@ -303,17 +304,18 @@ def recommend_monte_carlo_distribution(values):
         max_value = max(sample)
         avg_value = mean(sample)
         std_value = _stdev(sample)
+        value_skew = _skewness(values) if len(values) >= 3 else 0
         bounded_range = max_value - min_value
         cv = abs(std_value / avg_value) if avg_value else 0
         all_positive_values = all(value > 0 for value in values)
 
         if len(sample) < 5:
             recommended = "triangular"
-        elif all_positive_values and skew > 1.0:
+        elif all_positive_values and (skew > 1.0 or value_skew > 1.0):
             recommended = "lognormal"
         elif min_value >= 0 and max_value <= 1:
             recommended = "beta"
-        elif all_positive_values and skew > 0.6 and cv > 0.5:
+        elif all_positive_values and (skew > 0.6 or value_skew > 0.6) and cv > 0.5:
             recommended = "gamma"
         elif abs(skew) <= 0.5:
             recommended = "normal"
@@ -324,13 +326,16 @@ def recommend_monte_carlo_distribution(values):
         else:
             recommended = "empirical"
 
+    analysis = analyze_distribution_recommendation(None, values, recommended)
     candidates = []
     for value, label in MonteCarloKorporatConfig.DISTRIBUTION_CHOICES:
+        candidate_analysis = analyze_distribution_recommendation(None, values, value)
         candidates.append({
             "value": value,
             "label": label,
             "recommended": value == recommended,
-            "reason": _distribution_reason(value, values, rates),
+            "reason": candidate_analysis.get("reason_summary") or _distribution_reason(value, values, rates),
+            "limitation": candidate_analysis.get("limitations", ""),
         })
 
     return {
@@ -345,6 +350,13 @@ def recommend_monte_carlo_distribution(values):
         "growth_median": median(rates) if rates else None,
         "growth_skewness": _skewness(rates) if len(rates) >= 3 else None,
         "candidates": candidates,
+        "reason_summary": analysis["reason_summary"],
+        "reason_detail": analysis["reason_detail"],
+        "limitations": analysis["limitations"],
+        "confidence": analysis["confidence"],
+        "data_quality_warnings": analysis["data_quality_warnings"],
+        "alternative_distributions": analysis["alternative_distributions"],
+        "analysis": analysis,
     }
 
 
@@ -749,6 +761,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     n_simulations=10000,
     scenario_percentile=80,
     distribution_type="normal",
+    selected_distribution_justification="",
 ):
     metrics = list(
         RiskMetric.objects.filter(
@@ -783,6 +796,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             )
 
         values = [_safe_float(h.metric_value) for h in histories]
+        distribution_recommendation = recommend_monte_carlo_distribution(values)
         last_actual = values[-1]
         history_target = _latest_target_from_histories(histories)
         metric_target = metric.effective_target_value
@@ -811,7 +825,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             months_ahead=months_ahead,
             n_simulations=n_simulations,
             actual_total=actual_ytd_total,
-            distribution_type="normal",
+            distribution_type=distribution_type,
             sma_window=3,
         )
 
@@ -900,6 +914,19 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 else None
             ),
             "last_actual": last_actual,
+            "distribution_recommendation": {
+                "recommended": distribution_recommendation.get("recommended"),
+                "recommended_label": distribution_recommendation.get("recommended_label"),
+                "history_count": distribution_recommendation.get("history_count"),
+                "growth_mean": distribution_recommendation.get("growth_mean"),
+                "growth_std": distribution_recommendation.get("growth_std"),
+                "reason_summary": distribution_recommendation.get("reason_summary"),
+                "reason_detail": distribution_recommendation.get("reason_detail"),
+                "limitations": distribution_recommendation.get("limitations"),
+                "confidence": distribution_recommendation.get("confidence"),
+                "data_quality_warnings": distribution_recommendation.get("data_quality_warnings", []),
+                "alternative_distributions": distribution_recommendation.get("alternative_distributions", []),
+            },
 
             "history_rows": [
                 {
@@ -963,7 +990,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                     months_ahead=months_ahead,
                     n_simulations=n_simulations,
                     actual_total=metric_row.get("actual_total"),
-                    distribution_type="normal",
+                    distribution_type=distribution_type,
                     sma_window=3,
                 )
                 target_analysis = _build_target_analysis(
@@ -975,6 +1002,71 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                     risk_appetite_value=metric_row.get("risk_appetite_value"),
                 )
                 break
+
+    distribution_counts = {}
+    confidence_rank = {"Low": 1, "Medium": 2, "High": 3}
+    aggregate_warnings = [
+        "Simulasi multi metric saat ini memakai satu model distribusi global untuk beberapa metric. Rekomendasi agregat adalah kompromi; karakter tiap metric tetap perlu ditinjau."
+    ]
+    metric_distribution_analyses = []
+    for metric_row in metric_results:
+        recommendation = metric_row.get("distribution_recommendation", {})
+        recommended = recommendation.get("recommended") or "empirical"
+        distribution_counts[recommended] = distribution_counts.get(recommended, 0) + 1
+        aggregate_warnings.extend(recommendation.get("data_quality_warnings") or [])
+        metric_distribution_analyses.append({
+            "metric_id": metric_row.get("metric_id"),
+            "metric_name": metric_row.get("metric_name"),
+            "recommended_distribution": recommended,
+            "recommended_label": recommendation.get("recommended_label"),
+            "data_count": recommendation.get("history_count"),
+            "mean_growth": recommendation.get("growth_mean"),
+            "std_growth": recommendation.get("growth_std"),
+            "reason_summary": recommendation.get("reason_summary"),
+            "reason_detail": recommendation.get("reason_detail"),
+            "limitations": recommendation.get("limitations"),
+            "confidence": recommendation.get("confidence"),
+            "warnings": recommendation.get("data_quality_warnings") or [],
+            "alternative_distributions": recommendation.get("alternative_distributions") or [],
+        })
+
+    recommended_distribution = "empirical"
+    if distribution_counts:
+        recommended_distribution = sorted(
+            distribution_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        )[0][0]
+    selected_recommendations = [
+        row for row in metric_distribution_analyses
+        if row.get("recommended_distribution") == recommended_distribution
+    ]
+    aggregate_confidence = "Low"
+    if selected_recommendations:
+        lowest_rank = min(
+            confidence_rank.get(row.get("confidence") or "Low", 1)
+            for row in selected_recommendations
+        )
+        aggregate_confidence = next(
+            label for label, rank in confidence_rank.items()
+            if rank == lowest_rank
+        )
+    aggregate_profile = recommend_monte_carlo_distribution([
+        row.get("last_actual") for row in metric_results
+    ])
+    aggregate_reason_summary = (
+        f"Mayoritas metric aktif merekomendasikan {_distribution_label(recommended_distribution)} "
+        f"({distribution_counts.get(recommended_distribution, 0)} dari {len(metric_results)} metric)."
+    )
+    aggregate_reason_detail = (
+        aggregate_reason_summary
+        + " Pilihan global harus dibaca sebagai kompromi karena setiap metric dapat memiliki karakter distribusi berbeda. "
+        + (aggregate_profile.get("reason_detail") or "")
+    )
+    aggregate_limitations = (
+        "Satu distribusi global dapat kurang akurat bila metric memiliki bentuk data berbeda. "
+        "Untuk presisi lebih tinggi, distribusi per metric perlu diimplementasikan pada fase refactor berikutnya."
+    )
+    aggregate_warnings = list(dict.fromkeys(warning for warning in aggregate_warnings if warning))
 
     composite_score = sum([
         row["mean_score"] * row["weight_ratio"]
@@ -1140,14 +1232,37 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "requires_mitigation": bool(target_analysis.get("requires_mitigation", False)),
             "status_hasil": status_hasil,
             "distribution_type": distribution_type,
+            "recommended_distribution": recommended_distribution,
+            "distribution_reason_summary": aggregate_reason_summary,
+            "distribution_reason_detail": aggregate_reason_detail,
+            "distribution_limitations": aggregate_limitations,
+            "distribution_confidence": aggregate_confidence,
+            "distribution_data_quality_warnings": aggregate_warnings,
+            "selected_distribution": distribution_type,
+            "selected_distribution_justification": selected_distribution_justification or "",
             "metric_snapshot": {
                 "metrics": metric_results,
+                "distribution_analyses": metric_distribution_analyses,
             },
             "simulation_snapshot": {
                 "months_ahead": months_ahead,
                 "n_simulations": n_simulations,
                 "scenario_percentile": scenario_percentile,
                 "distribution_type": distribution_type,
+                "recommended_distribution": recommended_distribution,
+                "distribution_analysis": {
+                    "recommended_distribution": recommended_distribution,
+                    "recommended_label": _distribution_label(recommended_distribution),
+                    "selected_distribution": distribution_type,
+                    "selected_distribution_label": _distribution_label(distribution_type),
+                    "reason_summary": aggregate_reason_summary,
+                    "reason_detail": aggregate_reason_detail,
+                    "limitations": aggregate_limitations,
+                    "confidence": aggregate_confidence,
+                    "warnings": aggregate_warnings,
+                    "metric_analyses": metric_distribution_analyses,
+                    "selected_distribution_justification": selected_distribution_justification or "",
+                },
                 "composite_score": composite_score,
                 "p80_score": p80_score,
                 "scenario_score": scenario_score,

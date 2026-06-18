@@ -17,7 +17,7 @@ from .models import RiskMetric, MonteCarloMetricHistory
 from masterdata.models import PeriodeLaporan
 
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required, permission_required
 
 
 def _can_manage_metric_history(user):
@@ -197,6 +197,8 @@ def _metric_statistics(values):
         "volatility": volatility,
     }
 
+@login_required
+@permission_required("corporate_risk.view_montecarlokorporatresult", raise_exception=True)
 def monte_carlo_result_chart(request, pk):
     result = get_object_or_404(MonteCarloKorporatResult, pk=pk)
 
@@ -215,6 +217,14 @@ def monte_carlo_result_chart(request, pk):
 def bulk_metric_input(request, metric_id):
     _require_metric_history_permission(request)
     metric = get_object_or_404(RiskMetric, id=metric_id)
+    messages.info(
+        request,
+        "Input histori metric sekarang tersedia di panel Monte Carlo halaman Profil Risiko Korporat.",
+    )
+    return redirect(
+        f"{reverse('risk_admin:risk_profilrisikokorporatsummary_change', args=[metric.corporate_risk_item.summary_id])}"
+        f"#metric-{metric.pk}"
+    )
 
     HistoryFormSet = modelformset_factory(
         MonteCarloMetricHistory,
@@ -316,22 +326,8 @@ def bulk_metric_input(request, metric_id):
 @staff_member_required
 def metric_history_input_menu(request):
     _require_metric_history_permission(request)
-    metrics = (
-        RiskMetric.objects
-        .select_related("corporate_risk_item")
-        .order_by("corporate_risk_item__summary__tahun", "corporate_risk_item__no_item", "name")
-    )
-
-    rows = []
-    for metric in metrics:
-        rows.append({
-            "metric": metric,
-            "history_count": MonteCarloMetricHistory.objects.filter(metric=metric).count(),
-            "input_url": reverse("bulk_metric_input", args=[metric.pk]),
-        })
-
-    return render(
+    messages.info(
         request,
-        "corporate_risk/metric_history_input_menu.html",
-        {"rows": rows},
+        "Input Histori / Upload Excel sekarang tersedia di halaman Profil Risiko Korporat.",
     )
+    return redirect("risk_admin:risk_profilrisikokorporatsummary_changelist")

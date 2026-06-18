@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseNotAllowed
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import Image, SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -18,10 +18,20 @@ from reportlab.lib.styles import ParagraphStyle
 from masterdata.models import MasterBUMN, TahunBuku, PeriodeLaporan
 
 from django.contrib.auth import get_user_model
-from django.db import models
+from django.db import models, transaction
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
+
+from openpyxl import Workbook, load_workbook
+
+from corporate_risk.models import (
+    MonteCarloMetricHistory,
+    MultiMetricAIInsightKorporat,
+    MultiMetricMonteCarloResult,
+    RiskMetric,
+)
 
 from .models import (
     AppSetting,
@@ -2511,6 +2521,7 @@ class ProfilRisikoKorporatItemInline(admin.TabularInline):
 
 @admin.register(ProfilRisikoKorporatSummary)
 class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
+    change_form_template = "admin/risk/profilrisikokorporatsummary/change_form.html"
     list_display = (
         "judul",
         "tahun",
@@ -2518,6 +2529,7 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
         "kode_perusahaan",
         "status",
         "dibuat_pada",
+        "metric_history_shortcut",
         "pdf_button",
     )
     list_filter = ("tahun", "status")
@@ -2544,6 +2556,21 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
+                "<int:summary_id>/metric-history/save/",
+                self.admin_site.admin_view(self.metric_history_save_view),
+                name="risk_profilrisikokorporatsummary_metric_history_save",
+            ),
+            path(
+                "<int:summary_id>/metric-history/upload/",
+                self.admin_site.admin_view(self.metric_history_upload_view),
+                name="risk_profilrisikokorporatsummary_metric_history_upload",
+            ),
+            path(
+                "<int:summary_id>/metric-history/template/",
+                self.admin_site.admin_view(self.metric_history_template_view),
+                name="risk_profilrisikokorporatsummary_metric_history_template",
+            ),
+            path(
                 "<int:summary_id>/pdf/",
                 self.admin_site.admin_view(self.pdf_view),
                 name="risk_profilrisikokorporatsummary_pdf",
@@ -2551,13 +2578,326 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
         ]
         return custom_urls + urls
 
+    def _can_view_metric_panel(self, request, summary):
+        if request.user.is_superuser:
+            return True
+        return (
+            self.has_view_permission(request, summary)
+            and request.user.has_perm("corporate_risk.view_riskmetric")
+        )
+
+    def _can_manage_metric_history(self, request, summary):
+        if request.user.is_superuser:
+            return True
+        return (
+            self.has_change_permission(request, summary)
+            and (
+                request.user.has_perm("corporate_risk.add_montecarlometrichistory")
+                or request.user.has_perm("corporate_risk.change_montecarlometrichistory")
+            )
+        )
+
+    def _metric_queryset(self, summary):
+        return (
+            RiskMetric.objects.filter(corporate_risk_item__summary=summary)
+            .select_related("corporate_risk_item", "rkap_item")
+            .prefetch_related("metric_histories__periode")
+            .order_by("corporate_risk_item__no_item", "name")
+        )
+
+    def _metric_history_redirect(self, summary_id):
+        return redirect(
+            f"{reverse(f'{self.admin_site.name}:risk_profilrisikokorporatsummary_change', args=[summary_id])}"
+            "#monte-carlo-korporat"
+        )
+
+    def _get_scoped_metric(self, request, summary, metric_id, require_manage=False):
+        if require_manage and not self._can_manage_metric_history(request, summary):
+            raise PermissionDenied
+        if not require_manage and not self._can_view_metric_panel(request, summary):
+            raise PermissionDenied
+        return get_object_or_404(self._metric_queryset(summary), pk=metric_id)
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        if obj and self._can_view_metric_panel(request, obj):
+            metrics = list(self._metric_queryset(obj))
+            metric_ids = [metric.pk for metric in metrics]
+            context["monte_carlo_panel"] = {
+                "summary": obj,
+                "metrics": metrics,
+                "periods": PeriodeLaporan.objects.all().order_by("tanggal_mulai", "kode_periode"),
+                "can_manage_history": self._can_manage_metric_history(request, obj),
+                "save_url": reverse(
+                    f"{self.admin_site.name}:risk_profilrisikokorporatsummary_metric_history_save",
+                    args=[obj.pk],
+                ),
+                "upload_url": reverse(
+                    f"{self.admin_site.name}:risk_profilrisikokorporatsummary_metric_history_upload",
+                    args=[obj.pk],
+                ),
+                "template_url": reverse(
+                    f"{self.admin_site.name}:risk_profilrisikokorporatsummary_metric_history_template",
+                    args=[obj.pk],
+                ),
+                "results": MultiMetricMonteCarloResult.objects.filter(
+                    corporate_risk_item__summary=obj
+                ).select_related("corporate_risk_item", "forecast_periode").order_by(
+                    "corporate_risk_item__no_item", "-created_at"
+                ),
+                "insights": MultiMetricAIInsightKorporat.objects.filter(
+                    multi_metric_result__corporate_risk_item__summary=obj
+                ).select_related("multi_metric_result", "multi_metric_result__corporate_risk_item"),
+                "history_count": MonteCarloMetricHistory.objects.filter(metric_id__in=metric_ids).count(),
+            }
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
+    def metric_history_shortcut(self, obj):
+        url = reverse(
+            f"{self.admin_site.name}:risk_profilrisikokorporatsummary_change",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}#monte-carlo-korporat">Input Histori</a>', url)
+    metric_history_shortcut.short_description = "Monte Carlo"
+
     def pdf_button(self, obj):
-        url = reverse("admin:risk_profilrisikokorporatsummary_pdf", args=[obj.pk])
+        url = reverse(f"{self.admin_site.name}:risk_profilrisikokorporatsummary_pdf", args=[obj.pk])
         return format_html(
             '<a class="button" href="{}" target="_blank">PDF</a>',
             url,
         )
     pdf_button.short_description = "PDF"
+
+    def metric_history_save_view(self, request, summary_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        summary = get_object_or_404(ProfilRisikoKorporatSummary, pk=summary_id)
+        metric = self._get_scoped_metric(
+            request,
+            summary,
+            request.POST.get("metric_id"),
+            require_manage=True,
+        )
+
+        history_id = request.POST.get("history_id")
+        periode_id = request.POST.get("periode")
+        tanggal_data = request.POST.get("tanggal_data")
+        metric_value = request.POST.get("metric_value")
+        target_value = request.POST.get("target_value")
+        keterangan = request.POST.get("keterangan", "")
+
+        if not periode_id or not tanggal_data or metric_value in (None, ""):
+            self.message_user(
+                request,
+                "Periode, tanggal data, dan nilai aktual wajib diisi.",
+                level=messages.ERROR,
+            )
+            return self._metric_history_redirect(summary.pk)
+
+        try:
+            defaults = {
+                "tanggal_data": tanggal_data,
+                "metric_value": Decimal(str(metric_value)),
+                "target_value": Decimal(str(target_value)) if target_value not in (None, "") else None,
+                "keterangan": keterangan,
+            }
+        except Exception:
+            self.message_user(request, "Nilai aktual/target harus berupa angka.", level=messages.ERROR)
+            return self._metric_history_redirect(summary.pk)
+
+        with transaction.atomic():
+            if request.POST.get("delete") == "1" and history_id:
+                deleted, _ = MonteCarloMetricHistory.objects.filter(metric=metric, pk=history_id).delete()
+                self.message_user(request, f"{deleted} histori metric dihapus.")
+                return self._metric_history_redirect(summary.pk)
+
+            if history_id:
+                history = get_object_or_404(MonteCarloMetricHistory, metric=metric, pk=history_id)
+                for field, value in defaults.items():
+                    setattr(history, field, value)
+                history.periode_id = periode_id
+                history.save()
+                action = "diperbarui"
+            else:
+                MonteCarloMetricHistory.objects.update_or_create(
+                    metric=metric,
+                    periode_id=periode_id,
+                    defaults=defaults,
+                )
+                action = "disimpan"
+
+        self.message_user(request, f"Histori metric {metric.name} berhasil {action}.")
+        return self._metric_history_redirect(summary.pk)
+
+    def metric_history_upload_view(self, request, summary_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        summary = get_object_or_404(ProfilRisikoKorporatSummary, pk=summary_id)
+        metric = self._get_scoped_metric(
+            request,
+            summary,
+            request.POST.get("metric_id"),
+            require_manage=True,
+        )
+        uploaded_file = request.FILES.get("excel_file")
+
+        if not uploaded_file:
+            self.message_user(request, "Pilih file Excel terlebih dahulu.", level=messages.ERROR)
+            return self._metric_history_redirect(summary.pk)
+        if not uploaded_file.name.lower().endswith(".xlsx"):
+            self.message_user(request, "Upload hanya menerima file .xlsx.", level=messages.ERROR)
+            return self._metric_history_redirect(summary.pk)
+        if uploaded_file.size > 5 * 1024 * 1024:
+            self.message_user(request, "Ukuran file maksimum 5 MB.", level=messages.ERROR)
+            return self._metric_history_redirect(summary.pk)
+
+        try:
+            with transaction.atomic():
+                imported, skipped = self._import_metric_history_excel(metric, uploaded_file)
+            self.message_user(
+                request,
+                f"Upload Excel berhasil. {imported} baris tersimpan, {skipped} baris dilewati.",
+            )
+        except Exception as exc:
+            self.message_user(request, f"Gagal upload Excel: {exc}", level=messages.ERROR)
+        return self._metric_history_redirect(summary.pk)
+
+    def metric_history_template_view(self, request, summary_id):
+        summary = get_object_or_404(ProfilRisikoKorporatSummary, pk=summary_id)
+        if not self._can_view_metric_panel(request, summary):
+            raise PermissionDenied
+
+        workbook = Workbook()
+        ws = workbook.active
+        ws.title = "Metric History"
+        ws.append([
+            "risk_metric",
+            "nomor_item_risiko",
+            "peristiwa_risiko",
+            "profil_risiko_korporat",
+            "periode",
+            "tanggal_data",
+            "nilai_aktual",
+            "target",
+            "keterangan",
+        ])
+        first_metric = self._metric_queryset(summary).first()
+        first_item = first_metric.corporate_risk_item if first_metric else None
+        ws.append([
+            first_metric.name if first_metric else "Nama metric",
+            first_item.no_item if first_item else "11",
+            first_item.get_peristiwa_risiko_text() if first_item else "Contoh peristiwa risiko",
+            str(summary),
+            "2026-01",
+            "2026-01-31",
+            1000,
+            1200,
+            "Contoh data",
+        ])
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="template_metric_history_{summary.pk}.xlsx"'
+        )
+        return response
+
+    def _normalize_header(self, value):
+        return str(value or "").strip().lower().replace(" ", "_")
+
+    def _parse_decimal(self, value):
+        if value in (None, ""):
+            return None
+        return Decimal(str(value).strip().replace(",", ""))
+
+    def _parse_excel_date(self, value):
+        if value in (None, ""):
+            return None
+        if hasattr(value, "date"):
+            return value.date()
+        return value
+
+    def _resolve_period(self, value, tanggal_data=None):
+        if value not in (None, ""):
+            text = str(value).strip()
+            periode = (
+                PeriodeLaporan.objects.filter(kode_periode__iexact=text).first()
+                or PeriodeLaporan.objects.filter(nama_periode__iexact=text).first()
+            )
+            if periode:
+                return periode
+            if text.isdigit():
+                return PeriodeLaporan.objects.filter(pk=int(text)).first()
+        if tanggal_data:
+            return PeriodeLaporan.objects.filter(
+                tanggal_mulai__lte=tanggal_data,
+                tanggal_selesai__gte=tanggal_data,
+            ).first()
+        return None
+
+    def _import_metric_history_excel(self, metric, uploaded_file):
+        workbook = load_workbook(uploaded_file, data_only=True)
+        sheet = workbook.active
+        rows = list(sheet.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError("File Excel kosong.")
+
+        headers = [self._normalize_header(value) for value in rows[0]]
+        aliases = {
+            "periode": {"periode", "period", "bulan", "month", "kode_periode"},
+            "tanggal_data": {"tanggal_data", "tanggal", "date", "tgl_data"},
+            "metric_value": {"nilai_aktual", "actual", "realisasi", "metric_value", "nilai"},
+            "target_value": {"target", "target_value", "target_rkap"},
+            "keterangan": {"keterangan", "catatan", "note", "notes"},
+        }
+        column_map = {}
+        for field, names in aliases.items():
+            for idx, header in enumerate(headers):
+                if header in names:
+                    column_map[field] = idx
+                    break
+        if "metric_value" not in column_map:
+            raise ValueError("Kolom nilai aktual tidak ditemukan.")
+
+        imported = 0
+        skipped = 0
+        for raw_row in rows[1:]:
+            if not raw_row or all(value in (None, "") for value in raw_row):
+                continue
+
+            def cell(field):
+                idx = column_map.get(field)
+                if idx is None or idx >= len(raw_row):
+                    return None
+                return raw_row[idx]
+
+            tanggal_data = self._parse_excel_date(cell("tanggal_data"))
+            periode = self._resolve_period(cell("periode"), tanggal_data=tanggal_data)
+            metric_value = self._parse_decimal(cell("metric_value"))
+            target_value = self._parse_decimal(cell("target_value"))
+            keterangan = str(cell("keterangan") or "").strip()
+
+            if not periode or metric_value is None:
+                skipped += 1
+                continue
+            if tanggal_data is None:
+                tanggal_data = periode.tanggal_selesai
+
+            MonteCarloMetricHistory.objects.update_or_create(
+                metric=metric,
+                periode=periode,
+                defaults={
+                    "tanggal_data": tanggal_data,
+                    "metric_value": metric_value,
+                    "target_value": target_value,
+                    "keterangan": keterangan,
+                },
+            )
+            imported += 1
+        return imported, skipped
 
     def pdf_text(self, text, style):
         escaped = escape(str(text or "")).replace("\n", "<br/>")
@@ -3028,10 +3368,12 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     ]
 
     list_display = (
-        "id",
-        "no_risiko",
         "no_item",
-        "peristiwa_risiko",
+        "item_risiko_display",
+        "summary",
+        "tahun",
+        "kategori_risiko",
+        "risk_owner",
         "status",
     )
 
@@ -3040,11 +3382,16 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "no_item",
         "peristiwa_risiko",
         "deskripsi_peristiwa_risiko",
+        "summary__judul",
+        "daftar_penyebab__pemilik_risiko__username",
+        "daftar_penyebab__pemilik_risiko__first_name",
+        "daftar_penyebab__pemilik_risiko__last_name",
     )
 
     list_filter = (
         "summary__tahun",
         "summary",
+        "kategori_risiko",
         "status",
     )
 
@@ -3115,6 +3462,25 @@ class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
         "kategori_risiko",
         "taksonomi_t3",
     )
+
+    @admin.display(description="Peristiwa Risiko", ordering="peristiwa_risiko")
+    def item_risiko_display(self, obj):
+        return format_html(
+            '<span title="{}">{}</span>',
+            obj.get_display_label(),
+            obj.short_label,
+        )
+
+    @admin.display(description="Tahun", ordering="summary__tahun")
+    def tahun(self, obj):
+        return obj.summary.tahun if obj.summary_id else "-"
+
+    @admin.display(description="Risk Owner")
+    def risk_owner(self, obj):
+        owner = obj.daftar_penyebab.select_related("pemilik_risiko").filter(
+            pemilik_risiko__isnull=False
+        ).first()
+        return owner.pemilik_risiko if owner else "-"
 
 @admin.register(ProfilRisikoKorporatSumber)
 class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):

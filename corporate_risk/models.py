@@ -397,6 +397,14 @@ class MultiMetricMonteCarloResult(models.Model):
         verbose_name="Model Distribusi Monte Carlo",
         help_text="Pilih model distribusi setelah melihat rekomendasi sistem.",
     )
+    recommended_distribution = models.CharField(max_length=50, blank=True)
+    distribution_reason_summary = models.TextField(blank=True)
+    distribution_reason_detail = models.TextField(blank=True)
+    distribution_limitations = models.TextField(blank=True)
+    distribution_confidence = models.CharField(max_length=20, blank=True)
+    distribution_data_quality_warnings = models.JSONField(default=list, blank=True)
+    selected_distribution = models.CharField(max_length=50, blank=True)
+    selected_distribution_justification = models.TextField(blank=True)
     composite_score = models.DecimalField(
         max_digits=18,
         decimal_places=4,
@@ -459,6 +467,22 @@ class MultiMetricMonteCarloResult(models.Model):
     dampak_best_case = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
     dampak_base_case = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
     dampak_worst_case = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
+
+    def clean(self):
+        super().clean()
+        selected = self.selected_distribution or self.distribution_type
+        if (
+            selected
+            and self.recommended_distribution
+            and selected != self.recommended_distribution
+            and not (self.selected_distribution_justification or "").strip()
+        ):
+            raise ValidationError({
+                "selected_distribution_justification": (
+                    "Justifikasi wajib diisi jika memilih model distribusi yang berbeda "
+                    "dari rekomendasi sistem."
+                )
+            })
 
     def __str__(self):
         return f"{self.corporate_risk_item} - {self.forecast_periode}"

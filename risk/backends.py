@@ -1,15 +1,21 @@
 import ldap
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.backends import BaseBackend, ModelBackend
 
 
 class PLNLDAPBackend(BaseBackend):
-    LDAP_SERVER = "ldap://10.28.0.154"
-    LDAP_BASE_DN = "dc=plnbatam,dc=com"
-    LDAP_DOMAIN = "PLNBATAM"
+    LDAP_SERVER = ""
+    LDAP_BASE_DN = ""
+    LDAP_DOMAIN = ""
     LDAP_USER_FILTER = "(sAMAccountName={username})"
-    LDAP_EMAIL_DOMAIN = "plnbatam.com"
+    LDAP_EMAIL_DOMAIN = ""
+
+    def _is_configured_superuser(self, username, email):
+        usernames = getattr(settings, "LDAP_SUPERUSER_USERNAMES", set())
+        emails = getattr(settings, "LDAP_SUPERUSER_EMAILS", set())
+        return username.lower() in usernames or email.lower() in emails
 
     def _settings(self):
         try:
@@ -27,13 +33,13 @@ class PLNLDAPBackend(BaseBackend):
             }
         except Exception:
             return {
-                "enabled": True,
-                "server": self.LDAP_SERVER,
-                "base_dn": self.LDAP_BASE_DN,
-                "domain": self.LDAP_DOMAIN,
-                "user_filter": self.LDAP_USER_FILTER,
-                "email_domain": self.LDAP_EMAIL_DOMAIN,
-                "debug": True,
+                "enabled": getattr(settings, "LDAP_ENABLED", False),
+                "server": getattr(settings, "LDAP_SERVER", self.LDAP_SERVER),
+                "base_dn": getattr(settings, "LDAP_BASE_DN", self.LDAP_BASE_DN),
+                "domain": getattr(settings, "LDAP_DOMAIN", self.LDAP_DOMAIN),
+                "user_filter": getattr(settings, "LDAP_USER_FILTER", self.LDAP_USER_FILTER),
+                "email_domain": getattr(settings, "LDAP_EMAIL_DOMAIN", self.LDAP_EMAIL_DOMAIN),
+                "debug": getattr(settings, "LDAP_DEBUG", False),
             }
 
     def authenticate(self, request, username=None, password=None, **kwargs):
@@ -42,6 +48,8 @@ class PLNLDAPBackend(BaseBackend):
 
         ldap_settings = self._settings()
         if not ldap_settings["enabled"]:
+            return None
+        if not all([ldap_settings["server"], ldap_settings["base_dn"], ldap_settings["domain"]]):
             return None
 
         original_username = username
@@ -129,6 +137,8 @@ class PLNLDAPBackend(BaseBackend):
             user.email = email
             user.is_staff = True
             user.is_active = True
+            if self._is_configured_superuser(samaccountname, email):
+                user.is_superuser = True
 
             # isi first_name / last_name sederhana
             parts = full_name.split()
