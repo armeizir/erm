@@ -55,6 +55,25 @@ class MultiMetricMonteCarloResultForm(forms.ModelForm):
         model = MultiMetricMonteCarloResult
         fields = "__all__"
 
+    def _metric_history_readiness_errors(self, item, forecast_periode):
+        if not item or not forecast_periode:
+            return []
+
+        metrics = RiskMetric.objects.filter(corporate_risk_item=item, is_active=True).order_by("name")
+        if not metrics.exists():
+            return ["Belum ada Risk Metric aktif untuk item risiko korporat ini."]
+
+        errors = []
+        forecast_end = getattr(forecast_periode, "tanggal_selesai", None)
+        for metric in metrics:
+            histories = MonteCarloMetricHistory.objects.filter(metric=metric)
+            if forecast_end:
+                histories = histories.filter(tanggal_data__lte=forecast_end)
+            history_count = histories.count()
+            if history_count < 3:
+                errors.append(f"{metric.name}: {history_count}/3 periode")
+        return errors
+
     def _aggregate_recommendation(self, item, forecast_periode):
         if not item:
             return ""
@@ -74,6 +93,17 @@ class MultiMetricMonteCarloResultForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        history_errors = self._metric_history_readiness_errors(
+            cleaned_data.get("corporate_risk_item"),
+            cleaned_data.get("forecast_periode"),
+        )
+        if history_errors:
+            raise forms.ValidationError(
+                "Data histori belum cukup untuk menjalankan Multi Metric Monte Carlo. "
+                "Lengkapi minimal 3 periode histori untuk setiap Risk Metric aktif melalui "
+                f"panel Input Histori di Profil Risiko Korporat. Detail: {'; '.join(history_errors)}"
+            )
+
         selected = cleaned_data.get("distribution_type") or ""
         justification = (cleaned_data.get("selected_distribution_justification") or "").strip()
         recommended = (
