@@ -1,0 +1,54 @@
+{% extends "awareness/base_awareness.html" %}
+{% load awareness_extras %}
+{% block title %}Kuis Awareness{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0;">{{ campaign.title }}</h2>
+  <p class="muted">{{ campaign.get_topic_display }} · Attempt #{{ attempt.attempt_number }}</p>
+  {% if deadline %}<p class="badge warn" id="quiz-timer" data-deadline="{{ deadline|date:'c' }}">Menghitung sisa waktu...</p>{% endif %}
+  <div class="progress"><span style="width:0%" id="quiz-progress"></span></div>
+</div>
+<form method="post" action="{% url 'awareness:submit_attempt' attempt.pk %}">
+  {% csrf_token %}
+  {% for question in questions %}
+    <div class="card question-card">
+      <h3 style="margin-top:0;">{{ forloop.counter }}. {{ question.question_text }}</h3>
+      {% for code, text in question.ANSWER_CHOICES %}
+        <label class="option">
+          <input type="radio" name="question_{{ question.pk }}" value="{{ code }}" {% if answers|get_item:question.pk == code %}checked{% endif %}>
+          <strong>{{ code }}.</strong>
+          {% if code == "A" %}{{ question.option_a }}{% elif code == "B" %}{{ question.option_b }}{% elif code == "C" %}{{ question.option_c }}{% else %}{{ question.option_d }}{% endif %}
+        </label>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  <button type="submit" class="button">Simpan & Submit Jawaban</button>
+  <a class="button secondary" href="{% url 'awareness:campaign_list' %}">Kembali</a>
+</form>
+<script>
+(function () {
+  const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+  const questionNames = new Set(radios.map((radio) => radio.name));
+  const progress = document.getElementById("quiz-progress");
+  function updateProgress() {
+    const answered = new Set(radios.filter((radio) => radio.checked).map((radio) => radio.name)).size;
+    progress.style.width = questionNames.size ? `${(answered / questionNames.size) * 100}%` : "0%";
+  }
+  radios.forEach((radio) => radio.addEventListener("change", updateProgress));
+  updateProgress();
+
+  const timer = document.getElementById("quiz-timer");
+  if (!timer) return;
+  const deadline = new Date(timer.dataset.deadline).getTime();
+  function updateTimer() {
+    const remaining = Math.max(0, deadline - Date.now());
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    timer.textContent = `Sisa waktu: ${minutes}:${String(seconds).padStart(2, "0")}`;
+    if (remaining === 0) window.location.reload();
+  }
+  updateTimer();
+  setInterval(updateTimer, 1000);
+})();
+</script>
+{% endblock %}

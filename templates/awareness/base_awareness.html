@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Awareness Manajemen Risiko{% endblock %}</title>
+  <style>
+    :root { --navy:#12345b; --blue:#2f6f8f; --line:#d9e1ec; --bg:#f4f7fb; --text:#1f2937; --green:#15803d; --red:#b91c1c; --orange:#b45309; }
+    body { margin:0; font-family:Arial, sans-serif; background:var(--bg); color:var(--text); }
+    header { background:var(--navy); color:white; padding:18px 28px; }
+    header h1 { margin:0; font-size:24px; }
+    main { max-width:1120px; margin:24px auto; padding:0 18px 36px; }
+    .card { background:white; border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:16px; box-shadow:0 8px 24px rgba(15,23,42,.05); }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+    .muted { color:#64748b; }
+    .button { display:inline-block; border:0; border-radius:6px; background:var(--navy); color:white; padding:10px 14px; text-decoration:none; font-weight:700; cursor:pointer; }
+    .button.secondary { background:#e5edf5; color:var(--navy); }
+    .badge { display:inline-block; padding:4px 8px; border-radius:999px; background:#e5edf5; color:var(--navy); font-size:12px; font-weight:700; }
+    .badge.pass { background:#dcfce7; color:var(--green); }
+    .badge.fail { background:#fee2e2; color:var(--red); }
+    .badge.warn { background:#fef3c7; color:var(--orange); }
+    .progress { height:10px; background:#e5e7eb; border-radius:999px; overflow:hidden; }
+    .progress span { display:block; height:100%; background:var(--blue); }
+    .option { display:block; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:8px 0; }
+    .messages { margin-bottom:16px; }
+    .messages .msg { padding:10px 12px; border-radius:6px; background:#e0f2fe; border:1px solid #bae6fd; }
+    table { width:100%; border-collapse:collapse; background:white; }
+    th, td { border:1px solid var(--line); padding:10px; vertical-align:top; }
+    th { background:#eef3f8; text-align:left; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Awareness Manajemen Risiko</h1>
+  </header>
+  <main>
+    {% if messages %}
+      <div class="messages">
+        {% for message in messages %}<div class="msg">{{ message }}</div>{% endfor %}
+      </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

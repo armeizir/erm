@@ -1,0 +1,59 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div id="content-main">
+  <h1>Awareness Campaign Report</h1>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px;">
+    <div class="module" style="padding:12px;"><strong>Campaign aktif</strong><br>{{ active_campaigns }}</div>
+    <div class="module" style="padding:12px;"><strong>Peserta</strong><br>{{ total_participants }}</div>
+    <div class="module" style="padding:12px;"><strong>Total attempt</strong><br>{{ total_attempts }}</div>
+    <div class="module" style="padding:12px;"><strong>Rata-rata skor</strong><br>{{ avg_score|floatformat:2 }}</div>
+    <div class="module" style="padding:12px;"><strong>Lulus</strong><br>{{ passed_count }}</div>
+    <div class="module" style="padding:12px;"><strong>Tidak lulus</strong><br>{{ failed_count }}</div>
+    <div class="module" style="padding:12px;"><strong>Completion rate</strong><br>{{ completion_rate|floatformat:2 }}%</div>
+    <div class="module" style="padding:12px;"><strong>Pass rate</strong><br>{{ pass_rate|floatformat:2 }}%</div>
+  </div>
+
+  <h2>Top 10 User Skor Tertinggi</h2>
+  <table>
+    <thead><tr><th>User</th><th>Campaign</th><th>Skor</th><th>Status</th><th>Submitted</th></tr></thead>
+    <tbody>
+      {% for attempt in top_users %}
+        <tr><td>{{ attempt.user }}</td><td>{{ attempt.campaign }}</td><td>{{ attempt.score }}</td><td>{{ attempt.status }}</td><td>{{ attempt.submitted_at }}</td></tr>
+      {% empty %}
+        <tr><td colspan="5">Belum ada attempt.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Rekap per Campaign</h2>
+  <table>
+    <thead><tr><th>Campaign</th><th>Attempt</th><th>Peserta</th><th>Lulus</th><th>Avg Score</th><th>Export</th></tr></thead>
+    <tbody>
+      {% for campaign in campaign_rows %}
+        <tr>
+          <td>{{ campaign.title }}</td>
+          <td>{{ campaign.attempt_count }}</td>
+          <td>{{ campaign.participant_count }}</td>
+          <td>{{ campaign.passed_count }}</td>
+          <td>{{ campaign.avg_score|default:0|floatformat:2 }}</td>
+          <td><a class="button" href="{% url 'risk_admin:awareness_campaign_export_xlsx' campaign.pk %}">Export XLSX</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6">Belum ada campaign.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>User Belum Mengikuti Awareness</h2>
+  <table>
+    <thead><tr><th>User</th><th>Email</th></tr></thead>
+    <tbody>
+      {% for user in not_attempted_users %}
+        <tr><td>{{ user.get_username }}</td><td>{{ user.email }}</td></tr>
+      {% empty %}
+        <tr><td colspan="2">Tidak ada data.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

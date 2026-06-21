@@ -1,0 +1,36 @@
+{% extends "awareness/base_awareness.html" %}
+{% block title %}Program Awareness{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0;">Program Awareness Aktif</h2>
+  <p class="muted">Pilih program awareness yang tersedia dan kerjakan kuis sesuai periode campaign.</p>
+</div>
+<div class="grid">
+  {% for row in rows %}
+    <div class="card">
+      <h3 style="margin-top:0;">{{ row.campaign.title }}</h3>
+      <p class="muted">{{ row.campaign.description|default:"-" }}</p>
+      <p><span class="badge">{{ row.campaign.get_topic_display }}</span></p>
+      <p class="muted">{{ row.campaign.start_date }} s.d. {{ row.campaign.end_date }}</p>
+      <p>Passing score: <strong>{{ row.campaign.passing_score }}%</strong> · Soal: <strong>{{ row.question_count }}</strong></p>
+      <p>Status:
+        {% if row.status.passed %}<span class="badge pass">{{ row.status.label }}</span>
+        {% elif row.status.attempt_exhausted %}<span class="badge fail">{{ row.status.label }}</span>
+        {% elif row.status.in_progress %}<span class="badge warn">{{ row.status.label }}</span>
+        {% else %}<span class="badge">{{ row.status.label }}</span>{% endif %}
+      </p>
+      {% if row.status.latest and row.status.latest.is_finished %}
+        <a class="button secondary" href="{% url 'awareness:attempt_result' row.status.latest.pk %}">Lihat Hasil</a>
+      {% endif %}
+      {% if not row.status.attempt_exhausted and not row.status.passed %}
+        <form method="post" action="{% url 'awareness:start_campaign' row.campaign.pk %}" style="display:inline;">
+          {% csrf_token %}
+          <button class="button" type="submit">{% if row.status.in_progress %}Lanjutkan{% else %}Mulai Awareness{% endif %}</button>
+        </form>
+      {% endif %}
+    </div>
+  {% empty %}
+    <div class="card"><p>Belum ada program awareness aktif.</p></div>
+  {% endfor %}
+</div>
+{% endblock %}

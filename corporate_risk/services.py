@@ -26,6 +26,28 @@ from risk.models import AppSetting
 
 logger = logging.getLogger(__name__)
 
+MONTH_NAMES_ID = {
+    1: "Januari",
+    2: "Februari",
+    3: "Maret",
+    4: "April",
+    5: "Mei",
+    6: "Juni",
+    7: "Juli",
+    8: "Agustus",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Desember",
+}
+
+
+def _format_month_year_id(value):
+    if not value:
+        return ""
+    return f"{MONTH_NAMES_ID.get(value.month, value.strftime('%B'))} {value.year}"
+
+
 def _percentile(values, q):
     if not values:
         return 0.0
@@ -755,6 +777,36 @@ def _build_multi_metric_history_rows(metric_results):
     return rows
 
 
+def _has_meaningful_descriptive_metric(metric_row):
+    if not metric_row:
+        return False
+    stats = metric_row.get("descriptive_stats") or {}
+    if any(_safe_float(stats.get(key)) != 0 for key in ("f_p50", "f_p15", "std_dev", "mean", "max")):
+        return True
+    for row in metric_row.get("projection_rows", []) or []:
+        if any(_safe_float(row.get(key)) != 0 for key in ("p50", "p15", "stdev_f", "mean", "p80")):
+            return True
+    for row in metric_row.get("history_rows", []) or []:
+        if _safe_float(row.get("actual")) != 0:
+            return True
+    return False
+
+
+def _select_descriptive_metric(metric_results, target_metric_row=None):
+    candidates = []
+    if target_metric_row:
+        candidates.append(target_metric_row)
+    candidates.extend([
+        row for row in metric_results
+        if row is not target_metric_row
+    ])
+
+    for row in candidates:
+        if _has_meaningful_descriptive_metric(row):
+            return row
+    return target_metric_row or (metric_results[0] if metric_results else None)
+
+
 def run_multi_metric_monte_carlo_for_korporat_item(
     item,
     forecast_periode,
@@ -1119,7 +1171,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     for idx, row in enumerate(multi_metric_projection_rows):
         if last_history_date:
             forecast_date = last_history_date + relativedelta(months=idx + 1)
-            row["bulan"] = forecast_date.strftime("%b-%y")
+            row["bulan"] = _format_month_year_id(forecast_date)
         else:
             row["bulan"] = f"Bulan-{idx + 1}"
 
@@ -1127,7 +1179,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
         for idx, row in enumerate(target_metric_row.get("projection_rows", [])):
             if last_history_date:
                 forecast_date = last_history_date + relativedelta(months=idx + 1)
-                bulan = forecast_date.strftime("%b-%y")
+                bulan = _format_month_year_id(forecast_date)
             else:
                 bulan = f"Bulan-{idx + 1}"
             target_projection_rows.append({
@@ -1174,20 +1226,27 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     # Ambil descriptive rows dari metric target (jika ada), jika tidak: dari metric pertama.
     descriptive_projection_rows = []
     descriptive_stats = {}
-    source_metric_for_descriptive = target_metric_row or (metric_results[0] if metric_results else None)
+    source_metric_for_descriptive = _select_descriptive_metric(metric_results, target_metric_row)
     if source_metric_for_descriptive and source_metric_for_descriptive.get("projection_rows"):
         # projection_rows untuk metric hasil berisi mean_score/p15_score dst; tapi yang kita butuhkan F P50/F P15/Std Dev
         # untuk UI Excel: gunakan proyeksi mentah dari _simulate_metric tersimpan di simulation snapshot per metric.
         # Karena sekarang projection_rows metric_results adalah score-normalized, kita bangun ulang berdasarkan stdev_f yang tersimpan di projection_rows.
         for idx, row in enumerate(source_metric_for_descriptive.get("projection_rows", [])):
+            if last_history_date:
+                forecast_date = last_history_date + relativedelta(months=idx + 1)
+                bulan = _format_month_year_id(forecast_date)
+            else:
+                bulan = f"Bulan-{idx + 1}"
             descriptive_projection_rows.append({
                 "bulan_index": idx + 1,
+                "bulan": bulan,
                 "f_p50": row.get("p50"),
                 "f_p15": row.get("p15"),
                 "std_dev": row.get("stdev_f"),
                 "mean": row.get("mean"),
             })
         descriptive_stats = source_metric_for_descriptive.get("descriptive_stats", {}) or {}
+        descriptive_stats["source_metric_name"] = source_metric_for_descriptive.get("metric_name") or "-"
 
     if target_analysis:
         chart_series["target_distribution"] = target_analysis.get("distribution_sample", [])

@@ -22,6 +22,7 @@ urlpatterns = [
     path("reassessment/", include("reassessment.urls")),
 
     path("corporate-risk/", include("corporate_risk.urls")),
+    path("awareness/", include("awareness.urls")),
 ]
 
 if settings.DEBUG:

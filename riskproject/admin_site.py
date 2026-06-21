@@ -1,5 +1,6 @@
 from django.contrib.admin import AdminSite
 from django.contrib.auth.models import Group, User
+from django.apps import apps
 from django.urls import reverse
 from masterdata.models import (
     BusinessArea,
@@ -84,6 +85,8 @@ class RiskAdminSite(AdminSite):
             for model in app.get("models", [])
             if model.get("admin_url")
         }
+        if request.user.is_active and request.user.is_staff:
+            allowed_urls.add("/admin/awareness/awarenesscampaign/report/")
         return allowed_urls
 
     def _can_access_metric_history_input(self, request):
@@ -127,6 +130,12 @@ class RiskAdminSite(AdminSite):
             **{f"{unit_lookup}__in": self._assigned_units_for_user(request.user)}
         ).count()
 
+    def _safe_model_count(self, app_label, model_name):
+        try:
+            return apps.get_model(app_label, model_name).objects.count()
+        except Exception:
+            return 0
+
     def _dashboard_stat_cards(self, stats, allowed_urls):
         cards = [
             ("RKAP", stats["rkap"], "/admin/risk/rkapitem/"),
@@ -136,6 +145,7 @@ class RiskAdminSite(AdminSite):
             ("Profil Risiko Unit/Bidang", stats["reassessment"], "/admin/risk/reassessmentsummary/"),
             ("KPMR", stats["kpmr"], "/admin/risk/kpmrsummary/"),
             ("Laporan Bulanan", stats["monthly_report"], reverse("risk_admin:monthly_report_monthlyriskreport_changelist")),
+            ("Risk Awareness", stats["awareness"], "/admin/awareness/awarenesscampaign/"),
             ("Knowledge Base", stats["knowledge_base"], reverse("risk_admin:risk_knowledgebasearticle_changelist")),
             ("Organisasi", stats["organization"], reverse("risk_admin:masterdata_organizationunit_changelist")),
         ]
@@ -196,6 +206,15 @@ class RiskAdminSite(AdminSite):
                         "items": [
                             item("RKM Unit/Bidang", "/admin/risk/rkmsummary/"),
                             item("Item RKM", "/admin/risk/rkmitem/"),
+                        ],
+                    },
+                    {
+                        "title": "Risk Awareness",
+                        "items": [
+                            item("Program Awareness", "/admin/awareness/awarenesscampaign/"),
+                            item("Bank Soal", "/admin/awareness/awarenessquestion/"),
+                            item("Attempt User", "/admin/awareness/awarenessattempt/"),
+                            item("Report Awareness", "/admin/awareness/awarenesscampaign/report/"),
                         ],
                     },
                 ],
@@ -348,6 +367,10 @@ class RiskAdminSite(AdminSite):
                 + MultiMetricMonteCarloResult.objects.count()
                 + MultiMetricAIInsightKorporat.objects.count()
             ),
+            "awareness": (
+                self._safe_model_count("awareness", "AwarenessCampaign")
+                + self._safe_model_count("awareness", "AwarenessQuestion")
+            ),
             "users": User.objects.count(),
             "units": Group.objects.count(),
             "settings": AppSetting.objects.count(),
@@ -436,6 +459,18 @@ class RiskAdminSite(AdminSite):
                     {"label": "Template KM", "url": "/admin/risk/mastertemplatekm/"},
                     {"label": "Kontrak Manajemen Unit/Bidang", "url": "/admin/risk/kontrakmanajemen/"},
                     {"label": "Item Kontrak Manajemen", "url": "/admin/risk/itemkontrakmanajemen/"},
+                ],
+            },
+            {
+                "title": "Risk Awareness",
+                "level": "management",
+                "color": "settings",
+                "count": stats["awareness"],
+                "items": [
+                    {"label": "Program Awareness", "url": "/admin/awareness/awarenesscampaign/"},
+                    {"label": "Bank Soal", "url": "/admin/awareness/awarenessquestion/"},
+                    {"label": "Attempt User", "url": "/admin/awareness/awarenessattempt/"},
+                    {"label": "Report Awareness", "url": "/admin/awareness/awarenesscampaign/report/"},
                 ],
             },
             {

@@ -1,0 +1,37 @@
+{% extends "awareness/base_awareness.html" %}
+{% block title %}Hasil Awareness{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0;">Hasil Awareness</h2>
+  <p>{{ campaign.title }}</p>
+  <div class="grid">
+    <div><span class="muted">Skor</span><h2>{{ attempt.score }}%</h2></div>
+    <div><span class="muted">Status</span><h2>{% if attempt.status == "passed" %}<span class="badge pass">Lulus</span>{% elif attempt.status == "failed" %}<span class="badge fail">Tidak Lulus</span>{% else %}<span class="badge warn">{{ attempt.get_status_display }}</span>{% endif %}</h2></div>
+    <div><span class="muted">Benar / Salah</span><h2>{{ attempt.correct_count }} / {{ attempt.wrong_count }}</h2></div>
+    <div><span class="muted">Passing Score</span><h2>{{ campaign.passing_score }}%</h2></div>
+  </div>
+  <p class="muted">Durasi: {{ attempt.duration_seconds }} detik</p>
+</div>
+<div class="card">
+  <h3 style="margin-top:0;">Pembahasan Jawaban</h3>
+  <table>
+    <thead><tr><th>Pertanyaan</th><th>Jawaban User</th><th>Jawaban Benar</th><th>Pembahasan</th></tr></thead>
+    <tbody>
+      {% for answer in answers %}
+        <tr>
+          <td>{{ answer.question.question_text }}</td>
+          <td>
+            {% if answer.is_correct %}<span class="badge pass">{{ answer.selected_answer }}</span>{% else %}<span class="badge fail">{{ answer.selected_answer }}</span>{% endif %}<br>
+            {% if answer.selected_answer == "A" %}{{ answer.question.option_a }}{% elif answer.selected_answer == "B" %}{{ answer.question.option_b }}{% elif answer.selected_answer == "C" %}{{ answer.question.option_c }}{% elif answer.selected_answer == "D" %}{{ answer.question.option_d }}{% else %}-{% endif %}
+          </td>
+          <td><strong>{{ answer.question.correct_answer }}</strong></td>
+          <td>{{ answer.question.explanation|default:"-" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">Belum ada jawaban tersimpan.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<a class="button" href="{% url 'awareness:campaign_list' %}">Kembali ke Program Awareness</a>
+{% endblock %}

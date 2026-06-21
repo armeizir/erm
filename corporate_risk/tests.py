@@ -2,12 +2,18 @@ from datetime import date
 from types import SimpleNamespace
 
 from django.contrib.admin.sites import AdminSite
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase
+from django.urls import reverse
 
 from corporate_risk.admin import MultiMetricMonteCarloResultAdmin, MultiMetricMonteCarloResultForm
 from corporate_risk.models import MonteCarloMetricHistory, MultiMetricMonteCarloResult, RiskMetric
-from corporate_risk.services import _build_target_analysis, recommend_monte_carlo_distribution
+from corporate_risk.services import (
+    _build_target_analysis,
+    _select_descriptive_metric,
+    recommend_monte_carlo_distribution,
+)
 from masterdata.models import MasterBUMN, PeriodeLaporan, TahunBuku
 from risk.models import ProfilRisikoKorporatItem, ProfilRisikoKorporatSummary
 
@@ -167,3 +173,172 @@ class MultiMetricMonteCarloTrialsDisplayTests(SimpleTestCase):
 
         self.assertIn("10,000", html)
         self.assertIn("const totalTrials = 10000", html)
+
+    def test_descriptive_prediction_rows_use_month_name_fallback(self):
+        admin = MultiMetricMonteCarloResultAdmin(MultiMetricMonteCarloResult, AdminSite())
+        obj = SimpleNamespace(
+            forecast_periode=SimpleNamespace(tanggal_selesai=date(2026, 5, 31)),
+            simulation_snapshot={
+                "descriptive_projection_rows": [
+                    {"bulan_index": 1, "f_p50": 10, "f_p15": 8, "std_dev": 2},
+                ],
+                "descriptive_stats": {},
+            },
+        )
+
+        html = str(admin.multi_metric_descriptive_projection_rows_html(obj))
+
+        self.assertIn("Juni 2026", html)
+        self.assertNotIn("Bulan-1", html)
+
+    def test_descriptive_metric_selection_skips_all_zero_target_metric(self):
+        zero_target_metric = {
+            "metric_name": "Jumlah Breach Cyber IT/OT",
+            "descriptive_stats": {"f_p50": 0, "f_p15": 0, "std_dev": 0, "max": 0},
+            "projection_rows": [{"p50": 0, "p15": 0, "stdev_f": 0, "mean": 0}],
+            "history_rows": [{"actual": 0}, {"actual": 0}, {"actual": 0}],
+        }
+        meaningful_metric = {
+            "metric_name": "Jumlah Threat Cyber IT/OT",
+            "descriptive_stats": {"f_p50": 25000, "f_p15": 18000, "std_dev": 7000, "max": 100000},
+            "projection_rows": [{"p50": 25000, "p15": 18000, "stdev_f": 7000, "mean": 25000}],
+            "history_rows": [{"actual": 18659}, {"actual": 99429}, {"actual": 17569}],
+        }
+
+        selected = _select_descriptive_metric(
+            [zero_target_metric, meaningful_metric],
+            target_metric_row=zero_target_metric,
+        )
+
+        self.assertEqual(selected["metric_name"], "Jumlah Threat Cyber IT/OT")
+
+
+class MultiMetricMonteCarloPDFExportTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = get_user_model().objects.create_superuser(
+            username="pdf-admin",
+            email="pdf-admin@example.com",
+            password="secret",
+        )
+        self.client.force_login(self.user)
+        bumn = MasterBUMN.objects.create(nama="PT PLN Batam", kode="PLNBATAM")
+        summary = ProfilRisikoKorporatSummary.objects.create(
+            judul="Profil Risiko Korporat 2026",
+            tahun=2026,
+        )
+        self.item = ProfilRisikoKorporatItem.objects.create(
+            summary=summary,
+            no_item=11,
+            bumn=bumn,
+            sasaran_korporat="Menjaga operasional perusahaan",
+            peristiwa_risiko="Serangan Cyber terhadap IT dan OT",
+        )
+        tahun_buku = TahunBuku.objects.create(tahun=2026)
+        self.period = PeriodeLaporan.objects.create(
+            tahun_buku=tahun_buku,
+            kode_periode="2026-05",
+            nama_periode="May 2026",
+            jenis_periode="bulanan",
+            tanggal_mulai=date(2026, 5, 1),
+            tanggal_selesai=date(2026, 5, 31),
+        )
+
+    def _result(self, **overrides):
+        data = {
+            "corporate_risk_item": self.item,
+            "forecast_periode": self.period,
+            "n_simulations": 10000,
+            "forecast_periods": 8,
+            "prediction_interval": "5_95",
+            "distribution_type": "empirical",
+            "recommended_distribution": "empirical",
+            "scenario_percentile": 80,
+            "baseline_value": 5000,
+            "var_95": 750,
+            "target_value": 4500,
+            "probability_achieve_target": 82.5,
+            "requires_mitigation": False,
+            "target_status": "Tercapai",
+            "simulation_snapshot": {
+                "n_simulations": 10000,
+                "target_analysis": {
+                    "distribution_sample": [4200, 4500, 4900, 5100, 5300, 5600],
+                    "total_simulation": 10000,
+                    "target_value": 4500,
+                    "forecast_total": 5000,
+                    "probability_achieve_target": 82.5,
+                    "var_95": 750,
+                    "target_status": "Tercapai",
+                },
+            },
+            "metric_snapshot": {
+                "metrics": [
+                    {
+                        "metric_id": 1,
+                        "metric_name": "Jumlah Threat Cyber IT/OT",
+                        "unit": "kejadian",
+                        "direction": "Semakin besar semakin berisiko",
+                        "weight": 1,
+                        "history_rows": [
+                            {"tanggal": "2026-01-31", "actual": 10},
+                            {"tanggal": "2026-02-28", "actual": 12},
+                            {"tanggal": "2026-03-31", "actual": 15},
+                        ],
+                        "distribution_recommendation": {
+                            "recommended_label": "Empirical Distribution",
+                            "confidence": "Medium",
+                            "reason_summary": "Data digunakan langsung dari pola histori.",
+                            "reason_detail": "Histori terbatas sehingga empirical menjadi pilihan konservatif.",
+                            "limitations": "Perlu tambahan data bulanan.",
+                            "data_quality_warnings": ["Data histori kurang dari 24 periode."],
+                        },
+                    }
+                ]
+            },
+        }
+        data.update(overrides)
+        return MultiMetricMonteCarloResult.objects.create(**data)
+
+    def test_export_pdf_url_returns_pdf_for_superuser(self):
+        result = self._result()
+        url = reverse(
+            "risk_admin:corporate_risk_multimetricmontecarloresult_export_pdf",
+            args=[result.pk],
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn(
+            f'multi_metric_monte_carlo_result_{result.pk}.pdf',
+            response["Content-Disposition"],
+        )
+        self.assertGreater(len(response.content), 1000)
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_export_pdf_handles_incomplete_result_without_500(self):
+        result = self._result(simulation_snapshot={}, metric_snapshot={})
+        url = reverse(
+            "risk_admin:corporate_risk_multimetricmontecarloresult_export_pdf",
+            args=[result.pk],
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertGreater(len(response.content), 1000)
+
+    def test_change_form_shows_management_pdf_export_button(self):
+        result = self._result()
+        url = reverse(
+            "risk_admin:corporate_risk_multimetricmontecarloresult_change",
+            args=[result.pk],
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Export PDF Laporan Manajemen")

@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "kpmr",
     "imports",
     "monthly_report",
+    "awareness",
     "risk.apps.RiskConfig",
     "corporate_risk",
     "django_extensions",

@@ -2,12 +2,14 @@ import json
 from django import forms
 from django.contrib import admin, messages
 from django.db import transaction
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import escape, format_html
 from riskproject.admin_site import risk_admin_site
 from django.utils.safestring import mark_safe
+from dateutil.relativedelta import relativedelta
 
 from .models import (
     MonteCarloKorporatConfig,
@@ -27,6 +29,7 @@ from .services import (
     generate_rule_based_ai_insight_for_multi_metric_result,
     recommend_monte_carlo_distribution,
 )
+from .pdf_reports import render_multi_metric_pdf
 
 
 def risk_item_label_html(item):
@@ -41,6 +44,28 @@ def risk_item_label_html(item):
         short,
         summary or "",
     )
+
+
+MONTH_NAMES_ID = {
+    1: "Januari",
+    2: "Februari",
+    3: "Maret",
+    4: "April",
+    5: "Mei",
+    6: "Juni",
+    7: "Juli",
+    8: "Agustus",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Desember",
+}
+
+
+def format_month_year_id(value):
+    if not value:
+        return ""
+    return f"{MONTH_NAMES_ID.get(value.month, value.strftime('%B'))} {value.year}"
 
 
 class MonteCarloDistributionRecommendationForm(forms.Form):
@@ -1258,15 +1283,50 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         return True
 
     def get_urls(self):
-        urls = super().get_urls()
         custom_urls = [
+            path(
+                "<int:result_id>/export-pdf/",
+                self.admin_site.admin_view(self.export_pdf_view),
+                name="corporate_risk_multimetricmontecarloresult_export_pdf",
+            ),
             path(
                 "<int:result_id>/generate-ai-insight-multi-metric/",
                 self.admin_site.admin_view(self.generate_ai_insight_multi_metric_view),
                 name="corporate_risk_generate_ai_insight_multi_metric",
             ),
         ]
-        return custom_urls + urls
+        return custom_urls + super().get_urls()
+
+    def export_pdf_view(self, request, result_id, *args, **kwargs):
+        result = get_object_or_404(
+            MultiMetricMonteCarloResult.objects.select_related(
+                "corporate_risk_item",
+                "corporate_risk_item__summary",
+                "forecast_periode",
+            ),
+            pk=result_id,
+        )
+
+        try:
+            pdf_bytes = render_multi_metric_pdf(result)
+        except Exception as exc:
+            self.message_user(
+                request,
+                f"Gagal membuat PDF laporan manajemen: {exc}",
+                level=messages.ERROR,
+            )
+            return redirect(
+                reverse(
+                    f"{self.admin_site.name}:corporate_risk_multimetricmontecarloresult_change",
+                    args=[result.pk],
+                )
+            )
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="multi_metric_monte_carlo_result_{result.pk}.pdf"'
+        )
+        return response
 
     def generate_ai_insight_multi_metric_view(self, request, result_id, *args, **kwargs):
         result = get_object_or_404(MultiMetricMonteCarloResult, pk=result_id)
@@ -1310,6 +1370,23 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     def _target_analysis(self, obj):
         snapshot = obj.simulation_snapshot or {}
         return snapshot.get("target_analysis") or {}
+
+    def _forecast_month_label(self, obj, row, index=0):
+        if row.get("bulan"):
+            return row.get("bulan")
+
+        snapshot = obj.simulation_snapshot or {}
+        for key in ("target_projection_rows", "projection_rows"):
+            rows = snapshot.get(key) or []
+            if index < len(rows) and rows[index].get("bulan"):
+                return rows[index].get("bulan")
+
+        forecast_periode = getattr(obj, "forecast_periode", None)
+        base_date = getattr(forecast_periode, "tanggal_selesai", None)
+        if base_date:
+            return format_month_year_id(base_date + relativedelta(months=index + 1))
+
+        return f"Bulan-{row.get('bulan_index') or index + 1}"
 
     def risk_prediction_flow_html(self, obj):
         steps = [
@@ -2142,6 +2219,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         try:
             stats_html = f"""
             <div style="padding:10px 12px;margin-bottom:10px;background:#eef7fb;border:1px solid #cfe3ec;border-radius:6px;color:#24586a;font-size:13px;">
+                Sumber Metric: <strong>{escape(stats.get('source_metric_name') or '-')}</strong>,
                 Window SMA: <strong>{stats.get('sma_window','-')}</strong>,
                 f_p50: <strong>{self._fmt(stats.get('f_p50'), 3)}</strong>,
                 f_p15: <strong>{self._fmt(stats.get('f_p15'), 3)}</strong>,
@@ -2152,8 +2230,8 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             stats_html = ""
 
         rows = []
-        for row in descriptive:
-            bulan = row.get("bulan") or f"Bulan-{row.get('bulan_index')}"
+        for idx, row in enumerate(descriptive):
+            bulan = self._forecast_month_label(obj, row, idx)
             rows.append(f"""
                 <tr>
                     <td style="padding:8px;border:1px solid #ddd;">{bulan}</td>
