@@ -1342,6 +1342,18 @@ class RKMItem(models.Model):
         null=True,
         verbose_name="Satuan Target Akumulasi",
     )
+    target_januari = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Januari")
+    target_februari = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Februari")
+    target_maret = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Maret")
+    target_april = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target April")
+    target_mei = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Mei")
+    target_juni = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Juni")
+    target_juli = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Juli")
+    target_agustus = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Agustus")
+    target_september = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target September")
+    target_oktober = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Oktober")
+    target_november = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target November")
+    target_desember = models.CharField(max_length=255, blank=True, null=True, verbose_name="Target Desember")
     realisasi_januari = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Januari")
     realisasi_februari = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Februari")
     realisasi_maret = models.CharField(max_length=255, blank=True, null=True, verbose_name="Realisasi Maret")

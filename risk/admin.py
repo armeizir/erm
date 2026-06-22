@@ -1489,17 +1489,29 @@ class RKMItemInline(admin.TabularInline):
         "anggaran_rp_ribu",
         "target_akumulasi",
         "target_akumulasi_satuan",
+        "target_januari",
         "realisasi_januari",
+        "target_februari",
         "realisasi_februari",
+        "target_maret",
         "realisasi_maret",
+        "target_april",
         "realisasi_april",
+        "target_mei",
         "realisasi_mei",
+        "target_juni",
         "realisasi_juni",
+        "target_juli",
         "realisasi_juli",
+        "target_agustus",
         "realisasi_agustus",
+        "target_september",
         "realisasi_september",
+        "target_oktober",
         "realisasi_oktober",
+        "target_november",
         "realisasi_november",
+        "target_desember",
         "realisasi_desember",
         "jumlah_realisasi",
         "persen_capaian",
@@ -1934,6 +1946,93 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         elements.append(info_table)
         elements.append(Spacer(1, 6))
 
+        items = list(
+            rkm.item
+            .select_related("km_item", "km_item__master_bagian")
+            .order_by("no_item", "km_item__master_bagian__urutan")
+        )
+        month_fields = [
+            (1, "januari"),
+            (2, "februari"),
+            (3, "maret"),
+            (4, "april"),
+            (5, "mei"),
+            (6, "juni"),
+            (7, "juli"),
+            (8, "agustus"),
+            (9, "september"),
+            (10, "oktober"),
+            (11, "november"),
+            (12, "desember"),
+        ]
+        matrix_header = [
+            self.paragraph_pdf("MONTH", header_style),
+        ]
+        matrix_subheader = [""]
+        for item in items:
+            code = ""
+            if item.km_item_id and item.km_item.master_bagian_id:
+                code = f"{item.km_item.master_bagian.kode_bagian}{item.km_item.no_urut}"
+            else:
+                code = str(item.no_item)
+            matrix_header.extend([
+                self.paragraph_pdf(code, header_style),
+                "",
+            ])
+            matrix_subheader.extend([
+                self.paragraph_pdf("TARGET", header_style),
+                self.paragraph_pdf("REALISASI", header_style),
+            ])
+
+        matrix_data = [
+            [self.paragraph_pdf("MONTHLY KEY PERFORMANCE INDICATOR RESULT", header_style)]
+            + ["" for _ in range(len(items) * 2)],
+            matrix_header,
+            matrix_subheader,
+        ]
+        for month_number, field_suffix in month_fields:
+            row = [self.paragraph_pdf(month_number, normal_center)]
+            for item in items:
+                row.extend([
+                    self.paragraph_pdf(getattr(item, f"target_{field_suffix}", "") or "", normal_center),
+                    self.paragraph_pdf(getattr(item, f"realisasi_{field_suffix}", "") or "", normal_center),
+                ])
+            matrix_data.append(row)
+
+        matrix_table = Table(
+            matrix_data,
+            colWidths=[25] + [21 for _ in range(len(items) * 2)],
+            repeatRows=3,
+        )
+        matrix_style = TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.black),
+            ("SPAN", (0, 0), (-1, 0)),
+            ("SPAN", (0, 1), (0, 2)),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FFE699")),
+            ("BACKGROUND", (0, 1), (-1, 2), colors.HexColor("#D9EAF7")),
+            ("BACKGROUND", (0, 3), (0, -1), colors.HexColor("#FFC000")),
+            ("TEXTCOLOR", (0, 0), (-1, 2), colors.black),
+            ("FONTNAME", (0, 0), (-1, 2), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 4.2),
+            ("LEADING", (0, 0), (-1, -1), 4.8),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ("LEFTPADDING", (0, 0), (-1, -1), 1),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+        ])
+        for index in range(len(items)):
+            start_col = 1 + (index * 2)
+            matrix_style.add("SPAN", (start_col, 1), (start_col + 1, 1))
+        current_month_row = 2 + rkm.bulan
+        if 3 <= current_month_row < len(matrix_data):
+            matrix_style.add("TEXTCOLOR", (1, current_month_row), (-1, current_month_row), colors.red)
+            matrix_style.add("FONTNAME", (1, current_month_row), (-1, current_month_row), "Helvetica-Bold")
+        matrix_table.setStyle(matrix_style)
+        elements.append(matrix_table)
+        elements.append(Spacer(1, 8))
+
         data = [
             [
                 self.paragraph_pdf("NO", header_style),
@@ -1951,11 +2050,6 @@ class RKMSummaryAdmin(admin.ModelAdmin):
 
         total_capaian = Decimal("0")
         capaian_count = 0
-        items = (
-            rkm.item
-            .select_related("km_item", "km_item__master_bagian")
-            .order_by("no_item", "km_item__master_bagian__urutan")
-        )
         for item in items:
             if item.persen_capaian is not None:
                 total_capaian += Decimal(str(item.persen_capaian))
@@ -2116,17 +2210,29 @@ class RKMItemAdmin(admin.ModelAdmin):
         }),
         ("Realisasi Bulanan", {
             "fields": (
+                "target_januari",
                 "realisasi_januari",
+                "target_februari",
                 "realisasi_februari",
+                "target_maret",
                 "realisasi_maret",
+                "target_april",
                 "realisasi_april",
+                "target_mei",
                 "realisasi_mei",
+                "target_juni",
                 "realisasi_juni",
+                "target_juli",
                 "realisasi_juli",
+                "target_agustus",
                 "realisasi_agustus",
+                "target_september",
                 "realisasi_september",
+                "target_oktober",
                 "realisasi_oktober",
+                "target_november",
                 "realisasi_november",
+                "target_desember",
                 "realisasi_desember",
             )
         }),
