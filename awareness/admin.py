@@ -67,12 +67,39 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     search_fields = ("title", "description", "topic")
     list_filter = ("topic", "is_active", "start_date", "end_date")
     inlines = (AwarenessQuestionInline,)
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("material_preview", "created_at", "updated_at")
+    fieldsets = (
+        (None, {
+            "fields": (
+                "title",
+                "description",
+                "topic",
+                "material_image",
+                "material_preview",
+                "start_date",
+                "end_date",
+                "passing_score",
+                "max_attempts",
+                "time_limit_minutes",
+                "is_active",
+            )
+        }),
+        ("Audit", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
+    )
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
+
+    @admin.display(description="Preview Materi")
+    def material_preview(self, obj):
+        if not obj or not obj.material_image:
+            return "-"
+        return format_html(
+            '<img src="{}" style="max-width:420px; width:100%; height:auto; border:1px solid #d9e1ec; border-radius:6px;">',
+            obj.material_image.url,
+        )
 
     def get_urls(self):
         custom_urls = [

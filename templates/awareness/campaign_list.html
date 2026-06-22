@@ -23,10 +23,11 @@
         <a class="button secondary" href="{% url 'awareness:attempt_result' row.status.latest.pk %}">Lihat Hasil</a>
       {% endif %}
       {% if not row.status.attempt_exhausted and not row.status.passed %}
-        <form method="post" action="{% url 'awareness:start_campaign' row.campaign.pk %}" style="display:inline;">
-          {% csrf_token %}
-          <button class="button" type="submit">{% if row.status.in_progress %}Lanjutkan{% else %}Mulai Awareness{% endif %}</button>
-        </form>
+        {% if row.status.in_progress %}
+          <a class="button" href="{% url 'awareness:quiz_attempt' row.status.in_progress.pk %}">Lanjutkan</a>
+        {% else %}
+          <a class="button" href="{% url 'awareness:campaign_material' row.campaign.pk %}">Baca Materi</a>
+        {% endif %}
       {% endif %}
     </div>
   {% empty %}

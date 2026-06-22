@@ -1,0 +1,35 @@
+{% extends "awareness/base_awareness.html" %}
+{% block title %}Materi Awareness{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0;">{{ campaign.title }}</h2>
+  <p class="muted">{{ campaign.get_topic_display }}</p>
+  {% if campaign.description %}
+    <p>{{ campaign.description }}</p>
+  {% endif %}
+  <p>
+    <span class="badge">Soal: {{ question_count }}</span>
+    <span class="badge">Passing score: {{ campaign.passing_score }}%</span>
+    {% if campaign.time_limit_minutes %}<span class="badge warn">Waktu: {{ campaign.time_limit_minutes }} menit</span>{% endif %}
+  </p>
+</div>
+
+<div class="card material-card">
+  <h3 style="margin-top:0;">Materi Sebelum Kuis</h3>
+  {% if campaign.material_image %}
+    <div class="material-frame">
+      <img src="{{ campaign.material_image.url }}" alt="Materi {{ campaign.title }}">
+    </div>
+  {% else %}
+    <p class="muted">Materi gambar belum diupload oleh admin. Anda tetap dapat melanjutkan kuis jika program sudah siap.</p>
+  {% endif %}
+</div>
+
+<div class="card action-card">
+  <form method="post" action="{% url 'awareness:start_campaign' campaign.pk %}">
+    {% csrf_token %}
+    <button class="button" type="submit">Mulai Kuis</button>
+    <a class="button secondary" href="{% url 'awareness:campaign_list' %}">Kembali</a>
+  </form>
+</div>
+{% endblock %}

@@ -81,6 +81,29 @@ class AwarenessFlowTests(TestCase):
         self.assertEqual(attempt.status, AwarenessAttempt.STATUS_IN_PROGRESS)
         self.assertIn(reverse("awareness:quiz_attempt", args=[attempt.pk]), response["Location"])
 
+    def test_campaign_list_links_to_material_before_quiz(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("awareness:campaign_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Baca Materi")
+        self.assertContains(response, reverse("awareness:campaign_material", args=[self.campaign.pk]))
+        self.assertFalse(AwarenessAttempt.objects.filter(user=self.user, campaign=self.campaign).exists())
+
+    def test_material_page_shows_uploaded_image_and_posts_start(self):
+        self.campaign.material_image = "awareness/materials/materi.png"
+        self.campaign.save(update_fields=["material_image"])
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("awareness:campaign_material", args=[self.campaign.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Materi Sebelum Kuis")
+        self.assertContains(response, self.campaign.material_image.url)
+        self.assertContains(response, reverse("awareness:start_campaign", args=[self.campaign.pk]))
+        self.assertFalse(AwarenessAttempt.objects.filter(user=self.user, campaign=self.campaign).exists())
+
     def test_user_can_submit_answers_and_score_is_calculated(self):
         self.client.force_login(self.user)
         attempt = AwarenessAttempt.objects.create(

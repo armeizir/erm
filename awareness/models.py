@@ -3,6 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils import timezone
 
@@ -21,6 +22,12 @@ class AwarenessCampaign(models.Model):
 
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+    material_image = models.FileField(
+        upload_to="awareness/materials/",
+        blank=True,
+        validators=[FileExtensionValidator(allowed_extensions=["jpg", "jpeg", "png", "webp"])],
+        help_text="Upload gambar materi awareness yang dibaca user sebelum mulai kuis.",
+    )
     topic = models.CharField(max_length=50, choices=TOPIC_CHOICES, default="manajemen_risiko")
     start_date = models.DateField()
     end_date = models.DateField()

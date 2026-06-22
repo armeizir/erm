@@ -7,6 +7,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from datetime import timedelta
 
+from risk.models import AppSetting
+
 from .models import AwarenessAnswer, AwarenessAttempt, AwarenessCampaign
 
 
@@ -17,6 +19,10 @@ def _active_campaigns():
         start_date__lte=today,
         end_date__gte=today,
     ).order_by("-start_date", "title")
+
+
+def _template_context(**context):
+    return {"app_setting": AppSetting.get_solo(), **context}
 
 
 def _campaign_status(campaign, user):
@@ -61,7 +67,31 @@ def campaign_list(request):
             "status": status,
             "question_count": campaign.question_count,
         })
-    return render(request, "awareness/campaign_list.html", {"rows": rows})
+    return render(request, "awareness/campaign_list.html", _template_context(rows=rows))
+
+
+@login_required
+def campaign_material(request, campaign_id):
+    campaign = get_object_or_404(AwarenessCampaign, pk=campaign_id)
+    if not campaign.is_currently_active():
+        messages.error(request, "Program awareness tidak aktif atau sudah di luar periode.")
+        return redirect("awareness:campaign_list")
+
+    status = _campaign_status(campaign, request.user)
+    if status["passed"]:
+        messages.info(request, "Anda sudah lulus program awareness ini.")
+        return redirect("awareness:attempt_result", attempt_id=status["latest"].pk)
+    if status["in_progress"]:
+        return redirect("awareness:quiz_attempt", attempt_id=status["in_progress"].pk)
+    if status["attempt_exhausted"]:
+        messages.error(request, "Batas attempt untuk program awareness ini sudah habis.")
+        return redirect("awareness:campaign_list")
+
+    return render(
+        request,
+        "awareness/material.html",
+        _template_context(campaign=campaign, question_count=campaign.question_count),
+    )
 
 
 @login_required
@@ -134,13 +164,17 @@ def quiz_attempt(request, attempt_id):
     if attempt.campaign.time_limit_minutes:
         deadline = attempt.started_at + timedelta(minutes=attempt.campaign.time_limit_minutes)
 
-    return render(request, "awareness/quiz.html", {
-        "attempt": attempt,
-        "campaign": attempt.campaign,
-        "questions": questions,
-        "answers": answers,
-        "deadline": deadline,
-    })
+    return render(
+        request,
+        "awareness/quiz.html",
+        _template_context(
+            attempt=attempt,
+            campaign=attempt.campaign,
+            questions=questions,
+            answers=answers,
+            deadline=deadline,
+        ),
+    )
 
 
 @login_required
@@ -187,8 +221,8 @@ def attempt_result(request, attempt_id):
         return redirect("awareness:quiz_attempt", attempt_id=attempt.pk)
 
     answers = attempt.answers.select_related("question").order_by("question__order", "question_id")
-    return render(request, "awareness/result.html", {
-        "attempt": attempt,
-        "campaign": attempt.campaign,
-        "answers": answers,
-    })
+    return render(
+        request,
+        "awareness/result.html",
+        _template_context(attempt=attempt, campaign=attempt.campaign, answers=answers),
+    )
