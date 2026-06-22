@@ -19,6 +19,7 @@ from masterdata.models import MasterBUMN, TahunBuku, PeriodeLaporan
 
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -71,6 +72,7 @@ from .models import (
     KPMRPeriode,
     KPMRIndikatorResmi,
     KPMRSubIndikatorResmi,
+    RiskManagementReview,
     KinerjaPeriode,
     KinerjaIndikator,
     KompositRisikoTriwulan,
@@ -1554,6 +1556,7 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         "status_pengajuan",
         "generate_button",
         "km_pdf_button",
+        "rkm_pdf_button",
     )
     list_filter = ("tahun", "bulan", "status", "status_pengajuan", "unit_bisnis")
     search_fields = ("judul", "unit_bisnis__name", "kontrak_manajemen__judul")
@@ -1608,6 +1611,11 @@ class RKMSummaryAdmin(admin.ModelAdmin):
                 "<int:rkm_id>/generate-items/",
                 self.admin_site.admin_view(self.generate_items_view),
                 name="risk_rkmsummary_generate_items",
+            ),
+            path(
+                "<int:rkm_id>/pdf/",
+                self.admin_site.admin_view(self.pdf_view),
+                name="risk_rkmsummary_pdf",
             ),
         ]
         return custom_urls + urls
@@ -1699,6 +1707,12 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         )
     km_pdf_button.short_description = "Laporan KM"
 
+    def rkm_pdf_button(self, obj):
+        url = reverse("admin:risk_rkmsummary_pdf", args=[obj.pk])
+        return format_html('<a class="button" href="{}" target="_blank">PDF RKM</a>', url)
+
+    rkm_pdf_button.short_description = "Laporan RKM"
+
     @admin.display(description="Status Kunci")
     def rkm_lock_info(self, obj):
         if obj and obj.is_approved:
@@ -1727,6 +1741,324 @@ class RKMSummaryAdmin(admin.ModelAdmin):
 
         change_url = reverse("admin:risk_rkmsummary_change", args=[rkm.pk])
         return redirect(change_url)
+
+    def bulan_indonesia(self, nomor_bulan):
+        bulan = [
+            "",
+            "Januari",
+            "Februari",
+            "Maret",
+            "April",
+            "Mei",
+            "Juni",
+            "Juli",
+            "Agustus",
+            "September",
+            "Oktober",
+            "November",
+            "Desember",
+        ]
+        if 1 <= nomor_bulan <= 12:
+            return bulan[nomor_bulan]
+        return "-"
+
+    def format_angka_pdf(self, nilai):
+        if nilai in (None, ""):
+            return ""
+        try:
+            angka = Decimal(str(nilai))
+        except Exception:
+            return str(nilai)
+        if angka == angka.to_integral_value():
+            return str(int(angka))
+        return f"{angka:.2f}".rstrip("0").rstrip(".")
+
+    def paragraph_pdf(self, text, style):
+        return Paragraph(escape(str(text or "")), style)
+
+    def logo_flowable_pdf(self):
+        logo_path = None
+        app_setting = AppSetting.objects.first()
+        if app_setting and app_setting.logo:
+            candidate = Path(app_setting.logo.path)
+            if candidate.exists():
+                logo_path = candidate
+
+        if not logo_path:
+            candidate = Path(settings.MEDIA_ROOT) / "system/logo/pln_batam_logo.png"
+            if candidate.exists():
+                logo_path = candidate
+
+        if logo_path:
+            return Image(str(logo_path), width=100, height=50)
+
+        return Table(
+            [[
+                Paragraph("<b>PLN</b>", ParagraphStyle(
+                    "RKMLogoPLN",
+                    parent=getSampleStyleSheet()["Normal"],
+                    fontName="Helvetica-Bold",
+                    fontSize=11,
+                    leading=12,
+                    alignment=TA_CENTER,
+                )),
+                Paragraph("Batam", ParagraphStyle(
+                    "RKMLogoBatam",
+                    parent=getSampleStyleSheet()["Normal"],
+                    fontName="Helvetica-Bold",
+                    fontSize=10,
+                    leading=11,
+                )),
+            ]],
+            colWidths=[34, 58],
+        )
+
+    def nama_user_pdf(self, user):
+        if not user:
+            return ""
+        return user.get_full_name() or user.username
+
+    def jabatan_user_pdf(self, user, tanggal):
+        if not user or not tanggal:
+            return ""
+        riwayat = (
+            user.riwayat_jabatan
+            .filter(tanggal_mulai__lte=tanggal)
+            .filter(
+                models.Q(tanggal_selesai__isnull=True)
+                | models.Q(tanggal_selesai__gte=tanggal)
+            )
+            .order_by("-tanggal_mulai")
+            .first()
+        )
+        return riwayat.jabatan if riwayat else ""
+
+    def pdf_view(self, request, rkm_id):
+        rkm = get_object_or_404(
+            RKMSummary.objects.select_related(
+                "unit_bisnis",
+                "kontrak_manajemen",
+                "penandatangan_laporan_rkm",
+            ),
+            pk=rkm_id,
+        )
+        if not user_can_access_unit(request, rkm.unit_bisnis_id):
+            raise PermissionDenied
+
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="RKM_{rkm.unit_bisnis.name}_{rkm.bulan}_{rkm.tahun}.pdf"'
+        )
+
+        doc = SimpleDocTemplate(
+            response,
+            pagesize=landscape(A4),
+            rightMargin=14,
+            leftMargin=14,
+            topMargin=14,
+            bottomMargin=14,
+        )
+
+        styles = getSampleStyleSheet()
+        normal = ParagraphStyle(
+            "RKMNormal",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=5.6,
+            leading=6.6,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        )
+        normal_center = ParagraphStyle("RKMNormalCenter", parent=normal, alignment=TA_CENTER)
+        header_style = ParagraphStyle(
+            "RKMHeader",
+            parent=normal_center,
+            fontName="Helvetica-Bold",
+            textColor=colors.white,
+        )
+        section_style = ParagraphStyle("RKMSection", parent=normal, fontName="Helvetica-Bold")
+        title_style = ParagraphStyle(
+            "RKMTitle",
+            parent=styles["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=13,
+            alignment=TA_CENTER,
+            spaceAfter=2,
+        )
+
+        bulan_label = self.bulan_indonesia(rkm.bulan)
+        periode_label = f"{bulan_label.upper()} {rkm.tahun}"
+        unit_label = str(rkm.unit_bisnis or "").upper()
+        elements = []
+
+        header_table = Table(
+            [[
+                self.logo_flowable_pdf(),
+                [
+                    Paragraph(f"RENCANA KERJA MANAJEMEN TAHUN {rkm.tahun}", title_style),
+                    Paragraph(unit_label, title_style),
+                    Paragraph(periode_label, title_style),
+                ],
+                "",
+            ]],
+            colWidths=[110, 590, 110],
+        )
+        header_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "LEFT"),
+            ("ALIGN", (1, 0), (1, 0), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(header_table)
+
+        info_table = Table(
+            [[
+                self.paragraph_pdf("Judul", section_style),
+                self.paragraph_pdf(rkm.judul, normal),
+                self.paragraph_pdf("Kontrak Manajemen", section_style),
+                self.paragraph_pdf(rkm.kontrak_manajemen, normal),
+                self.paragraph_pdf("Status", section_style),
+                self.paragraph_pdf(f"{rkm.status} / {rkm.status_pengajuan}", normal),
+            ]],
+            colWidths=[45, 260, 80, 220, 40, 165],
+        )
+        info_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#B7C9D6")),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EEF3F8")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 6))
+
+        data = [
+            [
+                self.paragraph_pdf("NO", header_style),
+                self.paragraph_pdf("KATEGORI", header_style),
+                self.paragraph_pdf("KPI / SASARAN", header_style),
+                self.paragraph_pdf("PROGRAM KERJA UTAMA", header_style),
+                self.paragraph_pdf("RISIKO", header_style),
+                self.paragraph_pdf("MITIGASI / RENCANA AKSI", header_style),
+                self.paragraph_pdf("TARGET", header_style),
+                self.paragraph_pdf("REALISASI", header_style),
+                self.paragraph_pdf("% CAPAIAN", header_style),
+                self.paragraph_pdf("PIC / ANALISA", header_style),
+            ]
+        ]
+
+        total_capaian = Decimal("0")
+        capaian_count = 0
+        items = (
+            rkm.item
+            .select_related("km_item", "km_item__master_bagian")
+            .order_by("no_item", "km_item__master_bagian__urutan")
+        )
+        for item in items:
+            if item.persen_capaian is not None:
+                total_capaian += Decimal(str(item.persen_capaian))
+                capaian_count += 1
+            kategori = item.kategori_rkm or (
+                item.km_item.master_bagian.kode_bagian if item.km_item_id and item.km_item.master_bagian_id else ""
+            )
+            mitigasi_aksi = "\n".join(filter(None, [item.mitigasi_risiko, item.rencana_aksi]))
+            target = item.target_akumulasi or item.target_bulanan or item.kpi_target or ""
+            realisasi = item.jumlah_realisasi or item.realisasi or ""
+            if not realisasi:
+                realisasi_field = KontrakManajemenAdmin.realisasi_field_for_bulan(self, rkm.bulan)
+                realisasi = getattr(item, realisasi_field, "") if realisasi_field else ""
+            pic_analisa = "\n".join(filter(None, [item.pic_rkm, item.hasil_analisa_program_kerja or item.keterangan]))
+            data.append([
+                self.paragraph_pdf(item.no_item, normal_center),
+                self.paragraph_pdf(kategori, normal_center),
+                self.paragraph_pdf(item.kpi_indikator or item.sasaran or item.km_item, normal),
+                self.paragraph_pdf(item.program_kerja_utama or item.inisiatif_strategis, normal),
+                self.paragraph_pdf(item.risiko, normal),
+                self.paragraph_pdf(mitigasi_aksi, normal),
+                self.paragraph_pdf(target, normal_center),
+                self.paragraph_pdf(realisasi, normal_center),
+                self.paragraph_pdf(
+                    f"{self.format_angka_pdf(item.persen_capaian)}%" if item.persen_capaian is not None else "",
+                    normal_center,
+                ),
+                self.paragraph_pdf(pic_analisa, normal),
+            ])
+
+        avg_capaian = total_capaian / capaian_count if capaian_count else None
+        total_row_index = len(data)
+        data.append([
+            "",
+            "",
+            self.paragraph_pdf("RATA-RATA CAPAIAN", section_style),
+            "",
+            "",
+            "",
+            "",
+            "",
+            self.paragraph_pdf(f"{self.format_angka_pdf(avg_capaian)}%" if avg_capaian is not None else "", section_style),
+            "",
+        ])
+
+        table = Table(
+            data,
+            colWidths=[26, 42, 140, 125, 110, 125, 58, 58, 48, 78],
+            repeatRows=1,
+        )
+        table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 5.6),
+            ("LEADING", (0, 0), (-1, -1), 6.6),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (0, 1), (1, -1), "CENTER"),
+            ("ALIGN", (6, 1), (8, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, total_row_index), (-1, total_row_index), colors.HexColor("#D9EAF7")),
+            ("FONTNAME", (0, total_row_index), (-1, total_row_index), "Helvetica-Bold"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(table)
+        elements.append(Spacer(1, 8))
+
+        penandatangan = rkm.penandatangan_laporan_rkm
+        nama = self.nama_user_pdf(penandatangan)
+        jabatan = self.jabatan_user_pdf(penandatangan, rkm.tanggal_selesai) if penandatangan else ""
+        tanggal = rkm.tanggal_selesai or date(rkm.tahun, rkm.bulan, 1)
+        tanggal_text = f"{tanggal.day:02d} {self.bulan_indonesia(tanggal.month)} {tanggal.year}"
+        sign_style = ParagraphStyle("RKMSign", parent=normal_center, fontSize=7, leading=8)
+        sign_bold = ParagraphStyle("RKMSignBold", parent=sign_style, fontName="Helvetica-Bold")
+        signature_table = Table(
+            [
+                [Paragraph(f"Batam, {tanggal_text}", sign_style)],
+                [Paragraph(escape(jabatan), sign_style)],
+                [""],
+                [Paragraph(f"<u>{escape(nama)}</u>", sign_bold) if nama else ""],
+            ],
+            colWidths=[220],
+            rowHeights=[12, 18, 30, 14],
+        )
+        signature_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ]))
+        footer_table = Table([["", signature_table]], colWidths=[590, 220])
+        footer_table.setStyle(TableStyle([
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(footer_table)
+
+        doc.build(elements)
+        return response
 
 
 @admin.register(RKMItem)
@@ -1925,7 +2257,9 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         "tahun",
         "unit_bisnis",
         "kontrak_manajemen",
+        "rkm",
         "dibuat_pada",
+        "pdf_button",
     )
 
     list_filter = ("tahun", "unit_bisnis")
@@ -1937,16 +2271,35 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         "tahun",
         "unit_bisnis",
         "kontrak_manajemen",
+        "rkm",
         "risk_matrix",
     )
 
     autocomplete_fields = (
         "unit_bisnis",
         "kontrak_manajemen",
+        "rkm",
         "risk_matrix",
     )
 
     inlines = [ReAssessmentItemInline]
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:summary_id>/pdf/",
+                self.admin_site.admin_view(self.pdf_view),
+                name="risk_reassessmentsummary_pdf",
+            ),
+        ]
+        return custom_urls + urls
+
+    def pdf_button(self, obj):
+        url = reverse("admin:risk_reassessmentsummary_pdf", args=[obj.pk])
+        return format_html('<a class="button" href="{}" target="_blank">PDF Profil Risiko</a>', url)
+
+    pdf_button.short_description = "Laporan"
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -1981,6 +2334,214 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         if not allowed or obj is None or request.user.is_superuser:
             return allowed
         return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def logo_flowable_pdf(self):
+        logo_path = None
+        app_setting = AppSetting.objects.first()
+        if app_setting and app_setting.logo:
+            candidate = Path(app_setting.logo.path)
+            if candidate.exists():
+                logo_path = candidate
+
+        if not logo_path:
+            candidate = Path(settings.MEDIA_ROOT) / "system/logo/pln_batam_logo.png"
+            if candidate.exists():
+                logo_path = candidate
+
+        if logo_path:
+            return Image(str(logo_path), width=100, height=50)
+
+        return Table(
+            [[
+                Paragraph("<b>PLN</b>", ParagraphStyle(
+                    "ProfilLogoPLN",
+                    parent=getSampleStyleSheet()["Normal"],
+                    fontName="Helvetica-Bold",
+                    fontSize=11,
+                    leading=12,
+                    alignment=TA_CENTER,
+                )),
+                Paragraph("Batam", ParagraphStyle(
+                    "ProfilLogoBatam",
+                    parent=getSampleStyleSheet()["Normal"],
+                    fontName="Helvetica-Bold",
+                    fontSize=10,
+                    leading=11,
+                )),
+            ]],
+            colWidths=[34, 58],
+        )
+
+    def paragraph_pdf(self, text, style):
+        return Paragraph(escape(str(text or "")), style)
+
+    def pdf_view(self, request, summary_id):
+        summary = get_object_or_404(
+            ReAssessmentSummary.objects.select_related(
+                "unit_bisnis",
+                "kontrak_manajemen",
+                "rkm",
+                "risk_matrix",
+            ),
+            pk=summary_id,
+        )
+        if not user_can_access_unit(request, summary.unit_bisnis_id):
+            raise PermissionDenied
+
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="Profil_Risiko_{summary.unit_bisnis.name}_{summary.tahun}.pdf"'
+        )
+
+        doc = SimpleDocTemplate(
+            response,
+            pagesize=landscape(A4),
+            rightMargin=12,
+            leftMargin=12,
+            topMargin=12,
+            bottomMargin=12,
+        )
+        styles = getSampleStyleSheet()
+        normal = ParagraphStyle(
+            "ProfilNormal",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=5.2,
+            leading=6.2,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        )
+        normal_center = ParagraphStyle("ProfilNormalCenter", parent=normal, alignment=TA_CENTER)
+        header_style = ParagraphStyle(
+            "ProfilHeader",
+            parent=normal_center,
+            fontName="Helvetica-Bold",
+            textColor=colors.white,
+        )
+        title_style = ParagraphStyle(
+            "ProfilTitle",
+            parent=styles["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=13,
+            alignment=TA_CENTER,
+            spaceAfter=2,
+        )
+        section_style = ParagraphStyle("ProfilSection", parent=normal, fontName="Helvetica-Bold")
+
+        elements = []
+        header_table = Table(
+            [[
+                self.logo_flowable_pdf(),
+                [
+                    Paragraph(f"PROFIL RISIKO BIDANG/UNIT BISNIS TAHUN {summary.tahun}", title_style),
+                    Paragraph(str(summary.unit_bisnis or "").upper(), title_style),
+                    Paragraph(str(summary.judul or ""), title_style),
+                ],
+                "",
+            ]],
+            colWidths=[110, 590, 110],
+        )
+        header_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "LEFT"),
+            ("ALIGN", (1, 0), (1, 0), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(header_table)
+
+        info_table = Table(
+            [[
+                self.paragraph_pdf("Kontrak Manajemen", section_style),
+                self.paragraph_pdf(summary.kontrak_manajemen, normal),
+                self.paragraph_pdf("RKM", section_style),
+                self.paragraph_pdf(summary.rkm or "-", normal),
+                self.paragraph_pdf("Matriks Risiko", section_style),
+                self.paragraph_pdf(summary.risk_matrix or "-", normal),
+            ]],
+            colWidths=[82, 235, 32, 245, 58, 158],
+        )
+        info_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#B7C9D6")),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EEF3F8")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 6))
+
+        data = [[
+            self.paragraph_pdf("NO", header_style),
+            self.paragraph_pdf("KM/KPI", header_style),
+            self.paragraph_pdf("PERISTIWA RISIKO", header_style),
+            self.paragraph_pdf("PENYEBAB / KRI", header_style),
+            self.paragraph_pdf("EXISTING CONTROL", header_style),
+            self.paragraph_pdf("DAMPAK", header_style),
+            self.paragraph_pdf("Q1", header_style),
+            self.paragraph_pdf("Q2", header_style),
+            self.paragraph_pdf("Q3", header_style),
+            self.paragraph_pdf("Q4", header_style),
+            self.paragraph_pdf("RENCANA / OUTPUT PERLAKUAN", header_style),
+            self.paragraph_pdf("PIC", header_style),
+        ]]
+
+        items = (
+            summary.item
+            .select_related("km_item", "km_item__master_bagian")
+            .order_by("no_item", "no_risiko", "no_penyebab_risiko", "id")
+        )
+        for item in items:
+            km_label = ""
+            if item.km_item_id:
+                prefix = item.km_item.master_bagian.kode_bagian if item.km_item.master_bagian_id else ""
+                km_label = f"{prefix}{item.km_item.no_urut} - {item.km_item.indikator_kinerja_kunci}"
+            q_values = [
+                f"{getattr(item, f'level_nilai_risiko_q{q}') or ''}\n{getattr(item, f'eksposur_risiko_q{q}') or ''}"
+                for q in range(1, 5)
+            ]
+            treatment = "\n".join(filter(None, [item.rencana_perlakuan_risiko, item.output_perlakuan_risiko]))
+            cause_kri = "\n".join(filter(None, [item.penyebab_risiko, item.key_risk_indicators]))
+            data.append([
+                self.paragraph_pdf(f"{item.no_item}.{item.no_risiko}{item.no_penyebab_risiko or ''}", normal_center),
+                self.paragraph_pdf(km_label, normal),
+                self.paragraph_pdf(item.peristiwa_risiko, normal),
+                self.paragraph_pdf(cause_kri, normal),
+                self.paragraph_pdf(item.existing_control, normal),
+                self.paragraph_pdf(item.deskripsi_dampak or item.asumsi_perhitungan_dampak, normal),
+                self.paragraph_pdf(q_values[0], normal_center),
+                self.paragraph_pdf(q_values[1], normal_center),
+                self.paragraph_pdf(q_values[2], normal_center),
+                self.paragraph_pdf(q_values[3], normal_center),
+                self.paragraph_pdf(treatment, normal),
+                self.paragraph_pdf(item.pic, normal),
+            ])
+
+        table = Table(
+            data,
+            colWidths=[30, 105, 105, 110, 95, 95, 40, 40, 40, 40, 95, 55],
+            repeatRows=1,
+        )
+        table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.45, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0070C0")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 5.2),
+            ("LEADING", (0, 0), (-1, -1), 6.2),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (0, 1), (0, -1), "CENTER"),
+            ("ALIGN", (6, 1), (9, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(table)
+        doc.build(elements)
+        return response
 
 class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
     model = ProfilRisikoKorporatSumber
@@ -2320,6 +2881,320 @@ class KPMRItemAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(RiskManagementReview)
+class RiskManagementReviewAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "tahun",
+        "unit_bisnis",
+        "profil_risiko",
+        "rkm",
+        "kpmr",
+        "status",
+        "review_date",
+        "pdf_button",
+    )
+    list_filter = ("tahun", "status", "unit_bisnis", "review_date")
+    search_fields = (
+        "title",
+        "unit_bisnis__name",
+        "profil_risiko__judul",
+        "rkm__judul",
+        "kpmr__judul",
+        "review_summary",
+        "recommendation",
+    )
+    ordering = ("-tahun", "-review_date", "unit_bisnis__name")
+    autocomplete_fields = (
+        "unit_bisnis",
+        "kontrak_manajemen",
+        "rkm",
+        "profil_risiko",
+        "kpmr",
+        "pairing_officer",
+        "man_risk",
+        "vp_mrk",
+    )
+    readonly_fields = ("created_at", "updated_at")
+    fieldsets = (
+        ("Dokumen Review", {
+            "fields": (
+                "title",
+                "tahun",
+                "unit_bisnis",
+                "kontrak_manajemen",
+                "rkm",
+                "profil_risiko",
+                "kpmr",
+                "review_date",
+                "status",
+            )
+        }),
+        ("Hasil Review Sub Bidang Manajemen Risiko", {
+            "fields": (
+                "review_summary",
+                "km_notes",
+                "rkm_notes",
+                "profil_risiko_notes",
+                "kpmr_notes",
+                "recommendation",
+            )
+        }),
+        ("Penandatangan", {
+            "fields": (
+                "pairing_officer",
+                "man_risk",
+                "vp_mrk",
+            )
+        }),
+        ("Audit", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
+    )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:review_id>/pdf/",
+                self.admin_site.admin_view(self.pdf_view),
+                name="risk_riskmanagementreview_pdf",
+            ),
+        ]
+        return custom_urls + urls
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser:
+            units = assigned_unit_businesses_for_user(request.user)
+            if db_field.name == "unit_bisnis":
+                kwargs["queryset"] = units
+            elif db_field.name == "kontrak_manajemen":
+                kwargs["queryset"] = KontrakManajemen.objects.filter(unit_bisnis__in=units)
+            elif db_field.name == "rkm":
+                kwargs["queryset"] = RKMSummary.objects.filter(unit_bisnis__in=units)
+            elif db_field.name == "profil_risiko":
+                kwargs["queryset"] = ReAssessmentSummary.objects.filter(unit_bisnis__in=units)
+            elif db_field.name == "kpmr":
+                kwargs["queryset"] = KPMRSummary.objects.filter(unit_bisnis__in=units)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def has_view_permission(self, request, obj=None):
+        allowed = super().has_view_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_change_permission(self, request, obj=None):
+        allowed = super().has_change_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def has_delete_permission(self, request, obj=None):
+        allowed = super().has_delete_permission(request, obj)
+        if not allowed or obj is None or request.user.is_superuser:
+            return allowed
+        return user_can_access_unit(request, obj.unit_bisnis_id)
+
+    def pdf_button(self, obj):
+        url = reverse("admin:risk_riskmanagementreview_pdf", args=[obj.pk])
+        return format_html('<a class="button" href="{}" target="_blank">PDF Review</a>', url)
+
+    pdf_button.short_description = "PDF"
+
+    def _logo_flowable(self):
+        logo_path = None
+        app_setting = AppSetting.objects.first()
+        if app_setting and app_setting.logo:
+            candidate = Path(app_setting.logo.path)
+            if candidate.exists():
+                logo_path = candidate
+        if not logo_path:
+            candidate = Path(settings.MEDIA_ROOT) / "system/logo/pln_batam_logo.png"
+            if candidate.exists():
+                logo_path = candidate
+        if logo_path:
+            return Image(str(logo_path), width=100, height=50)
+        return Paragraph("<b>PLN Batam</b>", getSampleStyleSheet()["Normal"])
+
+    def _p(self, text, style):
+        return Paragraph(escape(str(text or "")), style)
+
+    def _user_name(self, user):
+        if not user:
+            return ""
+        return user.get_full_name() or user.username
+
+    def _user_position(self, user, tanggal):
+        if not user or not tanggal:
+            return ""
+        riwayat = (
+            user.riwayat_jabatan
+            .filter(tanggal_mulai__lte=tanggal)
+            .filter(
+                models.Q(tanggal_selesai__isnull=True)
+                | models.Q(tanggal_selesai__gte=tanggal)
+            )
+            .order_by("-tanggal_mulai")
+            .first()
+        )
+        return riwayat.jabatan if riwayat else ""
+
+    def _signature_cell(self, label, user, tanggal, normal_center, sign_bold):
+        name = self._user_name(user)
+        position = self._user_position(user, tanggal) or label
+        return [
+            Paragraph(escape(label), normal_center),
+            Paragraph(escape(position), normal_center),
+            Spacer(1, 34),
+            Paragraph(f"<u>{escape(name)}</u>", sign_bold) if name else Paragraph("", sign_bold),
+        ]
+
+    def pdf_view(self, request, review_id):
+        review = get_object_or_404(
+            RiskManagementReview.objects.select_related(
+                "unit_bisnis",
+                "kontrak_manajemen",
+                "rkm",
+                "profil_risiko",
+                "kpmr",
+                "pairing_officer",
+                "man_risk",
+                "vp_mrk",
+            ),
+            pk=review_id,
+        )
+        if not user_can_access_unit(request, review.unit_bisnis_id):
+            raise PermissionDenied
+
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="Review_MR_{review.unit_bisnis.name}_{review.tahun}.pdf"'
+        )
+
+        doc = SimpleDocTemplate(
+            response,
+            pagesize=A4,
+            rightMargin=28,
+            leftMargin=28,
+            topMargin=24,
+            bottomMargin=24,
+        )
+        styles = getSampleStyleSheet()
+        normal = ParagraphStyle(
+            "MRReviewNormal",
+            parent=styles["Normal"],
+            fontSize=8,
+            leading=10,
+            alignment=TA_LEFT,
+        )
+        normal_center = ParagraphStyle("MRReviewCenter", parent=normal, alignment=TA_CENTER)
+        title_style = ParagraphStyle(
+            "MRReviewTitle",
+            parent=styles["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=13,
+            leading=16,
+            alignment=TA_CENTER,
+        )
+        header_style = ParagraphStyle(
+            "MRReviewHeader",
+            parent=normal_center,
+            fontName="Helvetica-Bold",
+            textColor=colors.white,
+        )
+        label_style = ParagraphStyle("MRReviewLabel", parent=normal, fontName="Helvetica-Bold")
+
+        elements = []
+        header_table = Table(
+            [[
+                self._logo_flowable(),
+                [
+                    Paragraph("HASIL REVIEW SUB BIDANG MANAJEMEN RISIKO", title_style),
+                    Paragraph(str(review.unit_bisnis or "").upper(), title_style),
+                    Paragraph(f"TAHUN {review.tahun}", title_style),
+                ],
+            ]],
+            colWidths=[105, 435],
+        )
+        header_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(header_table)
+
+        info_rows = [
+            ["Judul Review", review.title, "Tanggal Review", review.review_date.strftime("%d-%m-%Y")],
+            ["Kontrak Manajemen", review.kontrak_manajemen, "Status", review.get_status_display()],
+            ["RKM", review.rkm, "KPMR", review.kpmr or "-"],
+            ["Profil Risiko", review.profil_risiko, "Unit", review.unit_bisnis],
+        ]
+        info_table = Table(
+            [[self._p(a, label_style), self._p(b, normal), self._p(c, label_style), self._p(d, normal)] for a, b, c, d in info_rows],
+            colWidths=[95, 190, 80, 175],
+        )
+        info_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#B7C9D6")),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EEF3F8")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 10))
+
+        review_rows = [
+            ["Ringkasan Hasil Review", review.review_summary],
+            ["Catatan KM", review.km_notes],
+            ["Catatan RKM", review.rkm_notes],
+            ["Catatan Profil Risiko", review.profil_risiko_notes],
+            ["Catatan KPMR", review.kpmr_notes],
+            ["Rekomendasi / Tindak Lanjut", review.recommendation],
+        ]
+        review_table = Table(
+            [[self._p(label, label_style), self._p(value or "-", normal)] for label, value in review_rows],
+            colWidths=[145, 395],
+        )
+        review_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#D9EAF7")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(review_table)
+        elements.append(Spacer(1, 16))
+
+        tanggal_text = review.review_date.strftime("%d-%m-%Y")
+        elements.append(Paragraph(f"Batam, {tanggal_text}", normal))
+        elements.append(Spacer(1, 8))
+
+        sign_bold = ParagraphStyle("MRReviewSignBold", parent=normal_center, fontName="Helvetica-Bold")
+        signature_rows = [
+            [
+                self._signature_cell("Pairing Officer", review.pairing_officer, review.review_date, normal_center, sign_bold),
+                self._signature_cell("MAN RISK", review.man_risk, review.review_date, normal_center, sign_bold),
+                self._signature_cell("VP MRK", review.vp_mrk, review.review_date, normal_center, sign_bold),
+            ]
+        ]
+        signature_table = Table(signature_rows, colWidths=[180, 180, 180], rowHeights=[88])
+        signature_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#B7C9D6")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(signature_table)
+
+        doc.build(elements)
+        return response
 
 # =========================================================
 # KPMR PLN 2026 (RESMI)
@@ -3579,6 +4454,7 @@ risk_admin_site.register(RKMItem, RKMItemAdmin)
 risk_admin_site.register(ReAssessmentSummary, ReAssessmentSummaryAdmin)
 risk_admin_site.register(ReAssessmentItem, ReAssessmentItemAdmin)
 risk_admin_site.register(KPMRSummary, KPMRSummaryAdmin)
+risk_admin_site.register(RiskManagementReview, RiskManagementReviewAdmin)
 risk_admin_site.register(ProfilRisikoKorporatSummary, ProfilRisikoKorporatSummaryAdmin)
 risk_admin_site.register(ProfilRisikoKorporatItem, ProfilRisikoKorporatItemAdmin)
 risk_admin_site.register(TaksonomiT3, TaksonomiT3Admin)

@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 from django.utils.text import Truncator, slugify
 
 
@@ -2110,37 +2111,28 @@ class KPMRSummary(models.Model):
         return "; ".join(notes)
 
     def generate_items_from_reassessment(self):
-        reassessment_items = self.reassessment.item.all().order_by("no_item")
+        reassessment_items = self.reassessment.item.all().order_by(
+            "no_item",
+            "no_risiko",
+            "no_penyebab_risiko",
+            "id",
+        )
         created_or_updated_count = 0
 
-        existing_ids = set(
-            self.item.values_list("reassessment_item_id", flat=True)
-        )
-        current_ids = set()
+        self.item.all().delete()
 
-        for reassessment_item in reassessment_items:
-            current_ids.add(reassessment_item.id)
-
-            defaults = {
-                "no_item": reassessment_item.no_item,
-                "perlakuan_risiko": reassessment_item.rencana_perlakuan_risiko or "",
-                "bukti": reassessment_item.output_perlakuan_risiko or "",
-                "nilai_kpmr": self._calculate_auto_score(reassessment_item),
-                "status_kpmr": self._calculate_auto_status(reassessment_item),
-                "catatan": self._build_auto_note(reassessment_item),
-            }
-
-            KPMRItem.objects.update_or_create(
+        for sequence, reassessment_item in enumerate(reassessment_items, start=1):
+            KPMRItem.objects.create(
                 summary=self,
                 reassessment_item=reassessment_item,
-                defaults=defaults,
+                no_item=sequence,
+                perlakuan_risiko=reassessment_item.rencana_perlakuan_risiko or "",
+                bukti=reassessment_item.output_perlakuan_risiko or "",
+                nilai_kpmr=self._calculate_auto_score(reassessment_item),
+                status_kpmr=self._calculate_auto_status(reassessment_item),
+                catatan=self._build_auto_note(reassessment_item),
             )
             created_or_updated_count += 1
-
-        # Hapus item yang sumber reassessment-nya sudah tidak ada
-        stale_ids = existing_ids - current_ids
-        if stale_ids:
-            self.item.filter(reassessment_item_id__in=stale_ids).delete()
 
         return created_or_updated_count
 
@@ -2211,6 +2203,153 @@ class KPMRItem(models.Model):
 
     def __str__(self):
         return f"{self.summary} - {self.no_item}"
+
+
+class RiskManagementReview(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_REVIEWED = "reviewed"
+    STATUS_FINAL = "final"
+
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_REVIEWED, "Reviewed"),
+        (STATUS_FINAL, "Final"),
+    ]
+
+    title = models.CharField(max_length=255, verbose_name="Judul Review")
+    tahun = models.PositiveIntegerField(verbose_name="Tahun")
+    unit_bisnis = models.ForeignKey(
+        Group,
+        on_delete=models.PROTECT,
+        related_name="risk_management_reviews",
+        verbose_name="Bidang / Unit Bisnis",
+    )
+    kontrak_manajemen = models.ForeignKey(
+        "KontrakManajemen",
+        on_delete=models.PROTECT,
+        related_name="risk_management_reviews",
+        verbose_name="Kontrak Manajemen",
+    )
+    rkm = models.ForeignKey(
+        "RKMSummary",
+        on_delete=models.PROTECT,
+        related_name="risk_management_reviews",
+        verbose_name="RKM",
+    )
+    profil_risiko = models.ForeignKey(
+        "ReAssessmentSummary",
+        on_delete=models.PROTECT,
+        related_name="risk_management_reviews",
+        verbose_name="Profil Risiko",
+    )
+    kpmr = models.ForeignKey(
+        "KPMRSummary",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="risk_management_reviews",
+        verbose_name="KPMR",
+    )
+    review_date = models.DateField(default=timezone.localdate, verbose_name="Tanggal Review")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    review_summary = models.TextField(
+        blank=True,
+        verbose_name="Ringkasan Hasil Review Sub Bidang Manajemen Risiko",
+    )
+    km_notes = models.TextField(blank=True, verbose_name="Catatan Review KM")
+    rkm_notes = models.TextField(blank=True, verbose_name="Catatan Review RKM")
+    profil_risiko_notes = models.TextField(blank=True, verbose_name="Catatan Review Profil Risiko")
+    kpmr_notes = models.TextField(blank=True, verbose_name="Catatan Review KPMR")
+    recommendation = models.TextField(blank=True, verbose_name="Rekomendasi / Tindak Lanjut")
+    pairing_officer = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="risk_reviews_as_pairing_officer",
+        verbose_name="Pairing Officer",
+    )
+    man_risk = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="risk_reviews_as_man_risk",
+        verbose_name="MAN RISK",
+    )
+    vp_mrk = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="risk_reviews_as_vp_mrk",
+        verbose_name="VP MRK",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Dibuat Pada")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Diubah Pada")
+
+    class Meta:
+        verbose_name = "Review Manajemen Risiko"
+        verbose_name_plural = "REVIEW — Manajemen Risiko"
+        ordering = ["-tahun", "-review_date", "unit_bisnis__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["profil_risiko", "rkm"],
+                name="unik_review_mr_per_profil_rkm",
+            )
+        ]
+
+    def __str__(self):
+        return self.title
+
+    def _active_pairing_officer(self):
+        if not self.unit_bisnis_id:
+            return None
+        assignment = (
+            PenugasanUnitBisnis.objects
+            .filter(
+                unit_bisnis=self.unit_bisnis,
+                peran=PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
+                aktif=True,
+            )
+            .select_related("user")
+            .first()
+        )
+        return assignment.user if assignment else None
+
+    def clean(self):
+        errors = {}
+        if self.profil_risiko_id:
+            if self.unit_bisnis_id and self.profil_risiko.unit_bisnis_id != self.unit_bisnis_id:
+                errors["profil_risiko"] = "Profil Risiko harus berasal dari unit bisnis yang sama."
+            if self.kontrak_manajemen_id and self.profil_risiko.kontrak_manajemen_id != self.kontrak_manajemen_id:
+                errors["profil_risiko"] = "Profil Risiko harus terkait Kontrak Manajemen yang sama."
+        if self.rkm_id:
+            if self.unit_bisnis_id and self.rkm.unit_bisnis_id != self.unit_bisnis_id:
+                errors["rkm"] = "RKM harus berasal dari unit bisnis yang sama."
+            if self.kontrak_manajemen_id and self.rkm.kontrak_manajemen_id != self.kontrak_manajemen_id:
+                errors["rkm"] = "RKM harus terkait Kontrak Manajemen yang sama."
+        if self.kpmr_id and self.profil_risiko_id and self.kpmr.reassessment_id != self.profil_risiko_id:
+            errors["kpmr"] = "KPMR harus dihitung dari Profil Risiko yang sama."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.profil_risiko_id:
+            self.unit_bisnis = self.profil_risiko.unit_bisnis
+            self.kontrak_manajemen = self.profil_risiko.kontrak_manajemen
+            if not self.tahun:
+                self.tahun = self.profil_risiko.tahun
+            if not self.rkm_id and self.profil_risiko.rkm_id:
+                self.rkm = self.profil_risiko.rkm
+            if not self.title:
+                self.title = f"Review MR {self.unit_bisnis.name} {self.tahun}"
+        if self.rkm_id and not self.tahun:
+            self.tahun = self.rkm.tahun
+        if not self.pairing_officer_id:
+            self.pairing_officer = self._active_pairing_officer()
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 # =========================================================

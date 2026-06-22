@@ -42,6 +42,7 @@ from risk.models import (
     ReAssessmentItem,
     KPMRSummary,
     KPMRItem,
+    RiskManagementReview,
     ProfilRisikoKorporatSummary,
     ProfilRisikoKorporatItem,
     ProfilRisikoKorporatSumber,
@@ -340,6 +341,7 @@ class RiskAdminSite(AdminSite):
             "rkm": self._unit_limited_count(request, RKMSummary, "unit_bisnis"),
             "reassessment": self._unit_limited_count(request, ReAssessmentSummary, "unit_bisnis"),
             "kpmr": self._unit_limited_count(request, KPMRSummary, "unit_bisnis"),
+            "risk_review": self._unit_limited_count(request, RiskManagementReview, "unit_bisnis"),
             "monthly_report": self._unit_limited_count(
                 request,
                 MonthlyRiskReport,
@@ -533,6 +535,15 @@ class RiskAdminSite(AdminSite):
                 "items": [
                     {"label": "KPMR Unit/Bidang", "url": "/admin/risk/kpmrsummary/"},
                     {"label": "Item KPMR", "url": "/admin/risk/kpmritem/"},
+                ],
+            },
+            {
+                "title": "Review Manajemen Risiko",
+                "level": "evaluation",
+                "color": "reassessment",
+                "count": stats["risk_review"],
+                "items": [
+                    {"label": "Hasil Review MR", "url": "/admin/risk/riskmanagementreview/"},
                 ],
             },
             {
