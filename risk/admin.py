@@ -200,7 +200,7 @@ class AppSettingAdmin(admin.ModelAdmin):
         "masked_ai_key",
         "diperbarui_pada",
     )
-    readonly_fields = ("logo_preview", "masked_ai_key", "diperbarui_pada")
+    readonly_fields = ("logo_preview", "masked_ai_key", "masked_email_password", "diperbarui_pada")
     fieldsets = (
         ("Identitas Aplikasi & Logo", {
             "fields": (
@@ -241,6 +241,23 @@ class AppSettingAdmin(admin.ModelAdmin):
                 "Jika AI tidak aktif atau API gagal, sistem tetap memakai insight rule-based."
             ),
         }),
+        ("SMTP Email", {
+            "fields": (
+                "email_smtp_aktif",
+                "email_host",
+                "email_port",
+                "email_host_user",
+                "email_host_password",
+                "masked_email_password",
+                "email_use_tls",
+                "email_use_ssl",
+                "default_from_email",
+            ),
+            "description": (
+                "Dipakai untuk mengirim notifikasi email dari aplikasi, termasuk Risk Awareness. "
+                "Jika tidak aktif, sistem memakai konfigurasi EMAIL_* dari environment."
+            ),
+        }),
         ("Lain-lain", {
             "fields": (
                 "support_email",
@@ -267,6 +284,10 @@ class AppSettingAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    @admin.display(description="SMTP Password Tersimpan")
+    def masked_email_password(self, obj):
+        return obj.masked_email_host_password if obj else "-"
 
     def logo_preview(self, obj):
         if obj and obj.logo:

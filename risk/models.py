@@ -130,6 +130,47 @@ class AppSetting(models.Model):
         default=Decimal("0.20"),
         verbose_name="Temperature AI",
     )
+    email_smtp_aktif = models.BooleanField(
+        default=False,
+        verbose_name="SMTP Email Aktif",
+    )
+    email_host = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="SMTP Host",
+    )
+    email_port = models.PositiveIntegerField(
+        default=587,
+        verbose_name="SMTP Port",
+    )
+    email_host_user = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="SMTP Username",
+    )
+    email_host_password = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="SMTP Password",
+    )
+    email_use_tls = models.BooleanField(
+        default=True,
+        verbose_name="SMTP Gunakan TLS",
+    )
+    email_use_ssl = models.BooleanField(
+        default=False,
+        verbose_name="SMTP Gunakan SSL",
+    )
+    default_from_email = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Default From Email",
+        help_text="Contoh: PLNBATAM CSIRT <noreply@plnbatam.com>",
+    )
     support_email = models.EmailField(
         blank=True,
         default="",
@@ -169,6 +210,14 @@ class AppSetting(models.Model):
         if len(self.ai_api_key) <= 8:
             return "********"
         return f"{self.ai_api_key[:4]}...{self.ai_api_key[-4:]}"
+
+    @property
+    def masked_email_host_password(self):
+        if not self.email_host_password:
+            return "-"
+        if len(self.email_host_password) <= 8:
+            return "********"
+        return f"{self.email_host_password[:2]}...{self.email_host_password[-2:]}"
 
 
 class KnowledgeBaseCategory(models.Model):

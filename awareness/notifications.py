@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -97,8 +97,19 @@ def send_awareness_notification(campaign, recipients, request=None, base_url=Non
     subject = campaign_subject(campaign)
     text_body = render_to_string("awareness/email/notification.txt", context)
     html_body = render_to_string("awareness/email/notification.html", context)
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    from_email = app_setting.default_from_email or getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    connection = None
+    if app_setting.email_smtp_aktif and app_setting.email_host:
+        connection = get_connection(
+            backend="django.core.mail.backends.smtp.EmailBackend",
+            host=app_setting.email_host,
+            port=app_setting.email_port,
+            username=app_setting.email_host_user or None,
+            password=app_setting.email_host_password or None,
+            use_tls=app_setting.email_use_tls,
+            use_ssl=app_setting.email_use_ssl,
+        )
 
-    message = EmailMultiAlternatives(subject, text_body, from_email, recipients)
+    message = EmailMultiAlternatives(subject, text_body, from_email, recipients, connection=connection)
     message.attach_alternative(html_body, "text/html")
     return message.send()

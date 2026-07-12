@@ -4,12 +4,23 @@ from io import StringIO
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core import mail
+from django.core.mail.backends.locmem import EmailBackend as LocMemEmailBackend
 from django.test import override_settings
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from .models import AwarenessAnswer, AwarenessAttempt, AwarenessCampaign, AwarenessQuestion
+from .notifications import send_awareness_notification
+from risk.models import AppSetting
+
+
+class DummySMTPBackend(LocMemEmailBackend):
+    init_kwargs = None
+
+    def __init__(self, *args, **kwargs):
+        type(self).init_kwargs = kwargs.copy()
+        super().__init__(*args, **kwargs)
 
 
 class AwarenessFlowTests(TestCase):
@@ -270,3 +281,42 @@ class AwarenessFlowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["armeizir@plnbatam.com"])
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
+        DEFAULT_FROM_EMAIL="webmaster@localhost",
+    )
+    def test_awareness_notification_uses_smtp_from_app_setting_when_active(self):
+        app_setting = AppSetting.get_solo()
+        app_setting.email_smtp_aktif = True
+        app_setting.email_host = "smtp.plnbatam.com"
+        app_setting.email_port = 587
+        app_setting.email_host_user = "csirt"
+        app_setting.email_host_password = "secret"
+        app_setting.email_use_tls = True
+        app_setting.email_use_ssl = False
+        app_setting.default_from_email = "PLNBATAM CSIRT <noreply@plnbatam.com>"
+        app_setting.save()
+
+        import awareness.notifications as notifications
+        old_get_connection = notifications.get_connection
+
+        def fake_connection(**kwargs):
+            kwargs.pop("backend", None)
+            return DummySMTPBackend(**kwargs)
+
+        notifications.get_connection = fake_connection
+        try:
+            sent = send_awareness_notification(
+                self.campaign,
+                ["armeizir@plnbatam.com"],
+                base_url="https://erm.plnbatam.com",
+            )
+        finally:
+            notifications.get_connection = old_get_connection
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].from_email, "PLNBATAM CSIRT <noreply@plnbatam.com>")
+        self.assertEqual(DummySMTPBackend.init_kwargs["host"], "smtp.plnbatam.com")
+        self.assertEqual(DummySMTPBackend.init_kwargs["username"], "csirt")
