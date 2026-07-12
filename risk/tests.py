@@ -168,6 +168,244 @@ class RKMPDFAdminTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
 
+    def test_superuser_can_download_rkm_pdf_for_previous_month(self):
+        User = get_user_model()
+        admin_user = User.objects.create_superuser(username="admin-rkm-month", password="secret")
+        unit = Group.objects.create(name="UB RKM MONTH")
+        template = MasterTemplateKM.objects.create(tahun=2026, nama="Template RKM Month 2026")
+        master_bagian = MasterBagianKM.objects.create(
+            template=template,
+            kode_bagian="A",
+            nama_bagian="Keuangan",
+            urutan=1,
+        )
+        kontrak = KontrakManajemen.objects.create(
+            judul="SMRKM-MONTH",
+            tahun=2026,
+            unit_bisnis=unit,
+            template=template,
+        )
+        bagian = BagianKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            kode_bagian="A",
+            nama_bagian="Keuangan",
+        )
+        km_item = ItemKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            bagian=bagian,
+            master_bagian=master_bagian,
+            no_urut=1,
+            indikator_kinerja_kunci="Optimalisasi Biaya",
+            satuan="%",
+            bobot=10,
+            target="100",
+        )
+        rkm = RKMSummary.objects.create(
+            judul="RKM UB TEST Mei 2026",
+            tahun=2026,
+            bulan=5,
+            unit_bisnis=unit,
+            kontrak_manajemen=kontrak,
+        )
+        RKMItem.objects.create(
+            summary=rkm,
+            no_item=1,
+            km_item=km_item,
+            kategori_rkm="A",
+            kpi_indikator="Optimalisasi Biaya",
+            target_april="100",
+            realisasi_april="90",
+            target_mei="100",
+            realisasi_mei="95",
+        )
+
+        client = Client(HTTP_HOST="127.0.0.1")
+        client.force_login(admin_user)
+        response = client.get(
+            reverse("admin:risk_rkmsummary_pdf", args=[rkm.pk]),
+            {"bulan": 4},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("RKM_UB RKM MONTH_4_2026.pdf", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_superuser_can_download_km_pdf_for_previous_month_from_later_rkm(self):
+        User = get_user_model()
+        admin_user = User.objects.create_superuser(username="admin-km-month", password="secret")
+        unit = Group.objects.create(name="UB KM MONTH")
+        template = MasterTemplateKM.objects.create(tahun=2026, nama="Template KM Month 2026")
+        master_bagian = MasterBagianKM.objects.create(
+            template=template,
+            kode_bagian="A",
+            nama_bagian="Keuangan",
+            urutan=1,
+        )
+        kontrak = KontrakManajemen.objects.create(
+            judul="SMKM-MONTH",
+            tahun=2026,
+            unit_bisnis=unit,
+            template=template,
+        )
+        bagian = BagianKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            kode_bagian="A",
+            nama_bagian="Keuangan",
+        )
+        km_item = ItemKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            bagian=bagian,
+            master_bagian=master_bagian,
+            no_urut=1,
+            indikator_kinerja_kunci="Optimalisasi Biaya",
+            satuan="%",
+            bobot=10,
+            target="100",
+        )
+        rkm = RKMSummary.objects.create(
+            judul="RKM UB TEST Mei 2026",
+            tahun=2026,
+            bulan=5,
+            unit_bisnis=unit,
+            kontrak_manajemen=kontrak,
+        )
+        RKMItem.objects.create(
+            summary=rkm,
+            no_item=1,
+            km_item=km_item,
+            kategori_rkm="A",
+            kpi_indikator="Optimalisasi Biaya",
+            target_april="100",
+            realisasi_april="90",
+            target_mei="100",
+            realisasi_mei="95",
+        )
+
+        client = Client(HTTP_HOST="127.0.0.1")
+        client.force_login(admin_user)
+        response = client.get(
+            reverse("admin:risk_kontrakmanajemen_pdf", args=[kontrak.pk]),
+            {"tahun": 2026, "bulan": 4},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_generate_rkm_items_skips_existing_and_uses_next_available_number(self):
+        unit = Group.objects.create(name="UB RKM GENERATE")
+        template = MasterTemplateKM.objects.create(tahun=2026, nama="Template RKM Generate 2026")
+        master_bagian = MasterBagianKM.objects.create(
+            template=template,
+            kode_bagian="A",
+            nama_bagian="Keuangan",
+            urutan=1,
+        )
+        kontrak = KontrakManajemen.objects.create(
+            judul="SMRKM-GENERATE",
+            tahun=2026,
+            unit_bisnis=unit,
+            template=template,
+        )
+        bagian = BagianKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            kode_bagian="A",
+            nama_bagian="Keuangan",
+        )
+        km_item_1 = ItemKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            bagian=bagian,
+            master_bagian=master_bagian,
+            no_urut=1,
+            indikator_kinerja_kunci="Optimalisasi Biaya",
+            satuan="%",
+            bobot=10,
+            target="100",
+        )
+        ItemKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            bagian=bagian,
+            master_bagian=master_bagian,
+            no_urut=2,
+            indikator_kinerja_kunci="Pengendalian Piutang",
+            satuan="Hari",
+            bobot=10,
+            target="30",
+        )
+        rkm = RKMSummary.objects.create(
+            judul="RKM UB Generate Mei 2026",
+            tahun=2026,
+            bulan=5,
+            unit_bisnis=unit,
+            kontrak_manajemen=kontrak,
+        )
+        RKMItem.objects.create(
+            summary=rkm,
+            no_item=1,
+            km_item=km_item_1,
+            kategori_rkm="A",
+            kpi_indikator="Optimalisasi Biaya",
+        )
+
+        created_count = rkm.generate_items_from_km()
+
+        self.assertEqual(created_count, 1)
+        self.assertEqual(
+            list(rkm.item.order_by("no_item").values_list("no_item", flat=True)),
+            [1, 2],
+        )
+
+    def test_rkm_item_calculates_monthly_total_and_percentage(self):
+        unit = Group.objects.create(name="UB RKM CALC")
+        template = MasterTemplateKM.objects.create(tahun=2026, nama="Template RKM Calc 2026")
+        master_bagian = MasterBagianKM.objects.create(
+            template=template,
+            kode_bagian="A",
+            nama_bagian="Keuangan",
+            urutan=1,
+        )
+        kontrak = KontrakManajemen.objects.create(
+            judul="SMRKM-CALC",
+            tahun=2026,
+            unit_bisnis=unit,
+            template=template,
+        )
+        bagian = BagianKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            kode_bagian="A",
+            nama_bagian="Keuangan",
+        )
+        km_item = ItemKontrakManajemen.objects.create(
+            kontrak=kontrak,
+            bagian=bagian,
+            master_bagian=master_bagian,
+            no_urut=1,
+            indikator_kinerja_kunci="Optimalisasi Biaya",
+            satuan="%",
+            bobot=10,
+            target="100",
+        )
+        rkm = RKMSummary.objects.create(
+            judul="RKM UB Calc Mei 2026",
+            tahun=2026,
+            bulan=5,
+            unit_bisnis=unit,
+            kontrak_manajemen=kontrak,
+        )
+
+        item = RKMItem.objects.create(
+            summary=rkm,
+            no_item=1,
+            km_item=km_item,
+            kategori_rkm="A",
+            target_mei="80",
+            realisasi_mei="81",
+        )
+
+        self.assertEqual(item.jumlah_realisasi, "81")
+        self.assertEqual(str(item.persen_capaian), "101.25")
+
     def test_superuser_can_download_unit_risk_profile_pdf(self):
         User = get_user_model()
         admin_user = User.objects.create_superuser(username="admin-profile", password="secret")

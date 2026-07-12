@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ campaign.title }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f7fb;color:#334155;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;margin:0;padding:28px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="width:640px;max-width:94%;background:#ffffff;border-collapse:collapse;">
+          <tr>
+            <td style="background:#1b2a3a;padding:42px 32px;text-align:center;color:#ffffff;">
+              <div style="display:inline-block;width:56px;height:56px;border-radius:999px;background:#18b8cf;color:#ffffff;line-height:56px;font-size:28px;margin-bottom:22px;">&#128274;</div>
+              <div style="font-size:30px;line-height:1.2;font-weight:700;letter-spacing:1px;">
+                CYBER SECURITY
+                <span style="background:#e82712;color:#ffffff;padding:4px 8px;">AWARENESS</span>
+              </div>
+              <div style="margin-top:16px;color:#16bfd2;font-size:16px;">
+                Keamanan Teknologi Informasi &bull; {{ month_year|upper }}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:36px 42px 18px;">
+              <p style="margin:0 0 24px;font-size:16px;line-height:1.55;"><strong>Yth. Bapak dan Ibu,</strong></p>
+              <p style="margin:0 0 20px;font-size:16px;line-height:1.55;">
+                Dalam rangka meningkatkan <span style="background:#fff19a;">awareness</span> pegawai terkait keamanan siber di lingkungan
+                <strong>PT PLN Batam</strong>, kami mohon kesediaan Bapak/Ibu untuk berpartisipasi dalam
+                <strong style="color:#078b98;">{{ campaign.title }} Bulan {{ month_year|upper }}.</strong>
+              </p>
+              <p style="margin:0 0 28px;font-size:16px;line-height:1.55;">
+                Mohon bantuan Bapak dan Ibu untuk meluangkan waktu dan mengisi form survei dengan mengklik tombol di bawah ini:
+              </p>
+              <p style="margin:0 0 30px;">
+                <a href="{{ material_url }}" style="display:inline-block;background:#16b8c9;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:16px 42px;border-radius:8px;">
+                  Isi Survei Sekarang &rarr;
+                </a>
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 24px;">
+                <tr>
+                  <td style="border-left:4px solid #16b8c9;background:#dff7fb;padding:18px 20px;font-size:16px;line-height:1.45;color:#155e65;">
+                    <strong>Periode Survei:</strong> {{ period_text }}
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#64748b;">
+                Jika tombol tidak dapat dibuka, salin tautan berikut ke browser:
+              </p>
+              <p style="margin:0;font-size:13px;line-height:1.5;color:#64748b;word-break:break-all;">{{ material_url }}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 42px 34px;color:#64748b;font-size:13px;line-height:1.5;">
+              Terima kasih atas partisipasi Bapak/Ibu.<br>
+              <strong>{{ app_setting.nama_aplikasi|default:"Manajemen Risiko PLN Batam" }}</strong>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

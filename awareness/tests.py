@@ -3,6 +3,8 @@ from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.core import mail
+from django.test import override_settings
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -224,3 +226,47 @@ class AwarenessFlowTests(TestCase):
         campaign = AwarenessCampaign.objects.get(title="Awareness Manajemen Risiko Dasar 2026")
         self.assertGreaterEqual(campaign.questions.count(), 10)
         self.assertIn("Seed awareness selesai", out.getvalue())
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="PLNBATAM CSIRT <noreply@plnbatam.com>",
+        ALLOWED_HOSTS=["127.0.0.1"],
+    )
+    def test_send_awareness_reminder_command_sends_html_email_to_test_address(self):
+        out = StringIO()
+
+        call_command(
+            "send_awareness_reminders",
+            "--campaign-id",
+            str(self.campaign.pk),
+            "--email",
+            "armeizir@plnbatam.com",
+            "--base-url",
+            "http://127.0.0.1:8001",
+            stdout=out,
+        )
+
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(message.to, ["armeizir@plnbatam.com"])
+        self.assertIn("Pelaksanaan Awareness Manajemen Risiko Dasar 2026", message.subject)
+        self.assertIn("http://127.0.0.1:8001/awareness/", message.body)
+        self.assertTrue(message.alternatives)
+        self.assertIn("Isi Survei Sekarang", message.alternatives[0].content)
+        self.assertIn("Email awareness terkirim", out.getvalue())
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="PLNBATAM CSIRT <noreply@plnbatam.com>",
+    )
+    def test_admin_can_send_awareness_test_notification(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(
+            reverse("risk_admin:awareness_campaign_send_test", args=[self.campaign.pk]),
+            {"email": "armeizir@plnbatam.com"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["armeizir@plnbatam.com"])

@@ -12,6 +12,7 @@ from openpyxl import Workbook
 from riskproject.admin_site import risk_admin_site
 
 from .models import AwarenessAnswer, AwarenessAttempt, AwarenessCampaign, AwarenessQuestion
+from .notifications import send_awareness_notification
 
 
 class StaffAwarenessAdminMixin:
@@ -61,6 +62,7 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         "passing_score",
         "max_attempts",
         "is_active",
+        "send_test_link",
         "report_link",
         "export_link",
     )
@@ -113,6 +115,11 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
                 self.admin_site.admin_view(self.export_xlsx_view),
                 name="awareness_campaign_export_xlsx",
             ),
+            path(
+                "<int:campaign_id>/send-test/",
+                self.admin_site.admin_view(self.send_test_view),
+                name="awareness_campaign_send_test",
+            ),
         ]
         return custom_urls + super().get_urls()
 
@@ -125,6 +132,24 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     def export_link(self, obj):
         url = reverse(f"{self.admin_site.name}:awareness_campaign_export_xlsx", args=[obj.pk])
         return format_html('<a class="button" href="{}">Export XLSX</a>', url)
+
+    @admin.display(description="Notifikasi")
+    def send_test_link(self, obj):
+        url = reverse(f"{self.admin_site.name}:awareness_campaign_send_test", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Kirim Test</a>', url)
+
+    def send_test_view(self, request, campaign_id):
+        if not self._is_awareness_staff(request):
+            self.message_user(request, "Anda tidak memiliki permission kirim notifikasi awareness.", messages.ERROR)
+            return redirect("..")
+        campaign = get_object_or_404(AwarenessCampaign, pk=campaign_id)
+        recipient = request.GET.get("email") or request.user.email or "armeizir@plnbatam.com"
+        sent = send_awareness_notification(campaign, [recipient], request=request)
+        if sent:
+            self.message_user(request, f"Test notifikasi awareness terkirim ke {recipient}.", messages.SUCCESS)
+        else:
+            self.message_user(request, f"Test notifikasi awareness gagal dikirim ke {recipient}.", messages.ERROR)
+        return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
 
     def _report_context(self, request):
         attempts = AwarenessAttempt.objects.select_related("campaign", "user")

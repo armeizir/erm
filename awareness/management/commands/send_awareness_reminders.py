@@ -1,34 +1,69 @@
-from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
-from django.utils import timezone
+from django.core.management.base import BaseCommand, CommandError
 
-from awareness.models import AwarenessAttempt, AwarenessCampaign
+from awareness.models import AwarenessCampaign
+from awareness.notifications import (
+    active_awareness_campaigns,
+    pending_awareness_users,
+    send_awareness_notification,
+)
 
 
 class Command(BaseCommand):
-    help = "Menampilkan daftar user yang perlu diingatkan mengikuti awareness aktif."
+    help = "Kirim notifikasi email awareness untuk campaign aktif atau email uji coba."
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--campaign-id",
+            type=int,
+            help="ID campaign awareness. Jika kosong, campaign aktif terbaru akan digunakan.",
+        )
+        parser.add_argument(
+            "--email",
+            action="append",
+            default=[],
+            help="Email tujuan uji coba. Bisa dipakai berulang. Jika diisi, hanya email ini yang dikirim.",
+        )
+        parser.add_argument(
+            "--base-url",
+            default=None,
+            help="Base URL aplikasi untuk tombol email, misalnya https://erm.plnbatam.com.",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Tampilkan kandidat penerima tanpa mengirim email.",
+        )
+
+    def _campaign(self, campaign_id):
+        if campaign_id:
+            return AwarenessCampaign.objects.filter(pk=campaign_id).first()
+        return active_awareness_campaigns().first()
 
     def handle(self, *args, **options):
-        today = timezone.localdate()
-        campaigns = AwarenessCampaign.objects.filter(
-            is_active=True,
-            start_date__lte=today,
-            end_date__gte=today,
-        ).order_by("title")
-        users = get_user_model().objects.filter(is_active=True).order_by("username")
-        total = 0
+        campaign = self._campaign(options["campaign_id"])
+        if not campaign:
+            raise CommandError("Tidak ada campaign awareness aktif atau campaign_id tidak ditemukan.")
 
-        for campaign in campaigns:
-            attempted_ids = AwarenessAttempt.objects.filter(campaign=campaign).values_list("user_id", flat=True)
-            pending = users.exclude(id__in=attempted_ids)
-            self.stdout.write(f"Campaign: {campaign.title}")
-            for user in pending:
-                total += 1
-                self.stdout.write(f"- {user.get_username()} <{user.email}>")
-
-        if total == 0:
-            self.stdout.write("Tidak ada user yang perlu diingatkan.")
+        test_emails = options["email"]
+        if test_emails:
+            recipients = test_emails
+            label = "test recipient"
         else:
-            self.stdout.write(self.style.WARNING(
-                f"Total reminder candidate: {total}. Email/WA belum dikirim; output console saja."
-            ))
+            recipients = list(pending_awareness_users(campaign).values_list("email", flat=True))
+            label = "pending user"
+
+        self.stdout.write(f"Campaign: {campaign.title}")
+        self.stdout.write(f"Recipients ({label}): {len(recipients)}")
+        for email in recipients:
+            self.stdout.write(f"- {email}")
+
+        if options["dry_run"]:
+            self.stdout.write(self.style.WARNING("Dry run: email tidak dikirim."))
+            return
+
+        sent = send_awareness_notification(
+            campaign,
+            recipients,
+            base_url=options["base_url"],
+        )
+        self.stdout.write(self.style.SUCCESS(f"Email awareness terkirim: {sent}"))

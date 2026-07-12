@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 
 from django.http import HttpResponse, HttpResponseNotAllowed
 from reportlab.lib import colors
@@ -19,6 +19,7 @@ from masterdata.models import MasterBUMN, TahunBuku, PeriodeLaporan
 
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
+from calendar import monthrange
 from datetime import date
 from decimal import Decimal
 from io import BytesIO
@@ -683,12 +684,32 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
 
     def pdf_button(self, obj):
         url = reverse("admin:risk_kontrakmanajemen_pdf", args=[obj.pk])
+        max_month = (
+            RKMSummary.objects
+            .filter(kontrak_manajemen=obj, tahun=obj.tahun)
+            .order_by("-bulan")
+            .values_list("bulan", flat=True)
+            .first()
+        )
+        if max_month:
+            month_links = [
+                (url, obj.tahun, month, month)
+                for month in range(1, min(max_month, 12) + 1)
+            ]
+            return format_html(
+                "PDF KM: {}",
+                format_html_join(
+                    " ",
+                    '<a class="button" href="{}?tahun={}&bulan={}" target="_blank">{}</a>',
+                    month_links,
+                ),
+            )
         return format_html(
             '<a class="button" href="{}" target="_blank">PDF</a>',
             url,
         )
 
-    pdf_button.short_description = "PDF"
+    pdf_button.short_description = "Laporan KM"
 
     def get_urls(self):
         urls = super().get_urls()
@@ -755,8 +776,11 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
             return str(int(angka))
         return f"{angka:.2f}".rstrip("0").rstrip(".")
 
-    def paragraph_km(self, text, style):
-        return Paragraph(escape(str(text or "")), style)
+    def paragraph_km(self, text, style, max_chars=None):
+        text = " ".join(str(text or "").split())
+        if max_chars and len(text) > max_chars:
+            text = f"{text[:max_chars].rstrip()}..."
+        return Paragraph(escape(text), style)
 
     def decimal_km(self, nilai):
         if nilai in (None, ""):
@@ -808,6 +832,23 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
         }
         return fields.get(bulan)
 
+    def target_field_for_bulan(self, bulan):
+        fields = {
+            1: "target_januari",
+            2: "target_februari",
+            3: "target_maret",
+            4: "target_april",
+            5: "target_mei",
+            6: "target_juni",
+            7: "target_juli",
+            8: "target_agustus",
+            9: "target_september",
+            10: "target_oktober",
+            11: "target_november",
+            12: "target_desember",
+        }
+        return fields.get(bulan)
+
     def rkm_laporan_km(self, kontrak, request):
         rkm_qs = RKMSummary.objects.filter(kontrak_manajemen=kontrak).order_by("-tahun", "-bulan")
         tahun = request.GET.get("tahun")
@@ -815,7 +856,15 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
         if tahun:
             rkm_qs = rkm_qs.filter(tahun=tahun)
         if bulan:
-            rkm_qs = rkm_qs.filter(bulan=bulan)
+            exact_rkm = (
+                rkm_qs
+                .filter(bulan=bulan)
+                .select_related("penandatangan_laporan_km", "unit_bisnis")
+                .first()
+            )
+            if exact_rkm:
+                return exact_rkm
+            rkm_qs = rkm_qs.filter(bulan__gte=bulan).order_by("bulan")
         return rkm_qs.select_related("penandatangan_laporan_km", "unit_bisnis").first()
 
     def km_logo_flowable(self):
@@ -912,11 +961,17 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
         elements = []
 
         tanggal = kontrak.tanggal_kontrak
-        bulan_laporan = rkm.bulan if rkm else (tanggal.month if tanggal else 1)
+        try:
+            requested_month = int(request.GET.get("bulan") or 0)
+        except (TypeError, ValueError):
+            requested_month = 0
+        bulan_laporan = requested_month or (rkm.bulan if rkm else (tanggal.month if tanggal else 1))
+        bulan_laporan = max(1, min(bulan_laporan, 12))
         tahun_label = rkm.tahun if rkm else (tanggal.year if tanggal else kontrak.tahun)
         bulan_label = self.bulan_indonesia(bulan_laporan)
         periode_label = f"S.D {bulan_label.upper()} {tahun_label}"
         unit_label = str(kontrak.unit_bisnis or kontrak.judul or "").upper()
+        target_field = self.target_field_for_bulan(bulan_laporan)
         realisasi_field = self.realisasi_field_for_bulan(bulan_laporan)
         rkm_items = {
             item.km_item_id: item
@@ -1032,10 +1087,14 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
 
             total_bobot += Decimal(str(item.bobot or 0))
             rkm_item = rkm_items.get(item.id)
-            target_bulanan = (
-                rkm_item.target_akumulasi or rkm_item.target_bulanan
-                if rkm_item else ""
-            )
+            target_bulanan = ""
+            if rkm_item:
+                target_bulanan = (
+                    (getattr(rkm_item, target_field, None) if target_field else None)
+                    or rkm_item.target_akumulasi
+                    or rkm_item.target_bulanan
+                    or ""
+                )
             realisasi = ""
             if rkm_item:
                 realisasi = (
@@ -1059,10 +1118,18 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
             if polaritas:
                 indikator = f"{indikator}\n({polaritas})"
 
+            keterangan = ""
+            if rkm_item:
+                keterangan = (
+                    rkm_item.hasil_analisa_program_kerja
+                    or rkm_item.keterangan
+                    or ""
+                )
+
             data.append([
                 self.paragraph_km(item.no_urut, normal_center),
-                self.paragraph_km(indikator, normal),
-                self.paragraph_km(item.formula or "", normal),
+                self.paragraph_km(indikator, normal, max_chars=220),
+                self.paragraph_km(item.formula or "", normal, max_chars=260),
                 self.paragraph_km(item.satuan or "", normal_center),
                 self.paragraph_km(self.format_angka_km(item.bobot), normal_center),
                 self.paragraph_km(item.target or "", normal_center),
@@ -1071,11 +1138,7 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
                 self.paragraph_km(f"{self.format_angka_km(pencapaian)}%" if pencapaian is not None else "", normal_center),
                 self.paragraph_km(self.format_angka_km(nilai), normal_center),
                 self.paragraph_km(self.indikator_km(pencapaian), normal_center),
-                self.paragraph_km(
-                    rkm_item.hasil_analisa_program_kerja or rkm_item.keterangan
-                    if rkm_item else "",
-                    normal,
-                ),
+                self.paragraph_km(keterangan, normal, max_chars=180),
             ])
 
         total_row_index = len(data)
@@ -1470,11 +1533,41 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
 # RKM
 # =========================================================
 
+RKM_MONTH_FIELD_PAIRS = {
+    1: ("target_januari", "realisasi_januari"),
+    2: ("target_februari", "realisasi_februari"),
+    3: ("target_maret", "realisasi_maret"),
+    4: ("target_april", "realisasi_april"),
+    5: ("target_mei", "realisasi_mei"),
+    6: ("target_juni", "realisasi_juni"),
+    7: ("target_juli", "realisasi_juli"),
+    8: ("target_agustus", "realisasi_agustus"),
+    9: ("target_september", "realisasi_september"),
+    10: ("target_oktober", "realisasi_oktober"),
+    11: ("target_november", "realisasi_november"),
+    12: ("target_desember", "realisasi_desember"),
+}
+RKM_MONTH_LABELS = {
+    1: "Januari",
+    2: "Februari",
+    3: "Maret",
+    4: "April",
+    5: "Mei",
+    6: "Juni",
+    7: "Juli",
+    8: "Agustus",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Desember",
+}
+
+
 class RKMItemInline(admin.TabularInline):
     model = RKMItem
     extra = 0
     can_delete = True
-    fields = (
+    base_fields = (
         "no_item",
         "kategori_rkm",
         "km_item",
@@ -1483,48 +1576,24 @@ class RKMItemInline(admin.TabularInline):
         "kpi_target",
         "inisiatif_strategis",
         "program_kerja_utama",
-        "risiko",
-        "mitigasi_risiko",
-        "rencana_aksi",
         "anggaran_rp_ribu",
         "target_akumulasi",
         "target_akumulasi_satuan",
-        "target_januari",
-        "realisasi_januari",
-        "target_februari",
-        "realisasi_februari",
-        "target_maret",
-        "realisasi_maret",
-        "target_april",
-        "realisasi_april",
-        "target_mei",
-        "realisasi_mei",
-        "target_juni",
-        "realisasi_juni",
-        "target_juli",
-        "realisasi_juli",
-        "target_agustus",
-        "realisasi_agustus",
-        "target_september",
-        "realisasi_september",
-        "target_oktober",
-        "realisasi_oktober",
-        "target_november",
-        "realisasi_november",
-        "target_desember",
-        "realisasi_desember",
-        "jumlah_realisasi",
-        "persen_capaian",
-        "realisasi_anggaran",
-        "pic_rkm",
-        "hasil_analisa_program_kerja",
     )
+    result_fields = (
+    )
+    fields = base_fields + RKM_MONTH_FIELD_PAIRS[1] + result_fields
     ordering = ("no_item",)
+
+    def get_fields(self, request, obj=None):
+        month_fields = RKM_MONTH_FIELD_PAIRS.get(getattr(obj, "bulan", None), ())
+        return self.base_fields + month_fields + self.result_fields
 
     def get_readonly_fields(self, request, obj=None):
         if obj and obj.is_approved:
-            return self.fields
-        return ()
+            return self.get_fields(request, obj)
+        month_fields = RKM_MONTH_FIELD_PAIRS.get(getattr(obj, "bulan", None), ())
+        return (month_fields[0],) if month_fields else ()
 
     def has_add_permission(self, request, obj=None):
         allowed = super().has_add_permission(request, obj)
@@ -1566,14 +1635,13 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         "penandatangan_laporan_rkm",
         "status",
         "status_pengajuan",
-        "generate_button",
-        "km_pdf_button",
         "rkm_pdf_button",
     )
     list_filter = ("tahun", "bulan", "status", "status_pengajuan", "unit_bisnis")
     search_fields = ("judul", "unit_bisnis__name", "kontrak_manajemen__judul")
     ordering = ("-tahun", "bulan", "judul")
     inlines = [RKMItemInline]
+    actions = ("finalize_sign_selected", "cancel_sign_selected")
     readonly_fields = ("rkm_lock_info",)
     autocomplete_fields = (
         "unit_bisnis",
@@ -1687,7 +1755,7 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         if not allowed or obj is None:
             return allowed
         if obj.is_approved:
-            return False
+            return request.user.is_superuser
         if request.user.is_superuser:
             return allowed
         return user_can_access_unit(request, obj.unit_bisnis_id)
@@ -1702,6 +1770,35 @@ class RKMSummaryAdmin(admin.ModelAdmin):
             return allowed
         return user_can_access_unit(request, obj.unit_bisnis_id)
 
+    @admin.action(description="Final/Sign RKM terpilih")
+    def finalize_sign_selected(self, request, queryset):
+        accessible = queryset
+        if not request.user.is_superuser:
+            accessible = accessible.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+        updated = accessible.exclude(status="Final", status_pengajuan="Disetujui").update(
+            status="Final",
+            status_pengajuan="Disetujui",
+            tanggal_pengajuan=date.today(),
+        )
+        self.message_user(request, f"{updated} RKM berhasil difinalkan/sign.")
+
+    @admin.action(description="Batalkan Final/Sign RKM terpilih")
+    def cancel_sign_selected(self, request, queryset):
+        if not request.user.is_superuser:
+            self.message_user(
+                request,
+                "Hanya admin yang dapat membatalkan Final/Sign RKM.",
+                level=messages.ERROR,
+            )
+            return
+        updated = queryset.filter(
+            models.Q(status="Final") | models.Q(status_pengajuan="Disetujui")
+        ).update(
+            status="Draft",
+            status_pengajuan="Belum",
+        )
+        self.message_user(request, f"{updated} RKM berhasil dibatalkan Final/Sign-nya.")
+
     def generate_button(self, obj):
         if obj.is_approved:
             return "RKM sudah disetujui/final"
@@ -1711,17 +1808,34 @@ class RKMSummaryAdmin(admin.ModelAdmin):
 
     def km_pdf_button(self, obj):
         url = reverse("admin:risk_kontrakmanajemen_pdf", args=[obj.kontrak_manajemen_id])
+        month_links = [
+            (url, obj.tahun, month, month)
+            for month in range(1, min(obj.bulan or 1, 12) + 1)
+        ]
         return format_html(
-            '<a class="button" href="{}?tahun={}&bulan={}" target="_blank">PDF KM</a>',
-            url,
-            obj.tahun,
-            obj.bulan,
+            'PDF KM: {}',
+            format_html_join(
+                " ",
+                '<a class="button" href="{}?tahun={}&bulan={}" target="_blank">{}</a>',
+                month_links,
+            ),
         )
     km_pdf_button.short_description = "Laporan KM"
 
     def rkm_pdf_button(self, obj):
         url = reverse("admin:risk_rkmsummary_pdf", args=[obj.pk])
-        return format_html('<a class="button" href="{}" target="_blank">PDF RKM</a>', url)
+        month_links = [
+            (url, month, month)
+            for month in range(1, min(obj.bulan or 1, 12) + 1)
+        ]
+        return format_html(
+            'PDF RKM: {}',
+            format_html_join(
+                " ",
+                '<a class="button" href="{}?bulan={}" target="_blank">{}</a>',
+                month_links,
+            ),
+        )
 
     rkm_pdf_button.short_description = "Laporan RKM"
 
@@ -1857,9 +1971,16 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         if not user_can_access_unit(request, rkm.unit_bisnis_id):
             raise PermissionDenied
 
+        try:
+            report_month = int(request.GET.get("bulan") or rkm.bulan or 1)
+        except (TypeError, ValueError):
+            report_month = rkm.bulan or 1
+        report_month = max(1, min(report_month, rkm.bulan or 12, 12))
+        report_month_label = self.bulan_indonesia(report_month)
+
         response = HttpResponse(content_type="application/pdf")
         response["Content-Disposition"] = (
-            f'inline; filename="RKM_{rkm.unit_bisnis.name}_{rkm.bulan}_{rkm.tahun}.pdf"'
+            f'inline; filename="RKM_{rkm.unit_bisnis.name}_{report_month}_{rkm.tahun}.pdf"'
         )
 
         doc = SimpleDocTemplate(
@@ -1888,6 +2009,22 @@ class RKMSummaryAdmin(admin.ModelAdmin):
             fontName="Helvetica-Bold",
             textColor=colors.white,
         )
+        matrix_title_style = ParagraphStyle(
+            "RKMMatrixTitle",
+            parent=normal_center,
+            fontName="Helvetica-Bold",
+            fontSize=6.5,
+            leading=7.5,
+            textColor=colors.black,
+        )
+        matrix_header_style = ParagraphStyle(
+            "RKMMatrixHeader",
+            parent=normal_center,
+            fontName="Helvetica-Bold",
+            fontSize=5.8,
+            leading=6.5,
+            textColor=colors.HexColor("#17365D"),
+        )
         section_style = ParagraphStyle("RKMSection", parent=normal, fontName="Helvetica-Bold")
         title_style = ParagraphStyle(
             "RKMTitle",
@@ -1899,8 +2036,7 @@ class RKMSummaryAdmin(admin.ModelAdmin):
             spaceAfter=2,
         )
 
-        bulan_label = self.bulan_indonesia(rkm.bulan)
-        periode_label = f"{bulan_label.upper()} {rkm.tahun}"
+        periode_label = f"{report_month_label.upper()} {rkm.tahun}"
         unit_label = str(rkm.unit_bisnis or "").upper()
         elements = []
 
@@ -1966,7 +2102,7 @@ class RKMSummaryAdmin(admin.ModelAdmin):
             (12, "desember"),
         ]
         matrix_header = [
-            self.paragraph_pdf("MONTH", header_style),
+            self.paragraph_pdf("MONTH", matrix_header_style),
         ]
         matrix_subheader = [""]
         for item in items:
@@ -1976,16 +2112,16 @@ class RKMSummaryAdmin(admin.ModelAdmin):
             else:
                 code = str(item.no_item)
             matrix_header.extend([
-                self.paragraph_pdf(code, header_style),
+                self.paragraph_pdf(code, matrix_header_style),
                 "",
             ])
             matrix_subheader.extend([
-                self.paragraph_pdf("TARGET", header_style),
-                self.paragraph_pdf("REALISASI", header_style),
+                self.paragraph_pdf("TGT", matrix_header_style),
+                self.paragraph_pdf("REAL", matrix_header_style),
             ])
 
         matrix_data = [
-            [self.paragraph_pdf("MONTHLY KEY PERFORMANCE INDICATOR RESULT", header_style)]
+            [self.paragraph_pdf("MONTHLY KEY PERFORMANCE INDICATOR RESULT", matrix_title_style)]
             + ["" for _ in range(len(items) * 2)],
             matrix_header,
             matrix_subheader,
@@ -1993,16 +2129,25 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         for month_number, field_suffix in month_fields:
             row = [self.paragraph_pdf(month_number, normal_center)]
             for item in items:
+                if month_number > report_month:
+                    row.extend(["", ""])
+                    continue
                 row.extend([
                     self.paragraph_pdf(getattr(item, f"target_{field_suffix}", "") or "", normal_center),
                     self.paragraph_pdf(getattr(item, f"realisasi_{field_suffix}", "") or "", normal_center),
                 ])
             matrix_data.append(row)
 
+        table_width = doc.width
+        month_col_width = 34
+        value_col_count = max(len(items) * 2, 1)
+        value_col_width = (table_width - month_col_width) / value_col_count
+
         matrix_table = Table(
             matrix_data,
-            colWidths=[25] + [21 for _ in range(len(items) * 2)],
+            colWidths=[month_col_width] + [value_col_width for _ in range(len(items) * 2)],
             repeatRows=3,
+            hAlign="CENTER",
         )
         matrix_style = TableStyle([
             ("GRID", (0, 0), (-1, -1), 0.35, colors.black),
@@ -2013,8 +2158,12 @@ class RKMSummaryAdmin(admin.ModelAdmin):
             ("BACKGROUND", (0, 3), (0, -1), colors.HexColor("#FFC000")),
             ("TEXTCOLOR", (0, 0), (-1, 2), colors.black),
             ("FONTNAME", (0, 0), (-1, 2), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 4.2),
-            ("LEADING", (0, 0), (-1, -1), 4.8),
+            ("FONTSIZE", (0, 0), (-1, 0), 6.5),
+            ("LEADING", (0, 0), (-1, 0), 7.5),
+            ("FONTSIZE", (0, 1), (-1, 2), 5.8),
+            ("LEADING", (0, 1), (-1, 2), 6.5),
+            ("FONTSIZE", (0, 3), (-1, -1), 5.6),
+            ("LEADING", (0, 3), (-1, -1), 6.4),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("TOPPADDING", (0, 0), (-1, -1), 1),
@@ -2025,7 +2174,7 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         for index in range(len(items)):
             start_col = 1 + (index * 2)
             matrix_style.add("SPAN", (start_col, 1), (start_col + 1, 1))
-        current_month_row = 2 + rkm.bulan
+        current_month_row = 2 + report_month
         if 3 <= current_month_row < len(matrix_data):
             matrix_style.add("TEXTCOLOR", (1, current_month_row), (-1, current_month_row), colors.red)
             matrix_style.add("FONTNAME", (1, current_month_row), (-1, current_month_row), "Helvetica-Bold")
@@ -2036,7 +2185,13 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         penandatangan = rkm.penandatangan_laporan_rkm
         nama = self.nama_user_pdf(penandatangan)
         jabatan = self.jabatan_user_pdf(penandatangan, rkm.tanggal_selesai) if penandatangan else ""
-        tanggal = rkm.tanggal_selesai or date(rkm.tahun, rkm.bulan, 1)
+        tanggal = rkm.tanggal_selesai
+        if not tanggal or tanggal.month != report_month or tanggal.year != rkm.tahun:
+            tanggal = date(
+                rkm.tahun,
+                report_month,
+                monthrange(rkm.tahun, report_month)[1],
+            )
         tanggal_text = f"{tanggal.day:02d} {self.bulan_indonesia(tanggal.month)} {tanggal.year}"
         sign_style = ParagraphStyle("RKMSign", parent=normal_center, fontSize=7, leading=8)
         sign_bold = ParagraphStyle("RKMSignBold", parent=sign_style, fontName="Helvetica-Bold")
@@ -2088,11 +2243,10 @@ class RKMItemAdmin(admin.ModelAdmin):
         "sasaran",
         "kpi_indikator",
         "program_kerja_utama",
-        "risiko",
         "pic_rkm",
     )
     ordering = ("summary", "no_item")
-    fieldsets = (
+    base_fieldsets = (
         ("Acuan", {
             "fields": (
                 "summary",
@@ -2112,14 +2266,26 @@ class RKMItemAdmin(admin.ModelAdmin):
             "fields": (
                 "inisiatif_strategis",
                 "program_kerja_utama",
-                "risiko",
-                "mitigasi_risiko",
-                "rencana_aksi",
                 "anggaran_rp_ribu",
                 "target_akumulasi",
                 "target_akumulasi_satuan",
             )
         }),
+    )
+    legacy_fieldset = (
+        "Data Lama",
+        {
+            "classes": ("collapse",),
+            "fields": (
+                "sasaran",
+                "target_bulanan",
+                "realisasi",
+                "deviasi",
+                "keterangan",
+            )
+        },
+    )
+    fieldsets = base_fieldsets + (
         ("Realisasi Bulanan", {
             "fields": (
                 "target_januari",
@@ -2148,26 +2314,36 @@ class RKMItemAdmin(admin.ModelAdmin):
                 "realisasi_desember",
             )
         }),
-        ("Hasil", {
-            "fields": (
-                "jumlah_realisasi",
-                "persen_capaian",
-                "realisasi_anggaran",
-                "pic_rkm",
-                "hasil_analisa_program_kerja",
-            )
-        }),
-        ("Data Lama", {
-            "classes": ("collapse",),
-            "fields": (
-                "sasaran",
-                "target_bulanan",
-                "realisasi",
-                "deviasi",
-                "keterangan",
-            )
-        }),
-    )
+    ) + (legacy_fieldset,)
+
+    def _month_fields_for_item_form(self, request, obj=None):
+        month = getattr(getattr(obj, "summary", None), "bulan", None)
+        if not month:
+            summary_id = request.POST.get("summary") or request.GET.get("summary")
+            if summary_id:
+                month = RKMSummary.objects.filter(pk=summary_id).values_list("bulan", flat=True).first()
+        return RKM_MONTH_FIELD_PAIRS.get(month)
+
+    def get_fieldsets(self, request, obj=None):
+        month_fields = self._month_fields_for_item_form(request, obj)
+        if not month_fields:
+            return super().get_fieldsets(request, obj)
+        month_label = RKM_MONTH_LABELS.get(obj.summary.bulan, "Bulan Laporan") if obj and obj.summary_id else "Bulan Laporan"
+        return self.base_fieldsets + (
+            (f"Realisasi {month_label}", {"fields": month_fields}),
+            self.legacy_fieldset,
+        )
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.summary.is_approved:
+            readonly = []
+            for _, options in self.get_fieldsets(request, obj):
+                readonly.extend(options.get("fields", ()))
+            return tuple(readonly)
+        month_fields = self._month_fields_for_item_form(request, obj)
+        if month_fields:
+            return (month_fields[0],)
+        return super().get_readonly_fields(request, obj)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

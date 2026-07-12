@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import string
 
 from django.contrib.auth.models import Group, User
@@ -1235,9 +1235,21 @@ class RKMSummary(models.Model):
         ).order_by("bagian__kode_bagian", "no_urut")
 
         created_count = 0
-        no = 1
+        used_numbers = set(
+            RKMItem.objects
+            .filter(summary=self)
+            .values_list("no_item", flat=True)
+        )
+        no = max(used_numbers, default=0) + 1
 
         for km_item in km_items:
+            existing_item = RKMItem.objects.filter(summary=self, km_item=km_item).first()
+            if existing_item:
+                continue
+
+            while no in used_numbers:
+                no += 1
+
             _, created = RKMItem.objects.get_or_create(
                 summary=self,
                 km_item=km_item,
@@ -1251,6 +1263,7 @@ class RKMSummary(models.Model):
             )
             if created:
                 created_count += 1
+                used_numbers.add(no)
                 no += 1
 
         return created_count
@@ -1415,6 +1428,62 @@ class RKMItem(models.Model):
     def __str__(self):
         return f"{self.summary} - {self.no_item}"
 
+    def _month_target_realisasi_fields(self):
+        month_fields = {
+            1: ("target_januari", "realisasi_januari"),
+            2: ("target_februari", "realisasi_februari"),
+            3: ("target_maret", "realisasi_maret"),
+            4: ("target_april", "realisasi_april"),
+            5: ("target_mei", "realisasi_mei"),
+            6: ("target_juni", "realisasi_juni"),
+            7: ("target_juli", "realisasi_juli"),
+            8: ("target_agustus", "realisasi_agustus"),
+            9: ("target_september", "realisasi_september"),
+            10: ("target_oktober", "realisasi_oktober"),
+            11: ("target_november", "realisasi_november"),
+            12: ("target_desember", "realisasi_desember"),
+        }
+        return month_fields.get(getattr(self.summary, "bulan", None))
+
+    @staticmethod
+    def _parse_decimal_value(value):
+        if value in (None, ""):
+            return None
+        cleaned = str(value).strip().replace("%", "")
+        if not cleaned:
+            return None
+        if "," in cleaned and "." in cleaned:
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", ".")
+        try:
+            return Decimal(cleaned)
+        except Exception:
+            return None
+
+    def sync_monthly_result(self):
+        fields = self._month_target_realisasi_fields()
+        if not fields:
+            return
+        target_field, realisasi_field = fields
+        target = getattr(self, target_field, None)
+        realisasi = getattr(self, realisasi_field, None)
+        self.jumlah_realisasi = realisasi or None
+
+        target_value = self._parse_decimal_value(target)
+        realisasi_value = self._parse_decimal_value(realisasi)
+        self.persen_capaian = None
+        if target_value is None or realisasi_value is None or target_value == 0:
+            return
+
+        if self.km_item_id and self.km_item.polaritas == "negatif":
+            if realisasi_value == 0:
+                return
+            capaian = target_value / realisasi_value * Decimal("100")
+        else:
+            capaian = realisasi_value / target_value * Decimal("100")
+        self.persen_capaian = capaian.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     def save(self, *args, **kwargs):
         if self.km_item:
             if not self.sasaran:
@@ -1425,6 +1494,10 @@ class RKMItem(models.Model):
                 self.kpi_satuan = self.km_item.satuan
             if not self.kpi_target:
                 self.kpi_target = self.km_item.target
+        self.sync_monthly_result()
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"jumlah_realisasi", "persen_capaian"}
         super().save(*args, **kwargs)
 
 # =========================================================

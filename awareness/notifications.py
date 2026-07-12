@@ -1,0 +1,104 @@
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.urls import reverse
+from django.utils import timezone
+
+from risk.models import AppSetting
+
+from .models import AwarenessAttempt, AwarenessCampaign
+
+
+MONTH_NAMES = {
+    1: "Januari",
+    2: "Februari",
+    3: "Maret",
+    4: "April",
+    5: "Mei",
+    6: "Juni",
+    7: "Juli",
+    8: "Agustus",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Desember",
+}
+
+
+def active_awareness_campaigns(at=None):
+    at = at or timezone.localdate()
+    return AwarenessCampaign.objects.filter(
+        is_active=True,
+        start_date__lte=at,
+        end_date__gte=at,
+    ).order_by("-start_date", "title")
+
+
+def pending_awareness_users(campaign):
+    attempted_ids = AwarenessAttempt.objects.filter(campaign=campaign).values_list("user_id", flat=True)
+    return (
+        get_user_model()
+        .objects
+        .filter(is_active=True, email__isnull=False)
+        .exclude(email="")
+        .exclude(id__in=attempted_ids)
+        .order_by("username")
+    )
+
+
+def awareness_base_url(request=None, base_url=None):
+    if request:
+        return request.build_absolute_uri("/").rstrip("/")
+    if base_url:
+        return base_url.rstrip("/")
+    configured = getattr(settings, "AWARENESS_BASE_URL", "") or getattr(settings, "BASE_URL", "")
+    if configured:
+        return configured.rstrip("/")
+    hosts = [host for host in getattr(settings, "ALLOWED_HOSTS", []) if host and host != "*"]
+    host = hosts[0] if hosts else "127.0.0.1:8001"
+    scheme = "http" if host.startswith(("localhost", "127.", "[::1]")) else "https"
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def campaign_material_url(campaign, request=None, base_url=None):
+    return f"{awareness_base_url(request=request, base_url=base_url)}{reverse('awareness:campaign_material', args=[campaign.pk])}"
+
+
+def campaign_period_text(campaign):
+    start = campaign.start_date
+    end = campaign.end_date
+    if start.month == end.month and start.year == end.year:
+        return f"{start.day} s/d {end.day} {MONTH_NAMES[end.month]} {end.year}"
+    return (
+        f"{start.day} {MONTH_NAMES[start.month]} {start.year} "
+        f"s/d {end.day} {MONTH_NAMES[end.month]} {end.year}"
+    )
+
+
+def campaign_subject(campaign):
+    month_label = f"{MONTH_NAMES[campaign.start_date.month]} {campaign.start_date.year}"
+    return f"Pelaksanaan {campaign.title} Bulan {month_label}"
+
+
+def send_awareness_notification(campaign, recipients, request=None, base_url=None):
+    recipients = [email for email in recipients if email]
+    if not recipients:
+        return 0
+
+    app_setting = AppSetting.get_solo()
+    context = {
+        "campaign": campaign,
+        "app_setting": app_setting,
+        "material_url": campaign_material_url(campaign, request=request, base_url=base_url),
+        "period_text": campaign_period_text(campaign),
+        "month_year": f"{MONTH_NAMES[campaign.start_date.month]} {campaign.start_date.year}",
+    }
+    subject = campaign_subject(campaign)
+    text_body = render_to_string("awareness/email/notification.txt", context)
+    html_body = render_to_string("awareness/email/notification.html", context)
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+
+    message = EmailMultiAlternatives(subject, text_body, from_email, recipients)
+    message.attach_alternative(html_body, "text/html")
+    return message.send()

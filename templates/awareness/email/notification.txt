@@ -1,0 +1,11 @@
+Yth. Bapak dan Ibu,
+
+Dalam rangka meningkatkan awareness pegawai terkait keamanan siber di lingkungan PT PLN Batam, kami mohon kesediaan Bapak/Ibu untuk berpartisipasi dalam {{ campaign.title }} Bulan {{ month_year|upper }}.
+
+Silakan mengisi survei melalui tautan berikut:
+{{ material_url }}
+
+Periode Survei: {{ period_text }}
+
+Terima kasih atas partisipasi Bapak/Ibu.
+{{ app_setting.nama_aplikasi|default:"Manajemen Risiko PLN Batam" }}
