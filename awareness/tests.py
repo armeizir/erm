@@ -13,7 +13,13 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import AwarenessAnswer, AwarenessAttempt, AwarenessCampaign, AwarenessQuestion
+from .models import (
+    AwarenessAnswer,
+    AwarenessAttempt,
+    AwarenessCampaign,
+    AwarenessQuestion,
+    AwarenessUnitTarget,
+)
 from .notifications import send_awareness_notification
 from risk.models import AppSetting
 
@@ -337,7 +343,7 @@ class AwarenessFlowTests(TestCase):
         self.assertIn("Pelaksanaan Awareness Manajemen Risiko Dasar 2026", message.subject)
         self.assertIn("http://127.0.0.1:8001/awareness/", message.body)
         self.assertTrue(message.alternatives)
-        self.assertIn("Isi Survei Sekarang", message.alternatives[0].content)
+        self.assertIn("Isi Awareness Sekarang", message.alternatives[0].content)
         self.assertIn("Email awareness terkirim", out.getvalue())
 
     @override_settings(
@@ -427,6 +433,45 @@ class AwarenessFlowTests(TestCase):
         self.assertIn("50%", html_body)
         self.assertIn("TOTAL", html_body)
         self.assertIn("1/2 responden (50%)", text_body)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="PLNBATAM ERM <erm@plnbatam.com>",
+    )
+    def test_awareness_email_uses_manual_unit_employee_targets(self):
+        unit = Group.objects.create(name="Unit Bisnis Infrastruktur Teknologi Informasi")
+        self.user.groups.add(unit)
+        AwarenessUnitTarget.objects.create(
+            campaign=self.campaign,
+            unit_name="Unit Bisnis Infrastruktur Teknologi Informasi",
+            employee_count=23,
+            order=1,
+        )
+        AwarenessAttempt.objects.create(
+            user=self.user,
+            campaign=self.campaign,
+            attempt_number=1,
+            total_questions=2,
+            correct_count=2,
+            wrong_count=0,
+            score=100,
+            status=AwarenessAttempt.STATUS_PASSED,
+            submitted_at=timezone.now(),
+        )
+
+        send_awareness_notification(
+            self.campaign,
+            ["risk.admin@plnbatam.com"],
+            base_url="https://erm.plnbatam.com",
+        )
+
+        html_body = mail.outbox[0].alternatives[0].content
+        text_body = mail.outbox[0].body
+        self.assertIn("Unit Bisnis Infrastruktur Teknologi Informasi", html_body)
+        self.assertIn(">23<", html_body)
+        self.assertIn(">1<", html_body)
+        self.assertIn(">22<", html_body)
+        self.assertIn("1/23 responden (4%)", text_body)
 
     def test_admin_send_awareness_test_handles_smtp_auth_error(self):
         self.client.force_login(self.admin)

@@ -101,6 +101,40 @@ class AwarenessCampaign(models.Model):
             raise ValidationError(errors)
 
 
+class AwarenessUnitTarget(models.Model):
+    campaign = models.ForeignKey(
+        AwarenessCampaign,
+        on_delete=models.CASCADE,
+        related_name="unit_targets",
+        verbose_name="Campaign",
+    )
+    unit_name = models.CharField(
+        max_length=180,
+        verbose_name="Bidang / Unit",
+        help_text="Nama bidang/unit sesuai data jumlah pegawai.",
+    )
+    employee_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Jumlah Pegawai",
+    )
+    order = models.PositiveIntegerField(default=1, verbose_name="Urutan")
+    is_active = models.BooleanField(default=True, verbose_name="Aktif")
+
+    class Meta:
+        verbose_name = "Target Pegawai Awareness per Unit"
+        verbose_name_plural = "Target Pegawai Awareness per Unit"
+        ordering = ("campaign", "order", "unit_name")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("campaign", "unit_name"),
+                name="awareness_unique_unit_target",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.campaign} - {self.unit_name}"
+
+
 class AwarenessQuestion(models.Model):
     ANSWER_CHOICES = (
         ("A", "A"),

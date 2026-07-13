@@ -2,7 +2,7 @@ Yth. Bapak dan Ibu,
 
 Dalam rangka meningkatkan awareness pegawai terkait {{ email_subheading|lower }} di lingkungan PT PLN Batam, kami mohon kesediaan Bapak/Ibu untuk berpartisipasi dalam {{ campaign.title }} Bulan {{ month_year|upper }}.
 
-Silakan mengisi survei melalui tautan berikut:
+Silakan mengisi awareness melalui tautan berikut:
 {{ material_url }}
 
 Periode Survei: {{ period_text }}

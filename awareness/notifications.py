@@ -103,6 +103,54 @@ def awareness_progress_rows(campaign):
         .values_list("user_id", flat=True)
         .distinct()
     )
+    unit_targets = list(campaign.unit_targets.filter(is_active=True).order_by("order", "unit_name"))
+    if unit_targets:
+        rows = []
+        total_employee_count = 0
+        total_respondent_count = 0
+        for target in unit_targets:
+            member_ids = set(
+                User.objects.filter(
+                    is_active=True,
+                    groups__name__iexact=target.unit_name,
+                ).values_list("id", flat=True)
+            )
+            assigned_ids = set(
+                PenugasanUnitBisnis.objects.filter(
+                    unit_bisnis__name__iexact=target.unit_name,
+                    aktif=True,
+                    user__is_active=True,
+                ).values_list("user_id", flat=True)
+            )
+            respondent_count = len((member_ids | assigned_ids) & responded_ids)
+            employee_count = target.employee_count
+            pending_count = max(employee_count - respondent_count, 0)
+            percent = min(round((respondent_count / employee_count) * 100), 100) if employee_count else 0
+            total_employee_count += employee_count
+            total_respondent_count += respondent_count
+            rows.append({
+                "unit": target.unit_name,
+                "employee_count": employee_count,
+                "respondent_count": respondent_count,
+                "pending_count": pending_count,
+                "percent": percent,
+                "color": _progress_color(percent),
+                "highlight": percent >= 100,
+            })
+
+        total_pending_count = max(total_employee_count - total_respondent_count, 0)
+        total_percent = min(round((total_respondent_count / total_employee_count) * 100), 100) if total_employee_count else 0
+        return {
+            "rows": rows,
+            "total": {
+                "employee_count": total_employee_count,
+                "respondent_count": total_respondent_count,
+                "pending_count": total_pending_count,
+                "percent": total_percent,
+                "color": _progress_color(total_percent),
+            },
+        }
+
     groups = Group.objects.exclude(name__startswith="ROLE -").order_by("name")
     rows = []
     total_user_ids = set()

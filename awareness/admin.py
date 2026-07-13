@@ -13,7 +13,13 @@ from openpyxl import Workbook
 
 from riskproject.admin_site import risk_admin_site
 
-from .models import AwarenessAnswer, AwarenessAttempt, AwarenessCampaign, AwarenessQuestion
+from .models import (
+    AwarenessAnswer,
+    AwarenessAttempt,
+    AwarenessCampaign,
+    AwarenessQuestion,
+    AwarenessUnitTarget,
+)
 from .notifications import awareness_progress_rows, send_awareness_notification
 
 
@@ -53,6 +59,13 @@ class AwarenessQuestionInline(admin.TabularInline):
     )
 
 
+class AwarenessUnitTargetInline(admin.TabularInline):
+    model = AwarenessUnitTarget
+    extra = 0
+    fields = ("order", "unit_name", "employee_count", "is_active")
+    ordering = ("order", "unit_name")
+
+
 @admin.register(AwarenessCampaign)
 class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     list_display = (
@@ -66,7 +79,7 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     )
     search_fields = ("title", "description", "topic")
     list_filter = ("topic", "is_active", "start_date", "end_date")
-    inlines = (AwarenessQuestionInline,)
+    inlines = (AwarenessUnitTargetInline, AwarenessQuestionInline)
     readonly_fields = ("material_preview", "created_at", "updated_at")
     fieldsets = (
         (None, {
