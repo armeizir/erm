@@ -1,7 +1,9 @@
 from datetime import date, timedelta
 from io import StringIO
+from smtplib import SMTPAuthenticationError
 
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.core import mail
 from django.core.mail.backends.locmem import EmailBackend as LocMemEmailBackend
@@ -281,6 +283,29 @@ class AwarenessFlowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["armeizir@plnbatam.com"])
+
+    def test_admin_send_awareness_test_handles_smtp_auth_error(self):
+        self.client.force_login(self.admin)
+
+        import awareness.admin as awareness_admin
+        old_send = awareness_admin.send_awareness_notification
+
+        def failing_send(*args, **kwargs):
+            raise SMTPAuthenticationError(535, b"5.7.3 Authentication unsuccessful")
+
+        awareness_admin.send_awareness_notification = failing_send
+        try:
+            response = self.client.get(
+                reverse("risk_admin:awareness_campaign_send_test", args=[self.campaign.pk]),
+                {"email": "armeizir@plnbatam.com"},
+                follow=True,
+            )
+        finally:
+            awareness_admin.send_awareness_notification = old_send
+
+        self.assertEqual(response.status_code, 200)
+        message_texts = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertTrue(any("Authentication unsuccessful" in text for text in message_texts))
 
     @override_settings(
         EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",

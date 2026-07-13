@@ -1,3 +1,5 @@
+from smtplib import SMTPException
+
 from django.contrib import admin, messages
 from django.contrib.auth import get_user_model
 from django.db.models import Avg, Count, Q
@@ -144,7 +146,15 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
             return redirect("..")
         campaign = get_object_or_404(AwarenessCampaign, pk=campaign_id)
         recipient = request.GET.get("email") or request.user.email or "armeizir@plnbatam.com"
-        sent = send_awareness_notification(campaign, [recipient], request=request)
+        try:
+            sent = send_awareness_notification(campaign, [recipient], request=request)
+        except (OSError, SMTPException) as exc:
+            self.message_user(
+                request,
+                f"Test notifikasi awareness gagal dikirim ke {recipient}: {exc}",
+                messages.ERROR,
+            )
+            return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
         if sent:
             self.message_user(request, f"Test notifikasi awareness terkirim ke {recipient}.", messages.SUCCESS)
         else:
