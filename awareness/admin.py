@@ -78,6 +78,9 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
                 "title",
                 "description",
                 "topic",
+                "email_header_title",
+                "email_header_subtitle",
+                "notification_test_email",
                 "material_image",
                 "material_preview",
                 "start_date",
@@ -145,7 +148,14 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
             self.message_user(request, "Anda tidak memiliki permission kirim notifikasi awareness.", messages.ERROR)
             return redirect("..")
         campaign = get_object_or_404(AwarenessCampaign, pk=campaign_id)
-        recipient = request.GET.get("email") or request.user.email or "armeizir@plnbatam.com"
+        recipient = request.GET.get("email") or campaign.notification_test_email or request.user.email
+        if not recipient:
+            self.message_user(
+                request,
+                "Email tujuan test belum diisi. Isi Email Test Notifikasi pada campaign atau email user admin.",
+                messages.ERROR,
+            )
+            return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
         try:
             sent = send_awareness_notification(campaign, [recipient], request=request)
         except (OSError, SMTPException) as exc:

@@ -29,6 +29,26 @@ class AwarenessCampaign(models.Model):
         help_text="Upload gambar materi awareness yang dibaca user sebelum mulai kuis.",
     )
     topic = models.CharField(max_length=50, choices=TOPIC_CHOICES, default="manajemen_risiko")
+    email_header_title = models.CharField(
+        max_length=160,
+        blank=True,
+        default="",
+        verbose_name="Judul Header Email",
+        help_text="Contoh: Awareness Manajemen Risiko. Jika kosong, sistem memakai judul campaign.",
+    )
+    email_header_subtitle = models.CharField(
+        max_length=160,
+        blank=True,
+        default="",
+        verbose_name="Subjudul Header Email",
+        help_text="Contoh: Manajemen Risiko. Jika kosong, sistem memakai topik campaign.",
+    )
+    notification_test_email = models.EmailField(
+        blank=True,
+        default="",
+        verbose_name="Email Test Notifikasi",
+        help_text="Tujuan default tombol Kirim Test. Jika kosong, sistem memakai email admin yang login.",
+    )
     start_date = models.DateField()
     end_date = models.DateField()
     passing_score = models.PositiveSmallIntegerField(default=70)
@@ -54,6 +74,14 @@ class AwarenessCampaign(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def email_heading(self):
+        return self.email_header_title or self.title
+
+    @property
+    def email_subheading(self):
+        return self.email_header_subtitle or self.get_topic_display()
 
     @property
     def question_count(self):

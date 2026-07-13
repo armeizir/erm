@@ -1,6 +1,6 @@
 Yth. Bapak dan Ibu,
 
-Dalam rangka meningkatkan awareness pegawai terkait keamanan siber di lingkungan PT PLN Batam, kami mohon kesediaan Bapak/Ibu untuk berpartisipasi dalam {{ campaign.title }} Bulan {{ month_year|upper }}.
+Dalam rangka meningkatkan awareness pegawai terkait {{ email_subheading|lower }} di lingkungan PT PLN Batam, kami mohon kesediaan Bapak/Ibu untuk berpartisipasi dalam {{ campaign.title }} Bulan {{ month_year|upper }}.
 
 Silakan mengisi survei melalui tautan berikut:
 {{ material_url }}

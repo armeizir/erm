@@ -93,6 +93,8 @@ def send_awareness_notification(campaign, recipients, request=None, base_url=Non
         "material_url": campaign_material_url(campaign, request=request, base_url=base_url),
         "period_text": campaign_period_text(campaign),
         "month_year": f"{MONTH_NAMES[campaign.start_date.month]} {campaign.start_date.year}",
+        "email_heading": campaign.email_heading,
+        "email_subheading": campaign.email_subheading,
     }
     subject = campaign_subject(campaign)
     text_body = render_to_string("awareness/email/notification.txt", context)

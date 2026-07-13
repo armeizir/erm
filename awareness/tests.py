@@ -284,6 +284,44 @@ class AwarenessFlowTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["armeizir@plnbatam.com"])
 
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="PLNBATAM ERM <erm@plnbatam.com>",
+    )
+    def test_admin_send_awareness_test_uses_campaign_test_email(self):
+        self.campaign.notification_test_email = "risk.admin@plnbatam.com"
+        self.campaign.save(update_fields=["notification_test_email"])
+        self.client.force_login(self.admin)
+
+        response = self.client.get(
+            reverse("risk_admin:awareness_campaign_send_test", args=[self.campaign.pk]),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["risk.admin@plnbatam.com"])
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="PLNBATAM ERM <erm@plnbatam.com>",
+    )
+    def test_awareness_email_uses_campaign_heading_and_topic(self):
+        self.campaign.email_header_title = "Awareness Manajemen Risiko"
+        self.campaign.email_header_subtitle = "Manajemen Risiko"
+        self.campaign.save(update_fields=["email_header_title", "email_header_subtitle"])
+
+        send_awareness_notification(
+            self.campaign,
+            ["risk.admin@plnbatam.com"],
+            base_url="https://erm.plnbatam.com",
+        )
+
+        html_body = mail.outbox[0].alternatives[0].content
+        self.assertIn("AWARENESS MANAJEMEN RISIKO", html_body)
+        self.assertIn("Manajemen Risiko", html_body)
+        self.assertNotIn("CYBER SECURITY", html_body)
+        self.assertNotIn("Keamanan Teknologi Informasi", html_body)
+
     def test_admin_send_awareness_test_handles_smtp_auth_error(self):
         self.client.force_login(self.admin)
 
