@@ -46,8 +46,8 @@ class AwarenessCampaign(models.Model):
     notification_test_email = models.EmailField(
         blank=True,
         default="",
-        verbose_name="Email Test Notifikasi",
-        help_text="Tujuan default tombol Kirim Test. Jika kosong, sistem memakai email admin yang login.",
+        verbose_name="Email Tujuan Report",
+        help_text="Tujuan default tombol Kirim Report. Jika kosong, sistem memakai email admin yang login.",
     )
     start_date = models.DateField()
     end_date = models.DateField()

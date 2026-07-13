@@ -1,0 +1,103 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div id="content-main">
+  <h1>Report Awareness</h1>
+  <p style="margin:0 0 18px;color:#5f6b7a;">{{ campaign.title }}</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:22px;">
+    <div class="module" style="padding:12px;"><strong>Peserta aktif</strong><br>{{ active_user_count }}</div>
+    <div class="module" style="padding:12px;"><strong>Responden</strong><br>{{ participant_count }}</div>
+    <div class="module" style="padding:12px;"><strong>Total attempt</strong><br>{{ total_attempts }}</div>
+    <div class="module" style="padding:12px;"><strong>Lulus</strong><br>{{ passed_count }}</div>
+    <div class="module" style="padding:12px;"><strong>Tidak lulus</strong><br>{{ failed_count }}</div>
+    <div class="module" style="padding:12px;"><strong>Completion rate</strong><br>{{ completion_rate|floatformat:2 }}%</div>
+  </div>
+
+  <p style="margin:0 0 18px;">
+    <a class="button" href="{% url 'risk_admin:awareness_campaign_send_test' campaign.pk %}">Kirim Report Awareness</a>
+    <a class="button" href="{% url 'risk_admin:awareness_campaign_export_xlsx' campaign.pk %}">Export XLSX</a>
+    <a class="button" href="{% url 'risk_admin:awareness_awarenesscampaign_changelist' %}">Kembali</a>
+  </p>
+
+  <h2>Progress Responden per Bidang / Unit</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Bidang / Unit</th>
+        <th>Pegawai</th>
+        <th>Responden</th>
+        <th>Belum</th>
+        <th>Progress</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in progress_rows %}
+        <tr{% if row.highlight %} style="background:#dff4e6;font-weight:700;"{% endif %}>
+          <td>{{ row.unit }}</td>
+          <td>{{ row.employee_count }}</td>
+          <td>{{ row.respondent_count }}</td>
+          <td>{{ row.pending_count }}</td>
+          <td><strong style="color:{{ row.color }};">{{ row.percent }}%</strong></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">Belum ada data bidang/unit.</td></tr>
+      {% endfor %}
+      <tr style="background:#0b70b7;color:#fff;font-weight:700;">
+        <td>TOTAL</td>
+        <td>{{ progress_total.employee_count }}</td>
+        <td>{{ progress_total.respondent_count }}</td>
+        <td>{{ progress_total.pending_count }}</td>
+        <td>{{ progress_total.percent }}%</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Responden</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Email</th>
+        <th>Skor</th>
+        <th>Status</th>
+        <th>Submitted</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for attempt in attempts %}
+        <tr>
+          <td>{{ attempt.user.get_username }}</td>
+          <td>{{ attempt.user.email }}</td>
+          <td>{{ attempt.score }}</td>
+          <td>{{ attempt.get_status_display }}</td>
+          <td>{{ attempt.submitted_at|default:"-" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">Belum ada responden.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Belum Mengisi</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Email</th>
+        <th>Bidang / Unit</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in not_attempted_users %}
+        <tr>
+          <td>{{ row.user.get_username }}</td>
+          <td>{{ row.user.email }}</td>
+          <td>{{ row.unit }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="3">Semua user aktif sudah mengisi.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

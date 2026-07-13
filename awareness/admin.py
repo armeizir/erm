@@ -14,7 +14,7 @@ from openpyxl import Workbook
 from riskproject.admin_site import risk_admin_site
 
 from .models import AwarenessAnswer, AwarenessAttempt, AwarenessCampaign, AwarenessQuestion
-from .notifications import send_awareness_notification
+from .notifications import awareness_progress_rows, send_awareness_notification
 
 
 class StaffAwarenessAdminMixin:
@@ -63,9 +63,6 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         "passing_score",
         "max_attempts",
         "is_active",
-        "send_test_link",
-        "report_link",
-        "export_link",
     )
     search_fields = ("title", "description", "topic")
     list_filter = ("topic", "is_active", "start_date", "end_date")
@@ -98,6 +95,16 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
 
+    def get_list_display(self, request):
+        fields = list(super().get_list_display(request))
+        if self._can_send_test_notification(request):
+            fields.append("send_test_link")
+        if self._can_view_report(request):
+            fields.append("report_link")
+        if self._can_export_report(request):
+            fields.append("export_link")
+        return tuple(fields)
+
     @admin.display(description="Preview Materi")
     def material_preview(self, obj):
         if not obj or not obj.material_image:
@@ -115,6 +122,11 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
                 name="awareness_campaign_report",
             ),
             path(
+                "<int:campaign_id>/report/",
+                self.admin_site.admin_view(self.report_detail_view),
+                name="awareness_campaign_report_detail",
+            ),
+            path(
                 "<int:campaign_id>/export-xlsx/",
                 self.admin_site.admin_view(self.export_xlsx_view),
                 name="awareness_campaign_export_xlsx",
@@ -129,8 +141,8 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
 
     @admin.display(description="Report")
     def report_link(self, obj):
-        url = reverse(f"{self.admin_site.name}:awareness_campaign_report")
-        return format_html('<a class="button" href="{}">Report</a>', url)
+        url = reverse(f"{self.admin_site.name}:awareness_campaign_report_detail", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Report Awareness</a>', url)
 
     @admin.display(description="Export")
     def export_link(self, obj):
@@ -140,7 +152,7 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     @admin.display(description="Notifikasi")
     def send_test_link(self, obj):
         url = reverse(f"{self.admin_site.name}:awareness_campaign_send_test", args=[obj.pk])
-        return format_html('<a class="button" href="{}">Kirim Test</a>', url)
+        return format_html('<a class="button" href="{}">Kirim Report</a>', url)
 
     def send_test_view(self, request, campaign_id):
         if not self._can_send_test_notification(request):
@@ -151,7 +163,7 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         if not recipient:
             self.message_user(
                 request,
-                "Email tujuan test belum diisi. Isi Email Test Notifikasi pada campaign atau email user admin.",
+                "Email tujuan report belum diisi. Isi Email Tujuan Report pada campaign atau email user admin.",
                 messages.ERROR,
             )
             return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
@@ -160,15 +172,55 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         except (OSError, SMTPException) as exc:
             self.message_user(
                 request,
-                f"Test notifikasi awareness gagal dikirim ke {recipient}: {exc}",
+                f"Report awareness gagal dikirim ke {recipient}: {exc}",
                 messages.ERROR,
             )
             return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
         if sent:
-            self.message_user(request, f"Test notifikasi awareness terkirim ke {recipient}.", messages.SUCCESS)
+            self.message_user(request, f"Report awareness terkirim ke {recipient}.", messages.SUCCESS)
         else:
-            self.message_user(request, f"Test notifikasi awareness gagal dikirim ke {recipient}.", messages.ERROR)
+            self.message_user(request, f"Report awareness gagal dikirim ke {recipient}.", messages.ERROR)
         return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
+
+    def _user_unit_label(self, user):
+        units = set(user.groups.exclude(name__startswith="ROLE -").values_list("name", flat=True))
+        units.update(
+            user.penugasan_unit_bisnis.filter(aktif=True)
+            .select_related("unit_bisnis")
+            .values_list("unit_bisnis__name", flat=True)
+        )
+        return ", ".join(sorted(unit for unit in units if unit)) or "-"
+
+    def _campaign_report_context(self, request, campaign):
+        attempts = (
+            campaign.attempts.select_related("user", "campaign")
+            .exclude(status=AwarenessAttempt.STATUS_IN_PROGRESS)
+            .order_by("user__username", "-submitted_at", "-started_at")
+        )
+        active_users = get_user_model().objects.filter(is_active=True).order_by("username")
+        attempted_user_ids = set(attempts.values_list("user_id", flat=True).distinct())
+        not_attempted_users = [
+            {"user": user, "unit": self._user_unit_label(user)}
+            for user in active_users.exclude(id__in=attempted_user_ids)
+        ]
+        participant_count = len(attempted_user_ids)
+        active_user_count = active_users.count()
+        progress = awareness_progress_rows(campaign)
+        return {
+            **self.admin_site.each_context(request),
+            "title": f"Report Awareness - {campaign.title}",
+            "campaign": campaign,
+            "attempts": attempts,
+            "not_attempted_users": not_attempted_users,
+            "active_user_count": active_user_count,
+            "participant_count": participant_count,
+            "total_attempts": campaign.attempts.count(),
+            "passed_count": attempts.filter(status=AwarenessAttempt.STATUS_PASSED).count(),
+            "failed_count": attempts.filter(status=AwarenessAttempt.STATUS_FAILED).count(),
+            "completion_rate": (participant_count / active_user_count * 100) if active_user_count else 0,
+            "progress_rows": progress["rows"],
+            "progress_total": progress["total"],
+        }
 
     def _report_context(self, request):
         attempts = AwarenessAttempt.objects.select_related("campaign", "user")
@@ -214,6 +266,17 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
             self.message_user(request, "Anda tidak memiliki permission melihat report awareness.", messages.ERROR)
             return redirect("..")
         return TemplateResponse(request, "admin/awareness/report.html", self._report_context(request))
+
+    def report_detail_view(self, request, campaign_id):
+        if not self._can_view_report(request):
+            self.message_user(request, "Anda tidak memiliki permission melihat report awareness.", messages.ERROR)
+            return redirect("..")
+        campaign = get_object_or_404(AwarenessCampaign, pk=campaign_id)
+        return TemplateResponse(
+            request,
+            "admin/awareness/report_detail.html",
+            self._campaign_report_context(request, campaign),
+        )
 
     def export_xlsx_view(self, request, campaign_id):
         if not self._can_export_report(request):

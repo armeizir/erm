@@ -238,6 +238,38 @@ class AwarenessFlowTests(TestCase):
         response = self.client.get(reverse("risk_admin:awareness_awarenesscampaign_changelist"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Kirim Report")
+        self.assertNotContains(response, "Report Awareness")
+        self.assertNotContains(response, "Kirim Test")
+
+    def test_awareness_campaign_admin_labels_report_actions(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("risk_admin:awareness_awarenesscampaign_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kirim Report")
+        self.assertContains(response, "Report Awareness")
+        self.assertNotContains(response, "Kirim Test")
+
+    def test_admin_can_open_campaign_report_detail(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("risk_admin:awareness_campaign_report_detail", args=[self.campaign.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Report Awareness")
+        self.assertContains(response, self.campaign.title)
+        self.assertContains(response, "Progress Responden per Bidang / Unit")
+
+    def test_staff_can_open_campaign_report_detail_with_report_permission(self):
+        self._grant_awareness_permissions(self.staff, "view_campaign_report")
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("risk_admin:awareness_campaign_report_detail", args=[self.campaign.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Report Awareness")
 
     def test_staff_cannot_open_awareness_question_admin_without_explicit_permission(self):
         self.client.force_login(self.staff)
