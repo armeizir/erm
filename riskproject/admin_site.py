@@ -86,7 +86,11 @@ class RiskAdminSite(AdminSite):
             for model in app.get("models", [])
             if model.get("admin_url")
         }
-        if request.user.is_active and request.user.is_staff:
+        if (
+            request.user.is_active
+            and request.user.is_staff
+            and request.user.has_perm("awareness.view_campaign_report")
+        ):
             allowed_urls.add("/admin/awareness/awarenesscampaign/report/")
         return allowed_urls
 

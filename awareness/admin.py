@@ -18,23 +18,22 @@ from .notifications import send_awareness_notification
 
 
 class StaffAwarenessAdminMixin:
-    def _is_awareness_staff(self, request):
-        return bool(request.user and request.user.is_active and request.user.is_staff)
+    def _has_awareness_permission(self, request, codename):
+        return bool(
+            request.user
+            and request.user.is_active
+            and request.user.is_staff
+            and request.user.has_perm(f"awareness.{codename}")
+        )
 
-    def has_module_permission(self, request):
-        return self._is_awareness_staff(request)
+    def _can_send_test_notification(self, request):
+        return self._has_awareness_permission(request, "change_awarenesscampaign")
 
-    def has_view_permission(self, request, obj=None):
-        return self._is_awareness_staff(request)
+    def _can_view_report(self, request):
+        return self._has_awareness_permission(request, "view_campaign_report")
 
-    def has_add_permission(self, request):
-        return self._is_awareness_staff(request)
-
-    def has_change_permission(self, request, obj=None):
-        return self._is_awareness_staff(request)
-
-    def has_delete_permission(self, request, obj=None):
-        return self._is_awareness_staff(request)
+    def _can_export_report(self, request):
+        return self._has_awareness_permission(request, "export_campaign_result")
 
 
 class AwarenessQuestionInline(admin.TabularInline):
@@ -144,7 +143,7 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         return format_html('<a class="button" href="{}">Kirim Test</a>', url)
 
     def send_test_view(self, request, campaign_id):
-        if not self._is_awareness_staff(request):
+        if not self._can_send_test_notification(request):
             self.message_user(request, "Anda tidak memiliki permission kirim notifikasi awareness.", messages.ERROR)
             return redirect("..")
         campaign = get_object_or_404(AwarenessCampaign, pk=campaign_id)
@@ -211,13 +210,13 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         }
 
     def report_view(self, request):
-        if not self._is_awareness_staff(request):
+        if not self._can_view_report(request):
             self.message_user(request, "Anda tidak memiliki permission melihat report awareness.", messages.ERROR)
             return redirect("..")
         return TemplateResponse(request, "admin/awareness/report.html", self._report_context(request))
 
     def export_xlsx_view(self, request, campaign_id):
-        if not self._is_awareness_staff(request):
+        if not self._can_export_report(request):
             self.message_user(request, "Anda tidak memiliki permission export awareness.", messages.ERROR)
             return redirect("..")
         campaign = get_object_or_404(AwarenessCampaign, pk=campaign_id)
@@ -310,7 +309,7 @@ class AwarenessAttemptAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
-        return self._is_awareness_staff(request)
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return False
@@ -327,7 +326,7 @@ class AwarenessAnswerAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
-        return self._is_awareness_staff(request)
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return False

@@ -3,7 +3,7 @@ from io import StringIO
 from smtplib import SMTPAuthenticationError
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.core import mail
@@ -217,14 +217,53 @@ class AwarenessFlowTests(TestCase):
         )
         self.assertGreater(len(response.content), 1000)
 
-    def test_staff_can_open_awareness_campaign_admin_without_explicit_permission(self):
+    def _grant_awareness_permissions(self, user, *codenames):
+        permissions = Permission.objects.filter(
+            content_type__app_label="awareness",
+            codename__in=codenames,
+        )
+        user.user_permissions.add(*permissions)
+
+    def test_staff_cannot_open_awareness_admin_without_explicit_permission(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("risk_admin:awareness_awarenesscampaign_changelist"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_can_open_awareness_campaign_admin_with_view_permission(self):
+        self._grant_awareness_permissions(self.staff, "view_awarenesscampaign")
         self.client.force_login(self.staff)
 
         response = self.client.get(reverse("risk_admin:awareness_awarenesscampaign_changelist"))
 
         self.assertEqual(response.status_code, 200)
 
-    def test_staff_dashboard_shows_risk_awareness_menu(self):
+    def test_staff_cannot_open_awareness_question_admin_without_explicit_permission(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("risk_admin:awareness_awarenessquestion_changelist"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_can_open_awareness_question_admin_with_view_permission(self):
+        self._grant_awareness_permissions(self.staff, "view_awarenessquestion")
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("risk_admin:awareness_awarenessquestion_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_staff_dashboard_hides_risk_awareness_menu_without_permission(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("risk_admin:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Risk Awareness")
+
+    def test_staff_dashboard_shows_risk_awareness_menu_with_permission(self):
+        self._grant_awareness_permissions(self.staff, "view_awarenesscampaign")
         self.client.force_login(self.staff)
 
         response = self.client.get(reverse("risk_admin:index"))
