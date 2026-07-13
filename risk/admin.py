@@ -330,7 +330,23 @@ class AppSettingAdmin(admin.ModelAdmin):
 @admin.register(User)
 class CustomUserAdmin(BaseUserAdmin):
     inlines = [PenugasanUnitBisnisUserInline]
-    list_display = BaseUserAdmin.list_display + ("is_staff",)
+    list_display = (
+        "username",
+        "email",
+        "first_name",
+        "last_name",
+        "groups_display",
+        "is_staff",
+    )
+    list_select_related = BaseUserAdmin.list_select_related
+
+    @admin.display(description="Groups")
+    def groups_display(self, obj):
+        group_names = [group.name for group in obj.groups.all()]
+        return ", ".join(group_names) if group_names else "-"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("groups")
 
 
 @admin.register(PenugasanUnitBisnis)
