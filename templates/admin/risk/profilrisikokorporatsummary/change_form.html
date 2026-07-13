@@ -106,6 +106,7 @@
     <a href="#mc-risk-metrics">Risk Metrics</a>
     <a href="#mc-input-histori">Input Histori</a>
     <a href="#mc-upload-excel">Upload Excel</a>
+    <a href="#mc-lmr-triwulan">LMR Triwulan</a>
     <a href="#mc-hasil-simulasi">Hasil Simulasi</a>
     <a href="#mc-ai-insight">AI Insight</a>
   </nav>
@@ -252,6 +253,26 @@
     {% else %}
     <p class="mc-muted">Anda tidak memiliki permission untuk mengubah histori metric.</p>
     {% endif %}
+  </div>
+
+  <div id="mc-lmr-triwulan" class="mc-section">
+    <h2>Generate LMR Triwulan</h2>
+    <div class="mc-grid">
+      {% for period in monte_carlo_panel.quarter_periods %}
+      <article class="mc-card">
+        <h3>{{ period.nama_periode }}</h3>
+        <p class="mc-muted">{{ period.tanggal_mulai|date:"d M Y" }} - {{ period.tanggal_selesai|date:"d M Y" }}</p>
+        <a class="button default" target="_blank" href="{% url 'risk_admin:risk_profilrisikokorporatsummary_lmr_quarterly_pdf' original.pk period.pk %}">
+          Export LMR Profil Risiko + Monte Carlo
+        </a>
+      </article>
+      {% empty %}
+      <article class="mc-card">
+        <h3>Periode triwulan belum tersedia</h3>
+        <p class="mc-muted">Tambahkan master Periode Laporan berjenis Triwulan untuk tahun {{ original.tahun }}.</p>
+      </article>
+      {% endfor %}
+    </div>
   </div>
 
   <div id="mc-hasil-simulasi" class="mc-section">

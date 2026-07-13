@@ -8,7 +8,7 @@ from django.utils import timezone
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
@@ -22,7 +22,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from .models import MonteCarloMetricHistory, RiskMetric
+from .models import MonteCarloMetricHistory, MultiMetricMonteCarloResult, RiskMetric
 
 
 PRIMARY = colors.HexColor("#12345B")
@@ -296,12 +296,12 @@ def generate_distribution_chart(result, width=1100, height=520):
     return buffer
 
 
-def _header_footer(canvas, doc, printed_at):
+def _header_footer(canvas, doc, printed_at, document_title="Multi Metric Monte Carlo Result"):
     canvas.saveState()
-    width, height = A4
+    width, height = canvas._pagesize
     canvas.setFillColor(PRIMARY)
     canvas.setFont("Helvetica-Bold", 9)
-    canvas.drawString(doc.leftMargin, height - 1.0 * cm, "ERM PLN Batam | Multi Metric Monte Carlo Result")
+    canvas.drawString(doc.leftMargin, height - 1.0 * cm, f"ERM PLN Batam | {document_title}")
     canvas.setStrokeColor(GRID)
     canvas.line(doc.leftMargin, height - 1.18 * cm, width - doc.rightMargin, height - 1.18 * cm)
     canvas.setFillColor(colors.HexColor("#64748B"))
@@ -571,6 +571,149 @@ def render_multi_metric_pdf(result):
         story.append(_p(styles, f"- {item}"))
 
     doc.build(story, onFirstPage=lambda c, d: _header_footer(c, d, context["printed_at"]), onLaterPages=lambda c, d: _header_footer(c, d, context["printed_at"]))
+    pdf = buffer.getvalue()
+    buffer.close()
+    return pdf
+
+
+def _latest_result_by_item(summary, period):
+    queryset = (
+        MultiMetricMonteCarloResult.objects
+        .filter(corporate_risk_item__summary=summary)
+        .select_related("corporate_risk_item", "forecast_periode")
+        .order_by("corporate_risk_item_id", "-created_at", "-id")
+    )
+    if period:
+        queryset = queryset.filter(forecast_periode=period)
+
+    results = {}
+    for result in queryset:
+        results.setdefault(result.corporate_risk_item_id, result)
+    return results
+
+
+def render_quarterly_lmr_pdf(summary, period=None):
+    items = list(
+        summary.item
+        .select_related(
+            "bumn",
+            "kategori_risiko",
+            "taksonomi_t3",
+            "matrix_cell_inheren__level_risiko",
+            "matrix_cell_residual__level_risiko",
+        )
+        .prefetch_related("risk_metrics__metric_histories")
+        .order_by("no_item", "no_risiko")
+    )
+    results_by_item = _latest_result_by_item(summary, period)
+    printed_at = timezone.localtime(timezone.now())
+
+    styles = _styles()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=0.8 * cm,
+        leftMargin=0.8 * cm,
+        topMargin=1.3 * cm,
+        bottomMargin=1.1 * cm,
+        title=f"LMR {summary.tahun}",
+    )
+    story = [
+        _p(styles, "LAPORAN MANAJEMEN RISIKO TRIWULANAN", "ReportTitle"),
+        _table([
+            ["Informasi", "Keterangan", "Informasi", "Keterangan"],
+            ["Profil Risiko", str(summary), "Periode LMR", str(period) if period else "Semua periode"],
+            ["Perusahaan", f"{summary.nama_perusahaan} ({summary.kode_perusahaan})", "Tahun", summary.tahun],
+            ["Status Profil", summary.status, "Tanggal Cetak", f"{printed_at:%d %B %Y %H:%M}"],
+        ], widths=[3.0 * cm, 9.0 * cm, 3.0 * cm, 9.0 * cm], repeat_rows=1),
+        Spacer(1, 8),
+        _p(styles, "Ringkasan Profil Risiko", "Section"),
+    ]
+
+    high_items = [item for item in items if _safe_float(item.residual_level_risiko) >= 15]
+    monte_carlo_results = [result for result in results_by_item.values() if result]
+    story.append(_table([
+        ["Parameter", "Nilai", "Parameter", "Nilai"],
+        ["Jumlah Risiko Korporat", _fmt_int(len(items)), "Risiko Residual Tinggi", _fmt_int(len(high_items))],
+        ["Hasil Monte Carlo Tersedia", _fmt_int(len(monte_carlo_results)), "Butuh Mitigasi", _fmt_int(sum(1 for r in monte_carlo_results if r.requires_mitigation))],
+    ], widths=[4.2 * cm, 5.5 * cm, 4.2 * cm, 5.5 * cm], repeat_rows=1))
+    story.append(Spacer(1, 8))
+
+    profile_rows = [[
+        "No", "Peristiwa Risiko", "Kategori", "T3", "Inheren", "Residual", "Status", "Monte Carlo"
+    ]]
+    for item in items:
+        result = results_by_item.get(item.pk)
+        mc_text = "-"
+        if result:
+            mc_text = (
+                f"{result.forecast_periode}; score {_fmt_num(result.composite_score, 2)}; "
+                f"P80 {_fmt_num(result.p80_score, 2)}; {result.risk_status or result.status_hasil or '-'}"
+            )
+        profile_rows.append([
+            str(item.no_risiko or item.no_item or "-"),
+            _p(styles, item.peristiwa_risiko, "Small"),
+            _p(styles, item.kategori_risiko or "-", "Small"),
+            _p(styles, item.taksonomi_t3 or "-", "Small"),
+            f"D:{_fmt_int(item.dampak)} K:{_fmt_int(item.kemungkinan)} L:{_fmt_int(item.level_risiko)}",
+            f"D:{_fmt_int(item.residual_dampak)} K:{_fmt_int(item.residual_kemungkinan)} L:{_fmt_int(item.residual_level_risiko)}",
+            item.status or "-",
+            _p(styles, mc_text, "Small"),
+        ])
+    if len(profile_rows) == 1:
+        profile_rows.append(["-", "Belum ada item risiko.", "-", "-", "-", "-", "-", "-"])
+
+    story.append(_table(
+        profile_rows,
+        widths=[0.9*cm, 7.0*cm, 3.0*cm, 3.2*cm, 2.0*cm, 2.0*cm, 2.0*cm, 5.5*cm],
+        repeat_rows=1,
+    ))
+
+    story.append(PageBreak())
+    story.append(_p(styles, "Ringkasan Monte Carlo", "Section"))
+    mc_rows = [[
+        "No", "Item Risiko", "Periode", "Distribusi", "Forecast", "Target", "Prob. Tercapai", "VaR/P95", "Status"
+    ]]
+    for item in items:
+        result = results_by_item.get(item.pk)
+        if not result:
+            mc_rows.append([
+                str(item.no_risiko or item.no_item or "-"),
+                _p(styles, item.peristiwa_risiko, "Small"),
+                "-", "-", "-", "-", "-", "-", "Belum ada hasil",
+            ])
+            continue
+        mc_rows.append([
+            str(item.no_risiko or item.no_item or "-"),
+            _p(styles, item.peristiwa_risiko, "Small"),
+            str(result.forecast_periode),
+            _distribution_label(result.distribution_type),
+            _fmt_num(result.forecast_total or result.baseline_value, 2),
+            _fmt_num(result.target_value, 2),
+            _fmt_pct(result.probability_achieve_target),
+            _fmt_num(result.var_95, 2),
+            _p(styles, result.target_status or result.risk_status or result.status_hasil or "-", "Small"),
+        ])
+    story.append(_table(
+        mc_rows,
+        widths=[0.8*cm, 6.2*cm, 3.0*cm, 2.8*cm, 2.4*cm, 2.4*cm, 2.5*cm, 2.3*cm, 3.0*cm],
+        repeat_rows=1,
+    ))
+
+    story.append(_p(styles, "Catatan", "Section"))
+    story.append(_p(
+        styles,
+        "Laporan LMR triwulanan ini menggabungkan profil risiko korporat dengan hasil Multi Metric Monte Carlo "
+        "terakhir pada periode triwulan yang dipilih. Jika suatu item belum memiliki hasil simulasi pada periode "
+        "tersebut, item tetap ditampilkan agar gap data terlihat dalam laporan."
+    ))
+
+    doc.build(
+        story,
+        onFirstPage=lambda c, d: _header_footer(c, d, printed_at, "LMR Profil Risiko dan Monte Carlo"),
+        onLaterPages=lambda c, d: _header_footer(c, d, printed_at, "LMR Profil Risiko dan Monte Carlo"),
+    )
     pdf = buffer.getvalue()
     buffer.close()
     return pdf

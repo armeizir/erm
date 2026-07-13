@@ -243,6 +243,14 @@ class MultiMetricMonteCarloPDFExportTests(TestCase):
             tanggal_mulai=date(2026, 5, 1),
             tanggal_selesai=date(2026, 5, 31),
         )
+        self.quarter_period = PeriodeLaporan.objects.create(
+            tahun_buku=tahun_buku,
+            kode_periode="2026-TW2",
+            nama_periode="Triwulan II 2026",
+            jenis_periode="triwulan",
+            tanggal_mulai=date(2026, 4, 1),
+            tanggal_selesai=date(2026, 6, 30),
+        )
 
     def _result(self, **overrides):
         data = {
@@ -342,3 +350,30 @@ class MultiMetricMonteCarloPDFExportTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Export PDF Laporan Manajemen")
+
+    def test_quarterly_lmr_pdf_url_returns_pdf_for_superuser(self):
+        self._result(forecast_periode=self.quarter_period)
+        url = reverse(
+            "risk_admin:risk_profilrisikokorporatsummary_lmr_quarterly_pdf",
+            args=[self.item.summary_id, self.quarter_period.pk],
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("LMR_Profil_Risiko_Monte_Carlo", response["Content-Disposition"])
+        self.assertGreater(len(response.content), 1000)
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_profile_change_form_shows_quarterly_lmr_export(self):
+        url = reverse(
+            "risk_admin:risk_profilrisikokorporatsummary_change",
+            args=[self.item.summary_id],
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Generate LMR Triwulan")
+        self.assertContains(response, "Export LMR Profil Risiko + Monte Carlo")

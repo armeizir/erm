@@ -34,6 +34,7 @@ from corporate_risk.models import (
     MultiMetricMonteCarloResult,
     RiskMetric,
 )
+from corporate_risk.pdf_reports import render_quarterly_lmr_pdf
 
 from .models import (
     AppSetting,
@@ -3648,6 +3649,7 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
         "status",
         "dibuat_pada",
         "metric_history_shortcut",
+        "lmr_button",
         "pdf_button",
     )
     list_filter = ("tahun", "status")
@@ -3692,6 +3694,11 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
                 "<int:summary_id>/pdf/",
                 self.admin_site.admin_view(self.pdf_view),
                 name="risk_profilrisikokorporatsummary_pdf",
+            ),
+            path(
+                "<int:summary_id>/lmr-triwulan/<int:periode_id>/pdf/",
+                self.admin_site.admin_view(self.lmr_quarterly_pdf_view),
+                name="risk_profilrisikokorporatsummary_lmr_quarterly_pdf",
             ),
         ]
         return custom_urls + urls
@@ -3744,6 +3751,10 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
                 "summary": obj,
                 "metrics": metrics,
                 "periods": PeriodeLaporan.objects.all().order_by("tanggal_mulai", "kode_periode"),
+                "quarter_periods": PeriodeLaporan.objects.filter(
+                    tahun_buku__tahun=obj.tahun,
+                    jenis_periode="triwulan",
+                ).order_by("tanggal_mulai", "kode_periode"),
                 "can_manage_history": self._can_manage_metric_history(request, obj),
                 "save_url": reverse(
                     f"{self.admin_site.name}:risk_profilrisikokorporatsummary_metric_history_save",
@@ -3777,6 +3788,21 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
         return format_html('<a class="button" href="{}#monte-carlo-korporat">Input Histori</a>', url)
     metric_history_shortcut.short_description = "Monte Carlo"
 
+    def lmr_button(self, obj):
+        period = (
+            PeriodeLaporan.objects.filter(tahun_buku__tahun=obj.tahun, jenis_periode="triwulan")
+            .order_by("tanggal_mulai", "kode_periode")
+            .first()
+        )
+        if not period:
+            return "-"
+        url = reverse(
+            f"{self.admin_site.name}:risk_profilrisikokorporatsummary_lmr_quarterly_pdf",
+            args=[obj.pk, period.pk],
+        )
+        return format_html('<a class="button" href="{}" target="_blank">LMR TW</a>', url)
+    lmr_button.short_description = "LMR Triwulan"
+
     def pdf_button(self, obj):
         url = reverse(f"{self.admin_site.name}:risk_profilrisikokorporatsummary_pdf", args=[obj.pk])
         return format_html(
@@ -3784,6 +3810,24 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
             url,
         )
     pdf_button.short_description = "PDF"
+
+    def lmr_quarterly_pdf_view(self, request, summary_id, periode_id):
+        summary = get_object_or_404(ProfilRisikoKorporatSummary, pk=summary_id)
+        if not self.has_view_permission(request, summary):
+            raise PermissionDenied
+        period = get_object_or_404(
+            PeriodeLaporan,
+            pk=periode_id,
+            tahun_buku__tahun=summary.tahun,
+            jenis_periode="triwulan",
+        )
+
+        pdf_bytes = render_quarterly_lmr_pdf(summary, period)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="LMR_Profil_Risiko_Monte_Carlo_TW_{period.kode_periode}_{summary.tahun}.pdf"'
+        )
+        return response
 
     def metric_history_save_view(self, request, summary_id):
         if request.method != "POST":
