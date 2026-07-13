@@ -183,6 +183,12 @@ class AppSettingForm(forms.ModelForm):
         label="API Key AI",
         help_text="Kosongkan jika belum menggunakan AI. Nilai disimpan di database lokal aplikasi.",
     )
+    email_host_password = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=True),
+        label="SMTP Password",
+        help_text="Kosongkan jika SMTP belum digunakan. Nilai disimpan di database lokal aplikasi.",
+    )
 
     class Meta:
         model = AppSetting
@@ -197,6 +203,7 @@ class AppSettingAdmin(admin.ModelAdmin):
         "logo_preview",
         "ldap_status",
         "ai_status",
+        "smtp_status",
         "masked_ai_key",
         "diperbarui_pada",
     )
@@ -308,6 +315,11 @@ class AppSettingAdmin(admin.ModelAdmin):
         return "Aktif" if obj.ai_aktif else "Nonaktif"
 
     ai_status.short_description = "AI"
+
+    def smtp_status(self, obj):
+        return "Aktif" if obj.email_smtp_aktif else "Nonaktif"
+
+    smtp_status.short_description = "SMTP Email"
 
     def masked_ai_key(self, obj):
         return obj.masked_ai_api_key if obj else "-"
