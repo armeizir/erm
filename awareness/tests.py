@@ -3,6 +3,7 @@ from io import StringIO
 from smtplib import SMTPAuthenticationError
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.core import mail
@@ -321,6 +322,40 @@ class AwarenessFlowTests(TestCase):
         self.assertIn("Manajemen Risiko", html_body)
         self.assertNotIn("CYBER SECURITY", html_body)
         self.assertNotIn("Keamanan Teknologi Informasi", html_body)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="PLNBATAM ERM <erm@plnbatam.com>",
+    )
+    def test_awareness_email_includes_unit_progress_table(self):
+        unit = Group.objects.create(name="Bidang Manajemen Risiko dan Kepatuhan")
+        self.user.groups.add(unit)
+        self.other.groups.add(unit)
+        AwarenessAttempt.objects.create(
+            user=self.user,
+            campaign=self.campaign,
+            attempt_number=1,
+            total_questions=2,
+            correct_count=2,
+            wrong_count=0,
+            score=100,
+            status=AwarenessAttempt.STATUS_PASSED,
+            submitted_at=timezone.now(),
+        )
+
+        send_awareness_notification(
+            self.campaign,
+            ["risk.admin@plnbatam.com"],
+            base_url="https://erm.plnbatam.com",
+        )
+
+        html_body = mail.outbox[0].alternatives[0].content
+        text_body = mail.outbox[0].body
+        self.assertIn("Progress Responden per Bidang / Unit", html_body)
+        self.assertIn("Bidang Manajemen Risiko dan Kepatuhan", html_body)
+        self.assertIn("50%", html_body)
+        self.assertIn("TOTAL", html_body)
+        self.assertIn("1/2 responden (50%)", text_body)
 
     def test_admin_send_awareness_test_handles_smtp_auth_error(self):
         self.client.force_login(self.admin)

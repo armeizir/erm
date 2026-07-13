@@ -1,11 +1,12 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 
-from risk.models import AppSetting
+from risk.models import AppSetting, PenugasanUnitBisnis
 
 from .models import AwarenessAttempt, AwarenessCampaign
 
@@ -81,12 +82,84 @@ def campaign_subject(campaign):
     return f"Pelaksanaan {campaign.title} Bulan {month_label}"
 
 
+def _progress_color(percent):
+    if percent >= 80:
+        return "#169c43"
+    if percent >= 60:
+        return "#f4b400"
+    return "#e6354f"
+
+
+def awareness_progress_rows(campaign):
+    User = get_user_model()
+    completed_statuses = [
+        AwarenessAttempt.STATUS_SUBMITTED,
+        AwarenessAttempt.STATUS_PASSED,
+        AwarenessAttempt.STATUS_FAILED,
+        AwarenessAttempt.STATUS_EXPIRED,
+    ]
+    responded_ids = set(
+        AwarenessAttempt.objects.filter(campaign=campaign, status__in=completed_statuses)
+        .values_list("user_id", flat=True)
+        .distinct()
+    )
+    groups = Group.objects.exclude(name__startswith="ROLE -").order_by("name")
+    rows = []
+    total_user_ids = set()
+    total_responded_ids = set()
+
+    for group in groups:
+        member_ids = set(
+            User.objects.filter(is_active=True, groups=group).values_list("id", flat=True)
+        )
+        assigned_ids = set(
+            PenugasanUnitBisnis.objects.filter(unit_bisnis=group, aktif=True, user__is_active=True)
+            .values_list("user_id", flat=True)
+        )
+        user_ids = member_ids | assigned_ids
+        if not user_ids:
+            continue
+
+        unit_responded_ids = user_ids & responded_ids
+        employee_count = len(user_ids)
+        respondent_count = len(unit_responded_ids)
+        pending_count = max(employee_count - respondent_count, 0)
+        percent = round((respondent_count / employee_count) * 100) if employee_count else 0
+        total_user_ids.update(user_ids)
+        total_responded_ids.update(unit_responded_ids)
+        rows.append({
+            "unit": group.name,
+            "employee_count": employee_count,
+            "respondent_count": respondent_count,
+            "pending_count": pending_count,
+            "percent": percent,
+            "color": _progress_color(percent),
+            "highlight": percent >= 100,
+        })
+
+    total_employee_count = len(total_user_ids)
+    total_respondent_count = len(total_responded_ids)
+    total_pending_count = max(total_employee_count - total_respondent_count, 0)
+    total_percent = round((total_respondent_count / total_employee_count) * 100) if total_employee_count else 0
+    return {
+        "rows": rows,
+        "total": {
+            "employee_count": total_employee_count,
+            "respondent_count": total_respondent_count,
+            "pending_count": total_pending_count,
+            "percent": total_percent,
+            "color": _progress_color(total_percent),
+        },
+    }
+
+
 def send_awareness_notification(campaign, recipients, request=None, base_url=None):
     recipients = [email for email in recipients if email]
     if not recipients:
         return 0
 
     app_setting = AppSetting.get_solo()
+    progress = awareness_progress_rows(campaign)
     context = {
         "campaign": campaign,
         "app_setting": app_setting,
@@ -95,6 +168,9 @@ def send_awareness_notification(campaign, recipients, request=None, base_url=Non
         "month_year": f"{MONTH_NAMES[campaign.start_date.month]} {campaign.start_date.year}",
         "email_heading": campaign.email_heading,
         "email_subheading": campaign.email_subheading,
+        "progress_rows": progress["rows"],
+        "progress_total": progress["total"],
+        "footer_year": campaign.start_date.year,
     }
     subject = campaign_subject(campaign)
     text_body = render_to_string("awareness/email/notification.txt", context)

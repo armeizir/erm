@@ -5,45 +5,81 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ campaign.title }}</title>
 </head>
-<body style="margin:0;padding:0;background:#f4f7fb;color:#334155;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;margin:0;padding:28px 0;">
+<body style="margin:0;padding:0;background:#f6f8fb;color:#333333;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f8fb;margin:0;padding:28px 0;">
     <tr>
       <td align="center">
-        <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="width:640px;max-width:94%;background:#ffffff;border-collapse:collapse;">
+        <table role="presentation" width="760" cellspacing="0" cellpadding="0" style="width:760px;max-width:94%;background:#ffffff;border-collapse:collapse;">
           <tr>
-            <td style="background:#1b2a3a;padding:42px 32px;text-align:center;color:#ffffff;">
-              <div style="display:inline-block;width:56px;height:56px;border-radius:999px;background:#18b8cf;color:#ffffff;line-height:56px;font-size:28px;margin-bottom:22px;">&#9881;</div>
-              <div style="font-size:30px;line-height:1.2;font-weight:700;letter-spacing:1px;">
+            <td style="background:#0b70b7;padding:34px 32px;text-align:center;color:#ffffff;">
+              <div style="font-size:28px;line-height:1.25;font-weight:700;letter-spacing:0;">
                 {{ email_heading|upper }}
               </div>
-              <div style="margin-top:16px;color:#16bfd2;font-size:16px;">
+              <div style="margin-top:8px;color:#d9edf9;font-size:15px;">
                 {{ email_subheading }} &bull; {{ month_year|upper }}
               </div>
             </td>
           </tr>
           <tr>
-            <td style="padding:36px 42px 18px;">
-              <p style="margin:0 0 24px;font-size:16px;line-height:1.55;"><strong>Yth. Bapak dan Ibu,</strong></p>
-              <p style="margin:0 0 20px;font-size:16px;line-height:1.55;">
-                Dalam rangka meningkatkan <span style="background:#fff19a;">awareness</span> pegawai terkait {{ email_subheading|lower }} di lingkungan
+            <td style="padding:34px 42px 18px;">
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#111827;"><strong>Yth. Bapak dan Ibu,</strong></p>
+              <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#333333;">
+                Dalam rangka meningkatkan awareness pegawai terkait {{ email_subheading|lower }} di lingkungan
                 <strong>PT PLN Batam</strong>, kami mohon kesediaan Bapak/Ibu untuk berpartisipasi dalam
-                <strong style="color:#078b98;">{{ campaign.title }} Bulan {{ month_year|upper }}.</strong>
+                <strong>{{ campaign.title }} Bulan {{ month_year|upper }}.</strong>
               </p>
-              <p style="margin:0 0 28px;font-size:16px;line-height:1.55;">
+              <p style="margin:0 0 28px;font-size:15px;line-height:1.6;color:#333333;">
                 Mohon bantuan Bapak dan Ibu untuk meluangkan waktu dan mengisi form survei dengan mengklik tombol di bawah ini:
               </p>
-              <p style="margin:0 0 30px;">
-                <a href="{{ material_url }}" style="display:inline-block;background:#16b8c9;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:16px 42px;border-radius:8px;">
+              <p style="margin:0 0 30px;text-align:center;">
+                <a href="{{ material_url }}" style="display:inline-block;background:#0b70b7;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 42px;border-radius:7px;">
                   Isi Survei Sekarang &rarr;
                 </a>
               </p>
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 24px;">
                 <tr>
-                  <td style="border-left:4px solid #16b8c9;background:#dff7fb;padding:18px 20px;font-size:16px;line-height:1.45;color:#155e65;">
+                  <td style="border-left:4px solid #f4b400;background:#fff7e1;padding:16px 20px;font-size:15px;line-height:1.45;color:#5b4300;">
                     <strong>Periode Survei:</strong> {{ period_text }}
                   </td>
                 </tr>
               </table>
+              {% if progress_rows %}
+              <h2 style="font-size:17px;line-height:1.35;margin:28px 0 10px;color:#111827;">Progress Responden per Bidang / Unit</h2>
+              <div style="height:2px;background:#0b70b7;margin:0 0 14px;"></div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 26px;font-size:13px;color:#333333;">
+                <thead>
+                  <tr>
+                    <th align="left" style="background:#0b70b7;color:#ffffff;padding:12px;border:1px solid #0b70b7;">BIDANG / UNIT</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:12px;border:1px solid #0b70b7;">PEGAWAI</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:12px;border:1px solid #0b70b7;">RESPONDEN</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:12px;border:1px solid #0b70b7;">BELUM</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:12px;border:1px solid #0b70b7;">PROGRESS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in progress_rows %}
+                  <tr>
+                    <td style="padding:11px 12px;border:1px solid #e8edf3;{% if row.highlight %}background:#d7f0df;color:#14532d;font-weight:700;{% else %}background:#ffffff;{% endif %}">{{ row.unit }}</td>
+                    <td align="center" style="padding:11px 12px;border:1px solid #e8edf3;{% if row.highlight %}background:#d7f0df;color:#14532d;font-weight:700;{% else %}background:#ffffff;{% endif %}">{{ row.employee_count }}</td>
+                    <td align="center" style="padding:11px 12px;border:1px solid #e8edf3;{% if row.highlight %}background:#d7f0df;color:#14532d;font-weight:700;{% else %}background:#ffffff;{% endif %}">{{ row.respondent_count }}</td>
+                    <td align="center" style="padding:11px 12px;border:1px solid #e8edf3;{% if row.highlight %}background:#d7f0df;color:#14532d;font-weight:700;{% else %}background:#ffffff;{% endif %}">{{ row.pending_count }}</td>
+                    <td align="center" style="padding:11px 12px;border:1px solid #e8edf3;{% if row.highlight %}background:#d7f0df;{% else %}background:#ffffff;{% endif %}">
+                      <span style="display:inline-block;min-width:48px;background:{{ row.color }};color:#ffffff;font-weight:700;padding:5px 8px;">{{ row.percent }}%</span>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                  <tr>
+                    <td style="padding:13px 12px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">TOTAL</td>
+                    <td align="center" style="padding:13px 12px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">{{ progress_total.employee_count }}</td>
+                    <td align="center" style="padding:13px 12px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">{{ progress_total.respondent_count }}</td>
+                    <td align="center" style="padding:13px 12px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">{{ progress_total.pending_count }}</td>
+                    <td align="center" style="padding:13px 12px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">
+                      <span style="display:inline-block;min-width:48px;background:#ffffff;color:#0b70b7;font-weight:700;padding:5px 8px;">{{ progress_total.percent }}%</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              {% endif %}
               <p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#64748b;">
                 Jika tombol tidak dapat dibuka, salin tautan berikut ke browser:
               </p>
@@ -51,9 +87,15 @@
             </td>
           </tr>
           <tr>
-            <td style="padding:20px 42px 34px;color:#64748b;font-size:13px;line-height:1.5;">
+            <td style="padding:24px 42px 34px;color:#333333;font-size:13px;line-height:1.5;background:#f8fafc;border-top:1px solid #e5e7eb;">
               Terima kasih atas partisipasi Bapak/Ibu.<br>
-              <strong>{{ app_setting.nama_aplikasi|default:"Manajemen Risiko PLN Batam" }}</strong>
+              Hormat kami,<br>
+              <strong style="color:#0b70b7;">{{ app_setting.nama_aplikasi|default:"Manajemen Risiko PLN Batam" }}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:12px 42px;text-align:center;background:#e5e7eb;color:#6b7280;font-size:12px;">
+              PLN Batam {{ footer_year }}
             </td>
           </tr>
         </table>

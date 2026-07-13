@@ -7,5 +7,11 @@ Silakan mengisi survei melalui tautan berikut:
 
 Periode Survei: {{ period_text }}
 
+{% if progress_rows %}
+Progress Responden per Bidang / Unit:
+{% for row in progress_rows %}- {{ row.unit }}: {{ row.respondent_count }}/{{ row.employee_count }} responden ({{ row.percent }}%), belum {{ row.pending_count }}
+{% endfor %}TOTAL: {{ progress_total.respondent_count }}/{{ progress_total.employee_count }} responden ({{ progress_total.percent }}%), belum {{ progress_total.pending_count }}
+
+{% endif %}
 Terima kasih atas partisipasi Bapak/Ibu.
 {{ app_setting.nama_aplikasi|default:"Manajemen Risiko PLN Batam" }}
