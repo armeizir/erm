@@ -366,6 +366,32 @@ class MultiMetricMonteCarloPDFExportTests(TestCase):
         self.assertGreater(len(response.content), 1000)
         self.assertTrue(response.content.startswith(b"%PDF"))
 
+    def test_lmr_pdf_fallback_url_returns_pdf_without_quarter_period(self):
+        self._result()
+        self.quarter_period.delete()
+        url = reverse(
+            "risk_admin:risk_profilrisikokorporatsummary_lmr_pdf",
+            args=[self.item.summary_id],
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("SEMUA_PERIODE", response["Content-Disposition"])
+        self.assertGreater(len(response.content), 1000)
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_profile_list_shows_lmr_pdf_button_without_quarter_period(self):
+        self.quarter_period.delete()
+        url = reverse("risk_admin:risk_profilrisikokorporatsummary_changelist")
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "LMR PDF")
+        self.assertNotContains(response, "<td class=\"field-lmr_button\">-</td>", html=True)
+
     def test_profile_change_form_shows_quarterly_lmr_export(self):
         url = reverse(
             "risk_admin:risk_profilrisikokorporatsummary_change",

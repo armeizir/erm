@@ -269,7 +269,10 @@
       {% empty %}
       <article class="mc-card">
         <h3>Periode triwulan belum tersedia</h3>
-        <p class="mc-muted">Tambahkan master Periode Laporan berjenis Triwulan untuk tahun {{ original.tahun }}.</p>
+        <p class="mc-muted">PDF tetap bisa dibuat dari hasil Monte Carlo terakhir yang tersedia. Tambahkan master Periode Laporan berjenis Triwulan untuk filter TW yang lebih spesifik.</p>
+        <a class="button default" target="_blank" href="{{ monte_carlo_panel.lmr_fallback_url }}">
+          Export LMR Profil Risiko + Monte Carlo
+        </a>
       </article>
       {% endfor %}
     </div>

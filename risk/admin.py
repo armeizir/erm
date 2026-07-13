@@ -3700,6 +3700,11 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.lmr_quarterly_pdf_view),
                 name="risk_profilrisikokorporatsummary_lmr_quarterly_pdf",
             ),
+            path(
+                "<int:summary_id>/lmr-triwulan/pdf/",
+                self.admin_site.admin_view(self.lmr_quarterly_pdf_view),
+                name="risk_profilrisikokorporatsummary_lmr_pdf",
+            ),
         ]
         return custom_urls + urls
 
@@ -3768,6 +3773,10 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
                     f"{self.admin_site.name}:risk_profilrisikokorporatsummary_metric_history_template",
                     args=[obj.pk],
                 ),
+                "lmr_fallback_url": reverse(
+                    f"{self.admin_site.name}:risk_profilrisikokorporatsummary_lmr_pdf",
+                    args=[obj.pk],
+                ),
                 "results": MultiMetricMonteCarloResult.objects.filter(
                     corporate_risk_item__summary=obj
                 ).select_related("corporate_risk_item", "forecast_periode").order_by(
@@ -3794,13 +3803,19 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
             .order_by("tanggal_mulai", "kode_periode")
             .first()
         )
-        if not period:
-            return "-"
-        url = reverse(
-            f"{self.admin_site.name}:risk_profilrisikokorporatsummary_lmr_quarterly_pdf",
-            args=[obj.pk, period.pk],
-        )
-        return format_html('<a class="button" href="{}" target="_blank">LMR TW</a>', url)
+        if period:
+            url = reverse(
+                f"{self.admin_site.name}:risk_profilrisikokorporatsummary_lmr_quarterly_pdf",
+                args=[obj.pk, period.pk],
+            )
+            label = "LMR TW"
+        else:
+            url = reverse(
+                f"{self.admin_site.name}:risk_profilrisikokorporatsummary_lmr_pdf",
+                args=[obj.pk],
+            )
+            label = "LMR PDF"
+        return format_html('<a class="button" href="{}" target="_blank">{}</a>', url, label)
     lmr_button.short_description = "LMR Triwulan"
 
     def pdf_button(self, obj):
@@ -3811,21 +3826,24 @@ class ProfilRisikoKorporatSummaryAdmin(admin.ModelAdmin):
         )
     pdf_button.short_description = "PDF"
 
-    def lmr_quarterly_pdf_view(self, request, summary_id, periode_id):
+    def lmr_quarterly_pdf_view(self, request, summary_id, periode_id=None):
         summary = get_object_or_404(ProfilRisikoKorporatSummary, pk=summary_id)
         if not self.has_view_permission(request, summary):
             raise PermissionDenied
-        period = get_object_or_404(
-            PeriodeLaporan,
-            pk=periode_id,
-            tahun_buku__tahun=summary.tahun,
-            jenis_periode="triwulan",
-        )
+        period = None
+        if periode_id is not None:
+            period = get_object_or_404(
+                PeriodeLaporan,
+                pk=periode_id,
+                tahun_buku__tahun=summary.tahun,
+                jenis_periode="triwulan",
+            )
 
         pdf_bytes = render_quarterly_lmr_pdf(summary, period)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        period_code = period.kode_periode if period else "SEMUA_PERIODE"
         response["Content-Disposition"] = (
-            f'inline; filename="LMR_Profil_Risiko_Monte_Carlo_TW_{period.kode_periode}_{summary.tahun}.pdf"'
+            f'inline; filename="LMR_Profil_Risiko_Monte_Carlo_{period_code}_{summary.tahun}.pdf"'
         )
         return response
 
