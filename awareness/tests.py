@@ -2,13 +2,14 @@ from datetime import date, timedelta
 from io import StringIO
 from smtplib import SMTPAuthenticationError
 
+from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.core import mail
 from django.core.mail.backends.locmem import EmailBackend as LocMemEmailBackend
-from django.test import override_settings
+from django.test import RequestFactory, override_settings
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -20,6 +21,7 @@ from .models import (
     AwarenessQuestion,
     AwarenessUnitTarget,
 )
+from .admin import AwarenessAttemptAdmin
 from .notifications import send_awareness_notification
 from risk.models import AppSetting
 
@@ -30,6 +32,34 @@ class DummySMTPBackend(LocMemEmailBackend):
     def __init__(self, *args, **kwargs):
         type(self).init_kwargs = kwargs.copy()
         super().__init__(*args, **kwargs)
+
+
+class AwarenessAttemptAdminTests(TestCase):
+    def test_group_column_is_after_user_and_sortable(self):
+        User = get_user_model()
+        admin_user = User.objects.create_superuser(username="admin", password="secret")
+        user = User.objects.create_user(username="risk.user", password="secret")
+        group = Group.objects.create(name="BID RISIKO")
+        user.groups.add(group)
+        campaign = AwarenessCampaign.objects.create(
+            title="Awareness 2026",
+            description="Kuis",
+            topic="manajemen_risiko",
+            start_date=timezone.localdate(),
+            end_date=timezone.localdate() + timedelta(days=1),
+        )
+        attempt = AwarenessAttempt.objects.create(campaign=campaign, user=user, attempt_number=1)
+        request = RequestFactory().get("/admin/awareness/awarenessattempt/")
+        request.user = admin_user
+        attempt_admin = AwarenessAttemptAdmin(AwarenessAttempt, AdminSite())
+
+        queryset = attempt_admin.get_queryset(request).filter(pk=attempt.pk)
+        row = queryset.order_by("user_group_order").first()
+
+        self.assertEqual(attempt_admin.list_display[1:3], ("user", "user_groups"))
+        self.assertEqual(AwarenessAttemptAdmin.user_groups.admin_order_field, "user_group_order")
+        self.assertEqual(row.user_group_order, "BID RISIKO")
+        self.assertEqual(attempt_admin.user_groups(row), "BID RISIKO")
 
 
 class AwarenessFlowTests(TestCase):

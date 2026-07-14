@@ -2,7 +2,7 @@ from smtplib import SMTPException
 
 from django.contrib import admin, messages
 from django.contrib.auth import get_user_model
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count, Min, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
@@ -356,6 +356,7 @@ class AwarenessAttemptAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     list_display = (
         "campaign",
         "user",
+        "user_groups",
         "score",
         "status",
         "correct_count",
@@ -389,6 +390,19 @@ class AwarenessAttemptAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def get_queryset(self, request):
+        return (
+            super().get_queryset(request)
+            .select_related("campaign", "user")
+            .prefetch_related("user__groups")
+            .annotate(user_group_order=Min("user__groups__name"))
+        )
+
+    @admin.display(description="Group", ordering="user_group_order")
+    def user_groups(self, obj):
+        group_names = [group.name for group in obj.user.groups.all()]
+        return ", ".join(group_names) if group_names else "-"
 
 
 @admin.register(AwarenessAnswer)
