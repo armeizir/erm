@@ -341,13 +341,17 @@ class CustomUserAdmin(BaseUserAdmin):
     )
     list_select_related = BaseUserAdmin.list_select_related
 
-    @admin.display(description="Groups")
+    @admin.display(description="Groups", ordering="groups_order")
     def groups_display(self, obj):
         group_names = [group.name for group in obj.groups.all()]
         return ", ".join(group_names) if group_names else "-"
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related("groups")
+        return (
+            super().get_queryset(request)
+            .prefetch_related("groups")
+            .annotate(groups_order=models.Min("groups__name"))
+        )
 
 
 @admin.register(PenugasanUnitBisnis)

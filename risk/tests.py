@@ -1,10 +1,13 @@
 from django import forms
+from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.auth.models import Permission
+from django.test import RequestFactory
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 
+from risk.admin import CustomUserAdmin
 from risk.models import (
     BagianKontrakManajemen,
     ItemKontrakManajemen,
@@ -106,6 +109,25 @@ class SensitiveEndpointSecurityTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+
+class CustomUserAdminTests(TestCase):
+    def test_groups_column_is_sortable(self):
+        User = get_user_model()
+        admin_user = User.objects.create_superuser(username="admin", password="secret")
+        target_user = User.objects.create_user(username="risk-user", password="secret")
+        group = Group.objects.create(name="BID RISIKO")
+        target_user.groups.add(group)
+        request = RequestFactory().get("/admin/auth/user/")
+        request.user = admin_user
+        user_admin = CustomUserAdmin(User, AdminSite())
+
+        queryset = user_admin.get_queryset(request).filter(pk=target_user.pk)
+        user = queryset.order_by("groups_order").first()
+
+        self.assertEqual(CustomUserAdmin.groups_display.admin_order_field, "groups_order")
+        self.assertEqual(user.groups_order, "BID RISIKO")
+        self.assertEqual(user_admin.groups_display(user), "BID RISIKO")
 
 
 class RKMPDFAdminTests(TestCase):
