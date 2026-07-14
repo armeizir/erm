@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from statistics import mean
 
 from django.utils import timezone
@@ -30,6 +31,9 @@ SECONDARY = colors.HexColor("#3B5976")
 LIGHT_BG = colors.HexColor("#F3F6FA")
 GRID = colors.HexColor("#D9E1EC")
 TEXT = colors.HexColor("#1F2937")
+PLN_TEAL = colors.HexColor("#00A6B4")
+PLN_DARK_TEAL = colors.HexColor("#075D73")
+LMR_LOGO_PATH = Path(__file__).resolve().parent.parent / "media" / "system" / "logo" / "pln_batam_logo_1.png"
 
 
 def _safe_float(value, default=0.0):
@@ -370,6 +374,44 @@ def _table(data, widths=None, repeat_rows=0):
     return table
 
 
+def _lmr_header_footer(canvas, doc, printed_at):
+    canvas.saveState()
+    width, height = canvas._pagesize
+
+    if doc.page == 1:
+        canvas.setFillColor(colors.HexColor("#F2F2F2"))
+        canvas.rect(width - 4.1 * cm, 2.0 * cm, 3.5 * cm, height - 4.0 * cm, fill=1, stroke=0)
+    else:
+        canvas.setFillColor(PRIMARY)
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.drawString(doc.leftMargin, height - 0.85 * cm, "Laporan Manajemen Risiko Korporat")
+        canvas.setStrokeColor(GRID)
+        canvas.line(doc.leftMargin, height - 1.02 * cm, width - doc.rightMargin, height - 1.02 * cm)
+
+    canvas.setFillColor(colors.HexColor("#F97316"))
+    canvas.setFont("Helvetica-Oblique", 7)
+    canvas.drawString(doc.leftMargin, 0.68 * cm, "Dokumen Rahasia")
+    canvas.setFillColor(PLN_TEAL)
+    canvas.rect(width - 12.2 * cm, 0.45 * cm, 8.8 * cm, 0.45 * cm, fill=1, stroke=0)
+    canvas.setFillColor(PLN_DARK_TEAL)
+    canvas.rect(width - 3.4 * cm, 0.45 * cm, 2.6 * cm, 0.45 * cm, fill=1, stroke=0)
+    canvas.setFillColor(colors.white)
+    canvas.setFont("Helvetica", 5.5)
+    canvas.drawCentredString(width - 7.8 * cm, 0.58 * cm, "Dokumen ini milik PT PLN Batam, dilarang menyalin atau memperbanyak dokumen tanpa izin")
+    canvas.setFont("Helvetica", 6.5)
+    canvas.drawCentredString(width - 2.1 * cm, 0.58 * cm, "PT PLN Batam")
+    canvas.setFillColor(colors.HexColor("#64748B"))
+    canvas.setFont("Helvetica", 7)
+    canvas.drawRightString(width - doc.rightMargin, 0.23 * cm, f"Halaman {doc.page}")
+    canvas.restoreState()
+
+
+def _lmr_logo(width=3.4 * cm, height=1.7 * cm):
+    if LMR_LOGO_PATH.exists():
+        return ReportLabImage(str(LMR_LOGO_PATH), width=width, height=height)
+    return Paragraph("PLN Batam", _styles()["Section"])
+
+
 def _p(styles, text, style="Body"):
     return Paragraph(str(text or "-").replace("\n", "<br/>"), styles[style])
 
@@ -612,29 +654,36 @@ def render_quarterly_lmr_pdf(summary, period=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=landscape(A4),
-        rightMargin=0.8 * cm,
-        leftMargin=0.8 * cm,
-        topMargin=1.3 * cm,
-        bottomMargin=1.1 * cm,
+        pagesize=A4,
+        rightMargin=0.9 * cm,
+        leftMargin=0.9 * cm,
+        topMargin=1.25 * cm,
+        bottomMargin=1.2 * cm,
         title=f"LMR {summary.tahun}",
     )
     report_period = str(period) if period else "Semua periode"
     report_title = "LAPORAN MANAJEMEN RISIKO TRIWULANAN"
+    cover_title = _p(styles, "LAPORAN<br/>MANAJEMEN RISIKO<br/>KORPORAT", "ReportTitle")
+    cover_period = _p(styles, f"{report_period.upper()} TAHUN {summary.tahun}", "Section")
+    cover_table = Table(
+        [[_lmr_logo(), cover_title], ["", cover_period]],
+        colWidths=[4.0 * cm, 10.8 * cm],
+        rowHeights=[3.2 * cm, 1.2 * cm],
+        hAlign="LEFT",
+    )
+    cover_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBEFORE", (1, 0), (1, 1), 0.6, colors.HexColor("#8DB4E2")),
+        ("LINEABOVE", (0, 1), (1, 1), 0.6, colors.HexColor("#8DB4E2")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
     story = [
-        _p(styles, report_title, "ReportTitle"),
-        _table([
-            ["Informasi", "Keterangan", "Informasi", "Keterangan"],
-            ["Profil Risiko", str(summary), "Periode LMR", report_period],
-            ["Perusahaan", f"{summary.nama_perusahaan} ({summary.kode_perusahaan})", "Tahun", summary.tahun],
-            ["Status Profil", summary.status, "Tanggal Cetak", f"{printed_at:%d %B %Y %H:%M}"],
-        ], widths=[3.0 * cm, 9.0 * cm, 3.0 * cm, 9.0 * cm], repeat_rows=1),
-        Spacer(1, 14),
-        _p(
-            styles,
-            "Dokumen ini menyajikan strategi risiko, profil risiko korporat, dan hasil simulasi Multi Metric Monte Carlo "
-            "sebagai bahan monitoring manajemen risiko periode berjalan.",
-        ),
+        Spacer(1, 5.2 * cm),
+        cover_table,
+        Spacer(1, 7.0 * cm),
+        _p(styles, f"{printed_at:%B %Y}", "Small"),
+        _p(styles, "Direktorat Keuangan, Manajemen Risiko, dan Human Capital", "Small"),
         PageBreak(),
         _p(styles, "LEMBAR PENGESAHAN", "ReportTitle"),
         _table([
@@ -645,13 +694,13 @@ def render_quarterly_lmr_pdf(summary, period=None):
             ["Perusahaan", f"{summary.nama_perusahaan} ({summary.kode_perusahaan})"],
             ["Tahun", summary.tahun],
             ["Tanggal Cetak", f"{printed_at:%d %B %Y %H:%M}"],
-        ], widths=[5.0 * cm, 18.5 * cm], repeat_rows=1),
+        ], widths=[4.2 * cm, 14.6 * cm], repeat_rows=1),
         Spacer(1, 18),
         _table([
             ["Disusun Oleh", "Diperiksa Oleh", "Disahkan Oleh"],
             ["", "", ""],
             ["Risk Management", "Manajemen Terkait", "Direksi / Pejabat Berwenang"],
-        ], widths=[7.8 * cm, 7.8 * cm, 7.8 * cm], repeat_rows=1),
+        ], widths=[6.25 * cm, 6.25 * cm, 6.25 * cm], repeat_rows=1),
         PageBreak(),
         _p(styles, "DAFTAR ISI", "ReportTitle"),
         _table([
@@ -664,7 +713,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
             ["1.1 Konteks Strategi Risiko", "1"],
             ["1.2 Arah dan Fokus Pengelolaan Risiko", "1"],
             ["1.3 Profil Risiko dan Hasil Monte Carlo", "2"],
-        ], widths=[20.0 * cm, 3.5 * cm], repeat_rows=1),
+        ], widths=[16.0 * cm, 2.8 * cm], repeat_rows=1),
         PageBreak(),
         _p(styles, "DAFTAR TABEL", "ReportTitle"),
         _table([
@@ -673,13 +722,13 @@ def render_quarterly_lmr_pdf(summary, period=None):
             ["Tabel 2", "Ringkasan Profil Risiko", "1"],
             ["Tabel 3", "Daftar Profil Risiko Korporat", "2"],
             ["Tabel 4", "Ringkasan Hasil Monte Carlo", "3"],
-        ], widths=[3.0 * cm, 17.0 * cm, 3.5 * cm], repeat_rows=1),
+        ], widths=[2.5 * cm, 13.5 * cm, 2.8 * cm], repeat_rows=1),
         PageBreak(),
         _p(styles, "DAFTAR GAMBAR", "ReportTitle"),
         _table([
             ["No", "Nama Gambar", "Hal."],
             ["Gambar 1", "Kerangka Strategi Risiko dan Monitoring LMR", "1"],
-        ], widths=[3.0 * cm, 17.0 * cm, 3.5 * cm], repeat_rows=1),
+        ], widths=[2.5 * cm, 13.5 * cm, 2.8 * cm], repeat_rows=1),
         PageBreak(),
         _p(styles, "BAB I STRATEGI RISIKO", "ReportTitle"),
         _p(styles, "1.1 Konteks Strategi Risiko", "Section"),
@@ -696,7 +745,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
             ["Profil Risiko", str(summary), "Periode LMR", report_period],
             ["Perusahaan", f"{summary.nama_perusahaan} ({summary.kode_perusahaan})", "Tahun", summary.tahun],
             ["Status Profil", summary.status, "Tanggal Cetak", f"{printed_at:%d %B %Y %H:%M}"],
-        ], widths=[3.0 * cm, 9.0 * cm, 3.0 * cm, 9.0 * cm], repeat_rows=1),
+        ], widths=[2.6 * cm, 6.8 * cm, 2.6 * cm, 6.8 * cm], repeat_rows=1),
         Spacer(1, 8),
         _p(styles, "Gambar 1. Kerangka Strategi Risiko dan Monitoring LMR", "Small"),
         _table([
@@ -707,7 +756,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
                 _p(styles, "Memproyeksikan distribusi output dan probabilitas target.", "Small"),
                 _p(styles, "Menetapkan fokus mitigasi dan tindak lanjut manajemen.", "Small"),
             ],
-        ], widths=[5.9 * cm, 5.9 * cm, 5.9 * cm, 5.9 * cm], repeat_rows=1),
+        ], widths=[4.7 * cm, 4.7 * cm, 4.7 * cm, 4.7 * cm], repeat_rows=1),
         Spacer(1, 8),
         _p(styles, "1.2 Arah dan Fokus Pengelolaan Risiko", "Section"),
         _p(
@@ -726,7 +775,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
         ["Parameter", "Nilai", "Parameter", "Nilai"],
         ["Jumlah Risiko Korporat", _fmt_int(len(items)), "Risiko Residual Tinggi", _fmt_int(len(high_items))],
         ["Hasil Monte Carlo Tersedia", _fmt_int(len(monte_carlo_results)), "Butuh Mitigasi", _fmt_int(sum(1 for r in monte_carlo_results if r.requires_mitigation))],
-    ], widths=[4.2 * cm, 5.5 * cm, 4.2 * cm, 5.5 * cm], repeat_rows=1))
+    ], widths=[4.0 * cm, 5.4 * cm, 4.0 * cm, 5.4 * cm], repeat_rows=1))
     story.append(Spacer(1, 8))
     story.append(_p(styles, "Tabel 3. Daftar Profil Risiko Korporat", "Small"))
 
@@ -756,7 +805,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
 
     story.append(_table(
         profile_rows,
-        widths=[0.9*cm, 7.0*cm, 3.0*cm, 3.2*cm, 2.0*cm, 2.0*cm, 2.0*cm, 5.5*cm],
+        widths=[0.7*cm, 4.9*cm, 2.1*cm, 2.1*cm, 1.6*cm, 1.6*cm, 1.5*cm, 4.3*cm],
         repeat_rows=1,
     ))
 
@@ -788,7 +837,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
         ])
     story.append(_table(
         mc_rows,
-        widths=[0.8*cm, 6.2*cm, 3.0*cm, 2.8*cm, 2.4*cm, 2.4*cm, 2.5*cm, 2.3*cm, 3.0*cm],
+        widths=[0.7*cm, 4.4*cm, 2.4*cm, 2.3*cm, 1.8*cm, 1.8*cm, 2.0*cm, 1.7*cm, 1.7*cm],
         repeat_rows=1,
     ))
 
@@ -802,8 +851,8 @@ def render_quarterly_lmr_pdf(summary, period=None):
 
     doc.build(
         story,
-        onFirstPage=lambda c, d: _header_footer(c, d, printed_at, "LMR Profil Risiko dan Monte Carlo"),
-        onLaterPages=lambda c, d: _header_footer(c, d, printed_at, "LMR Profil Risiko dan Monte Carlo"),
+        onFirstPage=lambda c, d: _lmr_header_footer(c, d, printed_at),
+        onLaterPages=lambda c, d: _lmr_header_footer(c, d, printed_at),
     )
     pdf = buffer.getvalue()
     buffer.close()
