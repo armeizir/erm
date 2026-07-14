@@ -4,6 +4,7 @@ import io
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from statistics import mean
+from xml.sax.saxutils import escape
 
 from django.utils import timezone
 from PIL import Image, ImageDraw, ImageFont
@@ -421,6 +422,296 @@ def _p(styles, text, style="Body"):
     return Paragraph(str(text or "-").replace("\n", "<br/>"), styles[style])
 
 
+def _html(value):
+    return escape(str(value or "-")).replace("\n", "<br/>")
+
+
+def _risk_level_text(item, kind="residual"):
+    if kind == "inheren":
+        level_name = item.get_level_name("inheren") if hasattr(item, "get_level_name") else ""
+        score = _fmt_int(getattr(item, "level_risiko", None))
+    else:
+        level_name = item.get_level_name("residual") if hasattr(item, "get_level_name") else ""
+        score = _fmt_int(getattr(item, "residual_level_risiko", None))
+    if score == "-":
+        return level_name or "-"
+    return f"{level_name or 'Level'} ({score})"
+
+
+def _lmr_quarter_number(period):
+    if not period:
+        return None
+    date_value = getattr(period, "tanggal_mulai", None) or getattr(period, "tanggal_selesai", None)
+    if not date_value:
+        return None
+    return ((date_value.month - 1) // 3) + 1
+
+
+def _lmr_quarter_cells(period, target_text, realization_text):
+    quarter = _lmr_quarter_number(period)
+    targets = ["-" for _ in range(4)]
+    realizations = ["-" for _ in range(4)]
+    if quarter:
+        targets[quarter - 1] = target_text or "-"
+        realizations[quarter - 1] = realization_text or "-"
+    return targets, realizations
+
+
+def _lmr_status_color(text):
+    text = (text or "").lower()
+    if any(keyword in text for keyword in ["low", "rendah", "tercapai", "aman"]):
+        return colors.HexColor("#00B050")
+    if any(keyword in text for keyword in ["moderat", "medium", "hati"]):
+        return colors.yellow
+    if any(keyword in text for keyword in ["high", "tinggi", "bahaya", "tidak"]):
+        return colors.HexColor("#F4B183")
+    return colors.HexColor("#DDEBF7")
+
+
+def _lmr_result_status_text(item, result):
+    if result:
+        status = result.risk_status or result.target_status or result.status_hasil or ""
+        score = _fmt_num(result.composite_score or result.p80_score, 2)
+        if status and score != "-":
+            return f"{status} ({score})"
+        return status or score
+    return _risk_level_text(item, "residual")
+
+
+def _lmr_risk_monitoring_matrix(item, result, styles, index, report_period):
+    target_text = _risk_level_text(item, "residual")
+    realization_text = _lmr_result_status_text(item, result)
+    target_cells, realization_cells = _lmr_quarter_cells(report_period, target_text, realization_text)
+    appetite = "Konservatif"
+    exposure = "Over Exposed" if _safe_float(getattr(item, "residual_level_risiko", None)) >= 15 else "Within Appetite"
+    awal = _risk_level_text(item, "inheren")
+
+    rows = [
+        [
+            f"{index:02d}",
+            _p(styles, item.peristiwa_risiko, "Small"),
+            "Risk appetite",
+            "Risk exposure",
+            "Awal",
+            "",
+            "TW I",
+            "TW II",
+            "TW III",
+            "TW IV",
+        ],
+        [
+            "",
+            "",
+            appetite,
+            exposure,
+            awal,
+            "Target",
+            *target_cells,
+        ],
+        [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "Realisasi",
+            *realization_cells,
+        ],
+    ]
+    table = Table(
+        rows,
+        colWidths=[
+            1.1 * cm, 2.55 * cm, 2.05 * cm, 2.05 * cm, 1.55 * cm,
+            1.65 * cm, 1.95 * cm, 1.95 * cm, 1.95 * cm, 1.95 * cm,
+        ],
+        repeatRows=0,
+        hAlign="LEFT",
+    )
+    table_style = [
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.white),
+        ("BOX", (0, 0), (-1, -1), 0.5, GRID),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#1F4E78")),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.white),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (0, -1), 14),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#DDEBF7")),
+        ("BACKGROUND", (2, 0), (4, -1), colors.HexColor("#F8FBFD")),
+        ("BACKGROUND", (5, 0), (5, -1), colors.HexColor("#DDEBF7")),
+        ("BACKGROUND", (6, 0), (9, 0), colors.HexColor("#F8FBFD")),
+        ("BACKGROUND", (6, 1), (9, 1), colors.HexColor("#FFFF00")),
+        ("BACKGROUND", (6, 2), (9, 2), colors.HexColor("#DDEBF7")),
+        ("FONTNAME", (2, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (5, 1), (5, 2), "Helvetica-Bold"),
+        ("TEXTCOLOR", (5, 1), (5, 2), colors.HexColor("#008080")),
+        ("FONTSIZE", (1, 0), (-1, -1), 7.4),
+        ("LEADING", (1, 0), (-1, -1), 9),
+        ("ALIGN", (2, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("SPAN", (0, 0), (0, 2)),
+        ("SPAN", (1, 0), (1, 2)),
+        ("SPAN", (2, 1), (2, 2)),
+        ("SPAN", (3, 1), (3, 2)),
+        ("SPAN", (4, 1), (4, 2)),
+    ]
+    for col, text in enumerate(target_cells, start=6):
+        table_style.append(("BACKGROUND", (col, 1), (col, 1), _lmr_status_color(text)))
+    for col, text in enumerate(realization_cells, start=6):
+        table_style.append(("BACKGROUND", (col, 2), (col, 2), _lmr_status_color(text)))
+    table.setStyle(TableStyle(table_style))
+    return table
+
+
+def _lmr_risk_narrative_block(item, result, styles):
+    causes = list(item.daftar_penyebab.all())
+    cause_text = "; ".join(
+        cause.penyebab_risiko for cause in causes if cause.penyebab_risiko
+    ) or "-"
+    probability_text = "-"
+    if result:
+        probability_text = (
+            f"Probabilitas target tidak tercapai {_fmt_pct(result.probability_not_achieve_target)} "
+            f"dan probabilitas target tercapai {_fmt_pct(result.probability_achieve_target)}."
+        )
+    else:
+        probability_text = (
+            f"Kemungkinan residual berada pada skala {_fmt_int(item.residual_kemungkinan)} "
+            f"dengan level risiko {_risk_level_text(item, 'residual')}."
+        )
+    impact_value = "-"
+    if result and result.dampak_worst_case not in (None, ""):
+        impact_value = f"Proyeksi dampak worst case sebesar {_fmt_num(result.dampak_worst_case, 2)}."
+    elif result and result.var_95 not in (None, ""):
+        impact_value = f"VaR/P95 Monte Carlo sebesar {_fmt_num(result.var_95, 2)}."
+    else:
+        impact_value = (
+            f"Dampak residual berada pada skala {_fmt_int(item.residual_dampak)} "
+            f"dengan level risiko {_risk_level_text(item, 'residual')}."
+        )
+    conclusion = (
+        f"Dengan demikian level risiko berada pada {_risk_level_text(item, 'residual')}."
+    )
+    content = (
+        f"<b><u><font color='#008080'>Sasaran:</font></u></b><br/>{_html(item.sasaran_korporat)}<br/><br/>"
+        f"<b><u><font color='#008080'>Pertimbangan Tingkat Kemungkinan:</font></u></b><br/>{_html(probability_text)}<br/><br/>"
+        f"<b><u><font color='#008080'>Pertimbangan Tingkat Dampak:</font></u></b><br/>{_html(impact_value)}<br/><br/>"
+        f"{_html(conclusion)}<br/><br/>"
+        f"<b><u><font color='#008080'>Penyebab Risiko:</font></u></b><br/>{_html(cause_text)}"
+    )
+    table = Table([[Paragraph(content, styles["Body"])]], colWidths=[18.9 * cm], hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#DDEBF7")),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#DDEBF7")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return table
+
+
+def _lmr_treatment_detail_table(item, styles):
+    rows = [["No", "Perlakuan Risiko", "Status", "Progres Mitigasi (%)"]]
+    plans = list(item.rencana_perlakuan_items.all())
+    if not plans:
+        rows.append(["-", "Belum ada rencana perlakuan risiko.", "-", "-"])
+    for idx, plan in enumerate(plans, start=1):
+        progress = plan.keterangan or plan.output_perlakuan_risiko or "-"
+        rows.append([
+            str(idx),
+            _p(styles, plan.rencana_perlakuan_risiko or "-", "Small"),
+            _p(styles, plan.status or "-", "Small"),
+            _p(styles, progress, "Small"),
+        ])
+    return _table(
+        rows,
+        widths=[1.1 * cm, 10.1 * cm, 2.4 * cm, 5.3 * cm],
+        repeat_rows=1,
+    )
+
+
+def _lmr_kri_detail_tables(item, styles):
+    causes = list(item.daftar_penyebab.all())
+    threshold_rows = [[
+        "No. Risiko", "Peristiwa Risiko", "Key Risk Indicators", "Unit Satuan KRI", "Aman", "Hati-Hati", "Bahaya"
+    ]]
+    realization_rows = [["No.", "KRI", "Realisasi", "Status"]]
+    if not causes:
+        threshold_rows.append([
+            str(item.no_risiko or item.no_item or "-"),
+            _p(styles, item.peristiwa_risiko, "Small"),
+            "-", "-", "-", "-", "-",
+        ])
+        realization_rows.append(["-", "Belum ada KRI tercatat.", "-", "-"])
+    for idx, cause in enumerate(causes, start=1):
+        threshold_rows.append([
+            str(item.no_risiko or item.no_item or "-"),
+            _p(styles, item.peristiwa_risiko, "Small"),
+            _p(styles, cause.key_risk_indicators or "-", "Small"),
+            cause.unit_satuan_kri or "-",
+            cause.threshold_aman or "-",
+            cause.threshold_hati_hati or "-",
+            cause.threshold_bahaya or "-",
+        ])
+        realization_rows.append([
+            f"{idx}.",
+            _p(styles, cause.key_risk_indicators or "-", "Small"),
+            "-",
+            "-",
+        ])
+
+    threshold_table = Table(
+        threshold_rows,
+        colWidths=[1.45 * cm, 4.0 * cm, 3.2 * cm, 2.0 * cm, 2.05 * cm, 2.05 * cm, 2.05 * cm],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+    threshold_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#3C7F7C")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (4, 1), (4, -1), colors.HexColor("#00B050")),
+        ("BACKGROUND", (5, 1), (5, -1), colors.yellow),
+        ("BACKGROUND", (6, 1), (6, -1), colors.red),
+        ("TEXTCOLOR", (6, 1), (6, -1), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, GRID),
+        ("FONTSIZE", (0, 0), (-1, -1), 6.6),
+        ("LEADING", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    realization_table = _table(
+        realization_rows,
+        widths=[1.2 * cm, 9.0 * cm, 4.6 * cm, 4.1 * cm],
+        repeat_rows=1,
+    )
+    return threshold_table, realization_table
+
+
+def _lmr_risk_monitoring_card(item, result, styles, index, report_period):
+    threshold_table, realization_table = _lmr_kri_detail_tables(item, styles)
+    return [
+        _lmr_risk_monitoring_matrix(item, result, styles, index, report_period),
+        Spacer(1, 6),
+        _lmr_risk_narrative_block(item, result, styles),
+        Spacer(1, 6),
+        _p(styles, "<b><u><font color='#008080'>Perlakuan Risiko:</font></u></b>", "Small"),
+        _lmr_treatment_detail_table(item, styles),
+        Spacer(1, 6),
+        _p(styles, "<b><u><font color='#008080'>Status Key Risk Indicator (KRI):</font></u></b>", "Small"),
+        threshold_table,
+        Spacer(1, 6),
+        realization_table,
+    ]
+
+
 def _recommendations(item_name):
     is_cyber = "cyber" in (item_name or "").lower() or "it/ot" in (item_name or "").lower()
     if is_cyber:
@@ -821,7 +1112,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
             ["1.2 Arah dan Fokus Pengelolaan Risiko", "1"],
             ["BAB II PEMANTAUAN PROFIL RISIKO", "2"],
             ["2.1 Ringkasan Pemantauan Profil Risiko", "2"],
-            ["2.2 Daftar Profil Risiko Korporat", "2"],
+            ["2.2 Detail Pemantauan Profil Risiko", "2"],
             ["2.3 Pemantauan Hasil Monte Carlo", "3"],
             ["BAB III PEMANTAUAN RENCANA PERLAKUAN RISIKO", "4"],
             ["3.1 Ringkasan Rencana Perlakuan Risiko", "4"],
@@ -837,7 +1128,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
             ["No", "Nama Tabel", "Hal."],
             ["Tabel 1", "Informasi Laporan Manajemen Risiko", "1"],
             ["Tabel 2", "Ringkasan Pemantauan Profil Risiko", "2"],
-            ["Tabel 3", "Daftar Profil Risiko Korporat", "2"],
+            ["Tabel 3", "Detail Pemantauan Profil Risiko per Risiko", "2"],
             ["Tabel 4", "Ringkasan Hasil Monte Carlo", "3"],
             ["Tabel 5", "Rencana Perlakuan Risiko Korporat", "4"],
             ["Tabel 6", "Pemantauan KRI dan Sumber Risiko", "5"],
@@ -908,38 +1199,15 @@ def render_quarterly_lmr_pdf(summary, period=None):
         ["Hasil Monte Carlo Tersedia", _fmt_int(len(monte_carlo_results)), "Butuh Mitigasi", _fmt_int(sum(1 for r in monte_carlo_results if r.requires_mitigation))],
     ], widths=[4.0 * cm, 5.4 * cm, 4.0 * cm, 5.4 * cm], repeat_rows=1))
     story.append(Spacer(1, 8))
-    story.append(_p(styles, "2.2 Daftar Profil Risiko Korporat", "Section"))
-    story.append(_p(styles, "Tabel 3. Daftar Profil Risiko Korporat", "Small"))
-
-    profile_rows = [[
-        "No", "Peristiwa Risiko", "Kategori", "T3", "Inheren", "Residual", "Status", "Monte Carlo"
-    ]]
-    for item in items:
+    story.append(_p(styles, "2.2 Detail Pemantauan Profil Risiko", "Section"))
+    story.append(_p(styles, "Tabel 3. Detail Pemantauan Profil Risiko per Risiko", "Small"))
+    if not items:
+        story.append(_p(styles, "Belum ada item risiko korporat yang dapat ditampilkan."))
+    for idx, item in enumerate(items, start=1):
         result = results_by_item.get(item.pk)
-        mc_text = "-"
-        if result:
-            mc_text = (
-                f"{result.forecast_periode}; score {_fmt_num(result.composite_score, 2)}; "
-                f"P80 {_fmt_num(result.p80_score, 2)}; {result.risk_status or result.status_hasil or '-'}"
-            )
-        profile_rows.append([
-            str(item.no_risiko or item.no_item or "-"),
-            _p(styles, item.peristiwa_risiko, "Small"),
-            _p(styles, item.kategori_risiko or "-", "Small"),
-            _p(styles, item.taksonomi_t3 or "-", "Small"),
-            f"D:{_fmt_int(item.dampak)} K:{_fmt_int(item.kemungkinan)} L:{_fmt_int(item.level_risiko)}",
-            f"D:{_fmt_int(item.residual_dampak)} K:{_fmt_int(item.residual_kemungkinan)} L:{_fmt_int(item.residual_level_risiko)}",
-            item.status or "-",
-            _p(styles, mc_text, "Small"),
-        ])
-    if len(profile_rows) == 1:
-        profile_rows.append(["-", "Belum ada item risiko.", "-", "-", "-", "-", "-", "-"])
-
-    story.append(_table(
-        profile_rows,
-        widths=[0.7*cm, 4.9*cm, 2.1*cm, 2.1*cm, 1.6*cm, 1.6*cm, 1.5*cm, 4.3*cm],
-        repeat_rows=1,
-    ))
+        story.extend(_lmr_risk_monitoring_card(item, result, styles, idx, period))
+        if idx != len(items):
+            story.append(PageBreak())
 
     story.append(PageBreak())
     story.append(_p(styles, "2.3 Pemantauan Hasil Monte Carlo", "Section"))
