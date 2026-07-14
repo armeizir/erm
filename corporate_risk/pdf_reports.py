@@ -619,16 +619,105 @@ def render_quarterly_lmr_pdf(summary, period=None):
         bottomMargin=1.1 * cm,
         title=f"LMR {summary.tahun}",
     )
+    report_period = str(period) if period else "Semua periode"
+    report_title = "LAPORAN MANAJEMEN RISIKO TRIWULANAN"
     story = [
-        _p(styles, "LAPORAN MANAJEMEN RISIKO TRIWULANAN", "ReportTitle"),
+        _p(styles, report_title, "ReportTitle"),
         _table([
             ["Informasi", "Keterangan", "Informasi", "Keterangan"],
-            ["Profil Risiko", str(summary), "Periode LMR", str(period) if period else "Semua periode"],
+            ["Profil Risiko", str(summary), "Periode LMR", report_period],
+            ["Perusahaan", f"{summary.nama_perusahaan} ({summary.kode_perusahaan})", "Tahun", summary.tahun],
+            ["Status Profil", summary.status, "Tanggal Cetak", f"{printed_at:%d %B %Y %H:%M}"],
+        ], widths=[3.0 * cm, 9.0 * cm, 3.0 * cm, 9.0 * cm], repeat_rows=1),
+        Spacer(1, 14),
+        _p(
+            styles,
+            "Dokumen ini menyajikan strategi risiko, profil risiko korporat, dan hasil simulasi Multi Metric Monte Carlo "
+            "sebagai bahan monitoring manajemen risiko periode berjalan.",
+        ),
+        PageBreak(),
+        _p(styles, "LEMBAR PENGESAHAN", "ReportTitle"),
+        _table([
+            ["Uraian", "Keterangan"],
+            ["Judul Dokumen", report_title],
+            ["Profil Risiko", str(summary)],
+            ["Periode", report_period],
+            ["Perusahaan", f"{summary.nama_perusahaan} ({summary.kode_perusahaan})"],
+            ["Tahun", summary.tahun],
+            ["Tanggal Cetak", f"{printed_at:%d %B %Y %H:%M}"],
+        ], widths=[5.0 * cm, 18.5 * cm], repeat_rows=1),
+        Spacer(1, 18),
+        _table([
+            ["Disusun Oleh", "Diperiksa Oleh", "Disahkan Oleh"],
+            ["", "", ""],
+            ["Risk Management", "Manajemen Terkait", "Direksi / Pejabat Berwenang"],
+        ], widths=[7.8 * cm, 7.8 * cm, 7.8 * cm], repeat_rows=1),
+        PageBreak(),
+        _p(styles, "DAFTAR ISI", "ReportTitle"),
+        _table([
+            ["Bagian", "Hal."],
+            ["LEMBAR PENGESAHAN", "i"],
+            ["DAFTAR ISI", "ii"],
+            ["DAFTAR TABEL", "iii"],
+            ["DAFTAR GAMBAR", "iv"],
+            ["BAB I STRATEGI RISIKO", "1"],
+            ["1.1 Konteks Strategi Risiko", "1"],
+            ["1.2 Arah dan Fokus Pengelolaan Risiko", "1"],
+            ["1.3 Profil Risiko dan Hasil Monte Carlo", "2"],
+        ], widths=[20.0 * cm, 3.5 * cm], repeat_rows=1),
+        PageBreak(),
+        _p(styles, "DAFTAR TABEL", "ReportTitle"),
+        _table([
+            ["No", "Nama Tabel", "Hal."],
+            ["Tabel 1", "Informasi Laporan Manajemen Risiko", "1"],
+            ["Tabel 2", "Ringkasan Profil Risiko", "1"],
+            ["Tabel 3", "Daftar Profil Risiko Korporat", "2"],
+            ["Tabel 4", "Ringkasan Hasil Monte Carlo", "3"],
+        ], widths=[3.0 * cm, 17.0 * cm, 3.5 * cm], repeat_rows=1),
+        PageBreak(),
+        _p(styles, "DAFTAR GAMBAR", "ReportTitle"),
+        _table([
+            ["No", "Nama Gambar", "Hal."],
+            ["Gambar 1", "Kerangka Strategi Risiko dan Monitoring LMR", "1"],
+        ], widths=[3.0 * cm, 17.0 * cm, 3.5 * cm], repeat_rows=1),
+        PageBreak(),
+        _p(styles, "BAB I STRATEGI RISIKO", "ReportTitle"),
+        _p(styles, "1.1 Konteks Strategi Risiko", "Section"),
+        _p(
+            styles,
+            "Strategi risiko disusun untuk memastikan pencapaian sasaran perusahaan tetap berada dalam batas risk appetite "
+            "yang dapat diterima. LMR triwulanan digunakan sebagai sarana pemantauan profil risiko, efektivitas mitigasi, "
+            "dan proyeksi eksposur risiko berdasarkan data historis serta simulasi Monte Carlo.",
+        ),
+        Spacer(1, 6),
+        _p(styles, "Tabel 1. Informasi Laporan Manajemen Risiko", "Small"),
+        _table([
+            ["Informasi", "Keterangan", "Informasi", "Keterangan"],
+            ["Profil Risiko", str(summary), "Periode LMR", report_period],
             ["Perusahaan", f"{summary.nama_perusahaan} ({summary.kode_perusahaan})", "Tahun", summary.tahun],
             ["Status Profil", summary.status, "Tanggal Cetak", f"{printed_at:%d %B %Y %H:%M}"],
         ], widths=[3.0 * cm, 9.0 * cm, 3.0 * cm, 9.0 * cm], repeat_rows=1),
         Spacer(1, 8),
-        _p(styles, "Ringkasan Profil Risiko", "Section"),
+        _p(styles, "Gambar 1. Kerangka Strategi Risiko dan Monitoring LMR", "Small"),
+        _table([
+            ["Sasaran Korporat", "Profil Risiko", "Monte Carlo", "Mitigasi & Monitoring"],
+            [
+                _p(styles, "Menjaga sasaran dan target perusahaan.", "Small"),
+                _p(styles, "Mengidentifikasi risiko utama dan level residual.", "Small"),
+                _p(styles, "Memproyeksikan distribusi output dan probabilitas target.", "Small"),
+                _p(styles, "Menetapkan fokus mitigasi dan tindak lanjut manajemen.", "Small"),
+            ],
+        ], widths=[5.9 * cm, 5.9 * cm, 5.9 * cm, 5.9 * cm], repeat_rows=1),
+        Spacer(1, 8),
+        _p(styles, "1.2 Arah dan Fokus Pengelolaan Risiko", "Section"),
+        _p(
+            styles,
+            "Fokus pengelolaan risiko periode ini diarahkan pada risiko residual tinggi, risiko yang membutuhkan mitigasi "
+            "tambahan, serta risiko dengan probabilitas pencapaian target yang perlu dipantau melalui hasil simulasi.",
+        ),
+        Spacer(1, 8),
+        _p(styles, "1.3 Profil Risiko dan Hasil Monte Carlo", "Section"),
+        _p(styles, "Tabel 2. Ringkasan Profil Risiko", "Small"),
     ]
 
     high_items = [item for item in items if _safe_float(item.residual_level_risiko) >= 15]
@@ -639,6 +728,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
         ["Hasil Monte Carlo Tersedia", _fmt_int(len(monte_carlo_results)), "Butuh Mitigasi", _fmt_int(sum(1 for r in monte_carlo_results if r.requires_mitigation))],
     ], widths=[4.2 * cm, 5.5 * cm, 4.2 * cm, 5.5 * cm], repeat_rows=1))
     story.append(Spacer(1, 8))
+    story.append(_p(styles, "Tabel 3. Daftar Profil Risiko Korporat", "Small"))
 
     profile_rows = [[
         "No", "Peristiwa Risiko", "Kategori", "T3", "Inheren", "Residual", "Status", "Monte Carlo"
@@ -672,6 +762,7 @@ def render_quarterly_lmr_pdf(summary, period=None):
 
     story.append(PageBreak())
     story.append(_p(styles, "Ringkasan Monte Carlo", "Section"))
+    story.append(_p(styles, "Tabel 4. Ringkasan Hasil Monte Carlo", "Small"))
     mc_rows = [[
         "No", "Item Risiko", "Periode", "Distribusi", "Forecast", "Target", "Prob. Tercapai", "VaR/P95", "Status"
     ]]
