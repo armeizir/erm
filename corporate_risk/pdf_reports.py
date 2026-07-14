@@ -644,7 +644,12 @@ def render_quarterly_lmr_pdf(summary, period=None):
             "matrix_cell_inheren__level_risiko",
             "matrix_cell_residual__level_risiko",
         )
-        .prefetch_related("risk_metrics__metric_histories")
+        .prefetch_related(
+            "risk_metrics__metric_histories",
+            "rencana_perlakuan_items__opsi_perlakuan_risiko",
+            "daftar_penyebab__pemilik_risiko",
+            "sumber_risiko__reassessment_item__summary__unit_bisnis",
+        )
         .order_by("no_item", "no_risiko")
     )
     results_by_item = _latest_result_by_item(summary, period)
@@ -716,6 +721,13 @@ def render_quarterly_lmr_pdf(summary, period=None):
             ["2.1 Ringkasan Pemantauan Profil Risiko", "2"],
             ["2.2 Daftar Profil Risiko Korporat", "2"],
             ["2.3 Pemantauan Hasil Monte Carlo", "3"],
+            ["BAB III PEMANTAUAN RENCANA PERLAKUAN RISIKO", "4"],
+            ["3.1 Ringkasan Rencana Perlakuan Risiko", "4"],
+            ["3.2 Status dan Tindak Lanjut Perlakuan Risiko", "4"],
+            ["BAB IV PEMANTAUAN KRI DAN KEJADIAN RISIKO", "5"],
+            ["4.1 Pemantauan Key Risk Indicator", "5"],
+            ["4.2 Sumber Risiko dan Kejadian yang Perlu Dipantau", "5"],
+            ["BAB V PENUTUP", "6"],
         ], widths=[16.0 * cm, 2.8 * cm], repeat_rows=1),
         PageBreak(),
         _p(styles, "DAFTAR TABEL", "ReportTitle"),
@@ -725,6 +737,9 @@ def render_quarterly_lmr_pdf(summary, period=None):
             ["Tabel 2", "Ringkasan Pemantauan Profil Risiko", "2"],
             ["Tabel 3", "Daftar Profil Risiko Korporat", "2"],
             ["Tabel 4", "Ringkasan Hasil Monte Carlo", "3"],
+            ["Tabel 5", "Rencana Perlakuan Risiko Korporat", "4"],
+            ["Tabel 6", "Pemantauan KRI dan Sumber Risiko", "5"],
+            ["Tabel 7", "Ringkasan Tindak Lanjut Manajemen", "6"],
         ], widths=[2.5 * cm, 13.5 * cm, 2.8 * cm], repeat_rows=1),
         PageBreak(),
         _p(styles, "DAFTAR GAMBAR", "ReportTitle"),
@@ -858,6 +873,140 @@ def render_quarterly_lmr_pdf(summary, period=None):
         repeat_rows=1,
     ))
 
+    story.append(PageBreak())
+    story.append(_p(styles, "BAB III PEMANTAUAN RENCANA PERLAKUAN RISIKO", "ReportTitle"))
+    story.append(_p(styles, "3.1 Ringkasan Rencana Perlakuan Risiko", "Section"))
+    story.append(_p(
+        styles,
+        "Pemantauan rencana perlakuan risiko dilakukan untuk memastikan mitigasi yang telah ditetapkan berjalan sesuai "
+        "prioritas, memiliki PIC yang jelas, serta menghasilkan output pengendalian yang dapat ditindaklanjuti.",
+    ))
+    story.append(Spacer(1, 6))
+    story.append(_p(styles, "Tabel 5. Rencana Perlakuan Risiko Korporat", "Small"))
+    treatment_rows = [["No", "Risiko", "Rencana Perlakuan", "Output", "PIC", "Status", "Timeline"]]
+    for item in items:
+        plans = list(item.rencana_perlakuan_items.all())
+        if not plans:
+            treatment_rows.append([
+                str(item.no_risiko or item.no_item or "-"),
+                _p(styles, item.peristiwa_risiko, "Small"),
+                "-", "-", "-", "Belum ada rencana", "-",
+            ])
+            continue
+        for plan in plans:
+            timeline = ", ".join(
+                str(month)
+                for month in range(1, 13)
+                if getattr(plan, f"timeline_{month}", 0)
+            )
+            treatment_rows.append([
+                str(item.no_risiko or item.no_item or "-"),
+                _p(styles, item.peristiwa_risiko, "Small"),
+                _p(styles, plan.rencana_perlakuan_risiko or "-", "Small"),
+                _p(styles, plan.output_perlakuan_risiko or "-", "Small"),
+                _p(styles, plan.pic or "-", "Small"),
+                plan.status or "-",
+                timeline or "-",
+            ])
+    story.append(_table(
+        treatment_rows,
+        widths=[0.7*cm, 3.5*cm, 4.5*cm, 3.8*cm, 2.8*cm, 2.0*cm, 1.5*cm],
+        repeat_rows=1,
+    ))
+    story.append(Spacer(1, 8))
+    story.append(_p(styles, "3.2 Status dan Tindak Lanjut Perlakuan Risiko", "Section"))
+    story.append(_p(
+        styles,
+        "Rencana perlakuan dengan status belum berjalan, terlambat, atau belum memiliki output perlu menjadi prioritas "
+        "pembahasan manajemen pada periode berikutnya. Risiko residual tinggi perlu dikaitkan kembali dengan kecukupan "
+        "perlakuan dan efektivitas existing control.",
+    ))
+
+    story.append(PageBreak())
+    story.append(_p(styles, "BAB IV PEMANTAUAN KRI DAN KEJADIAN RISIKO", "ReportTitle"))
+    story.append(_p(styles, "4.1 Pemantauan Key Risk Indicator", "Section"))
+    story.append(_p(
+        styles,
+        "Key Risk Indicator digunakan sebagai indikator peringatan dini untuk membaca perubahan eksposur risiko. "
+        "Pemantauan KRI perlu dibandingkan dengan threshold aman, hati-hati, dan bahaya yang telah ditetapkan.",
+    ))
+    story.append(Spacer(1, 6))
+    story.append(_p(styles, "Tabel 6. Pemantauan KRI dan Sumber Risiko", "Small"))
+    kri_rows = [["No", "Risiko", "Pemilik / Sumber", "KRI", "Threshold", "Catatan Pemantauan"]]
+    for item in items:
+        causes = list(item.daftar_penyebab.all())
+        sources = list(item.sumber_risiko.all())
+        if causes:
+            for cause in causes:
+                threshold = " / ".join(filter(None, [
+                    cause.threshold_aman,
+                    cause.threshold_hati_hati,
+                    cause.threshold_bahaya,
+                ]))
+                owner = cause.pemilik_risiko.name if cause.pemilik_risiko_id else "-"
+                kri_rows.append([
+                    str(item.no_risiko or item.no_item or "-"),
+                    _p(styles, item.peristiwa_risiko, "Small"),
+                    _p(styles, owner, "Small"),
+                    _p(styles, cause.key_risk_indicators or "-", "Small"),
+                    _p(styles, threshold or "-", "Small"),
+                    _p(styles, cause.penyebab_risiko or "-", "Small"),
+                ])
+        elif sources:
+            for source in sources:
+                unit = getattr(getattr(source.reassessment_item, "summary", None), "unit_bisnis", None)
+                kri_rows.append([
+                    str(item.no_risiko or item.no_item or "-"),
+                    _p(styles, item.peristiwa_risiko, "Small"),
+                    _p(styles, unit.name if unit else "-", "Small"),
+                    "-",
+                    "-",
+                    _p(styles, source.penyebab_risiko or source.keterangan or "-", "Small"),
+                ])
+        else:
+            kri_rows.append([
+                str(item.no_risiko or item.no_item or "-"),
+                _p(styles, item.peristiwa_risiko, "Small"),
+                "-", "-", "-", "Belum ada KRI/sumber risiko tercatat.",
+            ])
+    story.append(_table(
+        kri_rows,
+        widths=[0.7*cm, 4.2*cm, 3.0*cm, 3.6*cm, 3.0*cm, 4.3*cm],
+        repeat_rows=1,
+    ))
+    story.append(Spacer(1, 8))
+    story.append(_p(styles, "4.2 Sumber Risiko dan Kejadian yang Perlu Dipantau", "Section"))
+    story.append(_p(
+        styles,
+        "Setiap perubahan pada sumber risiko, KRI yang memasuki threshold hati-hati/bahaya, dan kejadian yang menimbulkan "
+        "kerugian perlu didokumentasikan sebagai bahan pembaruan profil risiko dan penyesuaian perlakuan risiko.",
+    ))
+
+    story.append(PageBreak())
+    story.append(_p(styles, "BAB V PENUTUP", "ReportTitle"))
+    story.append(_p(styles, "5.1 Kesimpulan", "Section"))
+    conclusion = (
+        f"Pada periode {report_period}, terdapat {len(items)} risiko korporat yang dipantau, "
+        f"{len(high_items)} risiko residual tinggi, dan {len(monte_carlo_results)} hasil Monte Carlo yang tersedia. "
+        f"Sebanyak {sum(1 for r in monte_carlo_results if r.requires_mitigation)} risiko membutuhkan perhatian mitigasi tambahan."
+    )
+    story.append(_p(styles, conclusion))
+    story.append(Spacer(1, 8))
+    story.append(_p(styles, "5.2 Rekomendasi dan Tindak Lanjut", "Section"))
+    story.append(_p(styles, "Tabel 7. Ringkasan Tindak Lanjut Manajemen", "Small"))
+    follow_up_rows = [
+        ["No", "Area Tindak Lanjut", "Rekomendasi", "Prioritas"],
+        ["1", "Profil Risiko", "Review risiko residual tinggi dan validasi kecukupan mitigasi.", "Tinggi"],
+        ["2", "Monte Carlo", "Update histori metric dan generate ulang simulasi setelah data aktual terbaru tersedia.", "Sedang"],
+        ["3", "Rencana Perlakuan", "Tindak lanjuti rencana yang belum memiliki output, PIC, atau status yang jelas.", "Tinggi"],
+        ["4", "KRI / Loss Event", "Catat perubahan KRI dan kejadian risiko sebagai dasar pembaruan profil risiko.", "Sedang"],
+    ]
+    story.append(_table(
+        follow_up_rows,
+        widths=[0.8*cm, 4.0*cm, 11.5*cm, 2.5*cm],
+        repeat_rows=1,
+    ))
+    story.append(Spacer(1, 8))
     story.append(_p(styles, "Catatan", "Section"))
     story.append(_p(
         styles,
