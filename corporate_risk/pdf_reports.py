@@ -23,7 +23,12 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from .models import MonteCarloMetricHistory, MultiMetricMonteCarloResult, RiskMetric
+from .models import (
+    MonteCarloMetricHistory,
+    MultiMetricAIInsightKorporat,
+    MultiMetricMonteCarloResult,
+    RiskMetric,
+)
 
 
 PRIMARY = colors.HexColor("#12345B")
@@ -634,6 +639,103 @@ def _latest_result_by_item(summary, period):
     return results
 
 
+def _short_risk_label(item, max_chars=95):
+    text = (getattr(item, "peristiwa_risiko", None) or str(item) or "-").strip()
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars - 3].rstrip()}..."
+
+
+def _lmr_ai_insight_paragraphs(results):
+    result_ids = [result.pk for result in results if result and result.pk]
+    if not result_ids:
+        return []
+    insights = (
+        MultiMetricAIInsightKorporat.objects
+        .filter(multi_metric_result_id__in=result_ids)
+        .select_related("multi_metric_result", "multi_metric_result__corporate_risk_item")
+        .order_by("multi_metric_result__corporate_risk_item__no_item", "-created_at")
+    )
+    paragraphs = []
+    seen = set()
+    for insight in insights:
+        result_id = insight.multi_metric_result_id
+        if result_id in seen:
+            continue
+        seen.add(result_id)
+        risk_label = _short_risk_label(insight.multi_metric_result.corporate_risk_item, 70)
+        summary_text = (insight.executive_summary or "").strip()
+        if summary_text:
+            paragraphs.append(f"{risk_label}: {summary_text}")
+        if len(paragraphs) >= 3:
+            break
+    return paragraphs
+
+
+def _lmr_profile_monitoring_narrative(items, results_by_item, report_period):
+    total_risk = len(items)
+    high_items = [item for item in items if _safe_float(item.residual_level_risiko) >= 15]
+    results = [result for result in results_by_item.values() if result]
+    requires_mitigation = [result for result in results if result.requires_mitigation]
+    no_mc_count = total_risk - len(results)
+    highest_residual = sorted(
+        [item for item in items if item.residual_level_risiko is not None],
+        key=lambda item: _safe_float(item.residual_level_risiko),
+        reverse=True,
+    )[:3]
+
+    paragraphs = [
+        (
+            f"Pemantauan profil risiko pada {report_period} mencakup {total_risk} risiko korporat. "
+            f"Dari populasi tersebut, {len(high_items)} risiko berada pada residual tinggi, "
+            f"{len(results)} risiko telah memiliki hasil simulasi Monte Carlo, dan {no_mc_count} risiko belum memiliki "
+            "hasil simulasi pada periode laporan. Kondisi ini menjadi dasar prioritas monitoring manajemen risiko."
+        ),
+    ]
+
+    if highest_residual:
+        risk_list = "; ".join(
+            f"{_short_risk_label(item)} (residual {item.residual_level_risiko})"
+            for item in highest_residual
+        )
+        paragraphs.append(
+            "Risiko dengan nilai residual tertinggi yang perlu mendapat perhatian manajemen adalah "
+            f"{risk_list}. Risiko-risiko tersebut perlu dikaitkan dengan efektivitas existing control, "
+            "kecukupan rencana perlakuan, dan perkembangan KRI."
+        )
+
+    if results:
+        achieved = [result for result in results if "tercapai" in (result.target_status or "").lower()]
+        avg_probability = [
+            _safe_float(result.probability_achieve_target, None)
+            for result in results
+            if result.probability_achieve_target not in (None, "")
+        ]
+        avg_text = "-"
+        if avg_probability:
+            avg_text = _fmt_pct(sum(avg_probability) / len(avg_probability))
+        paragraphs.append(
+            f"Berdasarkan output Monte Carlo, {len(achieved)} dari {len(results)} risiko yang dimodelkan menunjukkan "
+            f"status target tercapai, dengan rata-rata probabilitas pencapaian target {avg_text}. "
+            f"Terdapat {len(requires_mitigation)} risiko yang ditandai membutuhkan mitigasi tambahan."
+        )
+
+    ai_paragraphs = _lmr_ai_insight_paragraphs(results)
+    if ai_paragraphs:
+        paragraphs.append(
+            "Narasi IA/AI Insight yang telah tersedia pada hasil Monte Carlo menekankan beberapa perhatian berikut: "
+            + " ".join(ai_paragraphs)
+        )
+    else:
+        paragraphs.append(
+            "Insight otomatis berbasis data menunjukkan bahwa fokus pemantauan perlu diarahkan pada risiko residual tinggi, "
+            "risiko tanpa data Monte Carlo, serta risiko dengan probabilitas target yang rendah atau membutuhkan mitigasi tambahan. "
+            "Narasi ini dapat dipoles lebih lanjut oleh modul IA/AI Insight ketika insight untuk hasil Monte Carlo sudah digenerate."
+        )
+
+    return paragraphs
+
+
 def render_quarterly_lmr_pdf(summary, period=None):
     items = list(
         summary.item
@@ -796,6 +898,10 @@ def render_quarterly_lmr_pdf(summary, period=None):
 
     high_items = [item for item in items if _safe_float(item.residual_level_risiko) >= 15]
     monte_carlo_results = [result for result in results_by_item.values() if result]
+    for paragraph in _lmr_profile_monitoring_narrative(items, results_by_item, report_period):
+        story.append(_p(styles, paragraph))
+        story.append(Spacer(1, 4))
+    story.append(Spacer(1, 2))
     story.append(_table([
         ["Parameter", "Nilai", "Parameter", "Nilai"],
         ["Jumlah Risiko Korporat", _fmt_int(len(items)), "Risiko Residual Tinggi", _fmt_int(len(high_items))],
