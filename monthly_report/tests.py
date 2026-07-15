@@ -1,4 +1,5 @@
 from datetime import date
+import json
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
@@ -164,3 +165,42 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
 
         self.assertEqual(list(formfield.queryset), [infra_item])
+
+    def test_inline_risk_event_label_includes_item_number_and_event(self):
+        report_infra = self._report("INFRA")
+        infra_item = self._risk_item(report_infra, no_item=1)
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/change/"
+        )
+        request.user = self.admin_user
+        request._monthly_report_reassessment_id = report_infra.reassessment_id
+        inline = MonthlyRiskReportItemInline(MonthlyRiskReport, AdminSite())
+
+        formfield = inline.formfield_for_foreignkey(
+            MonthlyRiskReportItem._meta.get_field("risk_event"),
+            request,
+        )
+
+        label = formfield.label_from_instance(infra_item)
+        self.assertIn("Item 1", label)
+        self.assertIn("Risiko 1", label)
+        self.assertIn("Risiko INFRA", label)
+
+    def test_risk_items_endpoint_uses_informative_labels(self):
+        report_infra = self._report("INFRA")
+        self._risk_item(report_infra, no_item=1)
+        request = RequestFactory().get(
+            "/admin/monthly_report/monthlyriskreport/risk-items/",
+            {"reassessment": str(report_infra.reassessment_id)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        response = report_admin.risk_items_for_reassessment(request)
+        payload = json.loads(response.content)
+        label = payload["items"][0]["text"]
+
+        self.assertIn("Item 1", label)
+        self.assertIn("Risiko 1", label)
+        self.assertIn("Risiko INFRA", label)

@@ -102,6 +102,13 @@ def _limit_by_assigned_units(request, queryset, unit_lookup):
     )
 
 
+def _monthly_risk_item_label(item):
+    cause_number = item.no_penyebab_risiko or ""
+    risk_number = f"{item.no_risiko}{cause_number}"
+    risk_event = (item.peristiwa_risiko or "").strip() or "Peristiwa risiko belum diisi"
+    return f"Item {item.no_item} | Risiko {risk_number} - {risk_event}"
+
+
 class MonthlyRiskReportItemInline(admin.StackedInline):
     model = MonthlyRiskReportItem
     extra = 1
@@ -170,6 +177,9 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
                 )
             else:
                 kwargs["queryset"] = ReAssessmentItem.objects.none()
+            formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+            formfield.label_from_instance = _monthly_risk_item_label
+            return formfield
         if db_field.name == "realisasi_skala_dampak":
             kwargs["queryset"] = MasterSkalaDampak.objects.filter(aktif=True).order_by(
                 "urutan",
@@ -467,10 +477,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "items": [
                     {
                         "id": item.pk,
-                        "text": (
-                            f"{item.no_item}. Risiko {item.no_risiko}"
-                            f"{item.no_penyebab_risiko or ''} - {item.peristiwa_risiko}"
-                        ),
+                        "text": _monthly_risk_item_label(item),
                     }
                     for item in queryset
                 ]
