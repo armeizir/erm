@@ -57,20 +57,21 @@ class MonthlyRiskReportAdminTests(TestCase):
             prepared_by=self.prepared_by,
         )
 
-    def _risk_item(self, report, no_item=1):
+    def _risk_item(self, report, no_item=1, no_risiko=None, no_penyebab_risiko=None):
+        item_suffix = f"{no_item}-{no_risiko or no_item}-{no_penyebab_risiko or 'x'}"
         template, _ = MasterTemplateKM.objects.get_or_create(
             tahun=2026,
             defaults={"nama": "Template 2026"},
         )
         master_bagian = MasterBagianKM.objects.create(
             template=template,
-            kode_bagian=f"B{report.pk}",
+            kode_bagian=f"B{report.pk}-{item_suffix}",
             nama_bagian="Keuangan",
             urutan=1,
         )
         bagian = BagianKontrakManajemen.objects.create(
             kontrak=report.reassessment.kontrak_manajemen,
-            kode_bagian=f"B{report.pk}",
+            kode_bagian=f"B{report.pk}-{item_suffix}",
             nama_bagian="Keuangan",
         )
         km_item = ItemKontrakManajemen.objects.create(
@@ -87,7 +88,8 @@ class MonthlyRiskReportAdminTests(TestCase):
             summary=report.reassessment,
             no_item=no_item,
             km_item=km_item,
-            no_risiko=no_item,
+            no_risiko=no_risiko or no_item,
+            no_penyebab_risiko=no_penyebab_risiko,
             peristiwa_risiko=f"Risiko {report.reassessment.unit_bisnis.name}",
             deskripsi_peristiwa_risiko="Deskripsi risiko",
             penyebab_risiko="Penyebab",
@@ -182,13 +184,14 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
 
         label = formfield.label_from_instance(infra_item)
+        self.assertIn("INFRA-1.a", label)
         self.assertIn("Item 1", label)
-        self.assertIn("Risiko 1", label)
+        self.assertIn("Penyebab a", label)
         self.assertIn("Risiko INFRA", label)
 
     def test_risk_items_endpoint_uses_informative_labels(self):
         report_infra = self._report("INFRA")
-        self._risk_item(report_infra, no_item=1)
+        self._risk_item(report_infra, no_item=1, no_risiko=1, no_penyebab_risiko="a")
         request = RequestFactory().get(
             "/admin/monthly_report/monthlyriskreport/risk-items/",
             {"reassessment": str(report_infra.reassessment_id)},
@@ -201,6 +204,28 @@ class MonthlyRiskReportAdminTests(TestCase):
         payload = json.loads(response.content)
         label = payload["items"][0]["text"]
 
+        self.assertIn("INFRA-1.a", label)
         self.assertIn("Item 1", label)
-        self.assertIn("Risiko 1", label)
+        self.assertIn("Penyebab a", label)
         self.assertIn("Risiko INFRA", label)
+
+    def test_risk_items_endpoint_orders_by_item_then_cause_code(self):
+        report_infra = self._report("INFRA")
+        self._risk_item(report_infra, no_item=1, no_risiko=3, no_penyebab_risiko="c")
+        self._risk_item(report_infra, no_item=1, no_risiko=1, no_penyebab_risiko="a")
+        self._risk_item(report_infra, no_item=1, no_risiko=2, no_penyebab_risiko="b")
+        request = RequestFactory().get(
+            "/admin/monthly_report/monthlyriskreport/risk-items/",
+            {"reassessment": str(report_infra.reassessment_id)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        response = report_admin.risk_items_for_reassessment(request)
+        payload = json.loads(response.content)
+        labels = [item["text"] for item in payload["items"]]
+
+        self.assertIn("INFRA-1.a", labels[0])
+        self.assertIn("INFRA-1.b", labels[1])
+        self.assertIn("INFRA-1.c", labels[2])

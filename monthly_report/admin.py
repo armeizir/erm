@@ -103,10 +103,17 @@ def _limit_by_assigned_units(request, queryset, unit_lookup):
 
 
 def _monthly_risk_item_label(item):
-    cause_number = item.no_penyebab_risiko or ""
-    risk_number = f"{item.no_risiko}{cause_number}"
+    unit_code = ""
+    if item.summary_id and item.summary.unit_bisnis_id:
+        unit_code = item.summary.unit_bisnis.name
+    risk_number = item.no_item or item.no_risiko or "-"
+    cause_number = (item.no_penyebab_risiko or "").strip().lower()
+    code_parts = [str(part) for part in (unit_code, risk_number) if part]
+    risk_code = "-".join(code_parts)
+    if cause_number:
+        risk_code = f"{risk_code}.{cause_number}"
     risk_event = (item.peristiwa_risiko or "").strip() or "Peristiwa risiko belum diisi"
-    return f"Item {item.no_item} | Risiko {risk_number} - {risk_event}"
+    return f"{risk_code} | Item {item.no_item} | Penyebab {cause_number or '-'} - {risk_event}"
 
 
 class MonthlyRiskReportItemInline(admin.StackedInline):
@@ -168,12 +175,15 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             if reassessment_id:
                 kwargs["queryset"] = _limit_by_assigned_units(
                     request,
-                    ReAssessmentItem.objects.filter(summary_id=reassessment_id),
+                    ReAssessmentItem.objects.select_related("summary__unit_bisnis").filter(
+                        summary_id=reassessment_id
+                    ),
                     "summary__unit_bisnis",
                 ).order_by(
                     "no_item",
-                    "no_risiko",
                     "no_penyebab_risiko",
+                    "no_risiko",
+                    "id",
                 )
             else:
                 kwargs["queryset"] = ReAssessmentItem.objects.none()
@@ -464,12 +474,15 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         if reassessment_id:
             queryset = _limit_by_assigned_units(
                 request,
-                ReAssessmentItem.objects.filter(summary_id=reassessment_id),
+                ReAssessmentItem.objects.select_related("summary__unit_bisnis").filter(
+                    summary_id=reassessment_id
+                ),
                 "summary__unit_bisnis",
             ).order_by(
                 "no_item",
-                "no_risiko",
                 "no_penyebab_risiko",
+                "no_risiko",
+                "id",
             )
 
         return JsonResponse(
