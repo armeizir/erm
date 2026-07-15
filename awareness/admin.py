@@ -2,6 +2,7 @@ from smtplib import SMTPException
 
 from django.contrib import admin, messages
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.db.models import Avg, Count, Min, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -351,6 +352,28 @@ class AwarenessQuestionAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         return obj.question_text[:100]
 
 
+class AwarenessAttemptGroupFilter(admin.SimpleListFilter):
+    title = "group"
+    parameter_name = "user_group"
+
+    def lookups(self, request, model_admin):
+        group_ids = (
+            model_admin.get_queryset(request)
+            .exclude(user__groups__isnull=True)
+            .values_list("user__groups", flat=True)
+            .distinct()
+        )
+        return [
+            (str(group.pk), group.name)
+            for group in Group.objects.filter(pk__in=group_ids).order_by("name")
+        ]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(user__groups__pk=self.value()).distinct()
+        return queryset
+
+
 @admin.register(AwarenessAttempt)
 class AwarenessAttemptAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     list_display = (
@@ -364,8 +387,9 @@ class AwarenessAttemptAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         "started_at",
         "submitted_at",
     )
-    list_filter = ("campaign", "status", "submitted_at")
+    list_filter = (AwarenessAttemptGroupFilter, "campaign", "status", "submitted_at")
     search_fields = ("user__username", "user__email", "campaign__title")
+    actions = ("export_attempts_xlsx",)
     readonly_fields = (
         "campaign",
         "user",
@@ -403,6 +427,56 @@ class AwarenessAttemptAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     def user_groups(self, obj):
         group_names = [group.name for group in obj.user.groups.all()]
         return ", ".join(group_names) if group_names else "-"
+
+    @admin.action(description="Export data awareness attempt ke Excel", permissions=["view"])
+    def export_attempts_xlsx(self, request, queryset):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Awareness Attempts"
+        ws.append([
+            "campaign",
+            "user",
+            "email",
+            "group",
+            "attempt number",
+            "started_at",
+            "submitted_at",
+            "duration_seconds",
+            "score",
+            "status",
+            "correct_count",
+            "wrong_count",
+            "total_questions",
+        ])
+        attempts = (
+            queryset
+            .select_related("campaign", "user")
+            .prefetch_related("user__groups")
+            .order_by("campaign__title", "user__username", "attempt_number")
+        )
+        for attempt in attempts:
+            ws.append([
+                attempt.campaign.title,
+                attempt.user.get_username(),
+                attempt.user.email,
+                self.user_groups(attempt),
+                attempt.attempt_number,
+                timezone.localtime(attempt.started_at).strftime("%Y-%m-%d %H:%M:%S") if attempt.started_at else "",
+                timezone.localtime(attempt.submitted_at).strftime("%Y-%m-%d %H:%M:%S") if attempt.submitted_at else "",
+                attempt.duration_seconds,
+                float(attempt.score or 0),
+                attempt.get_status_display(),
+                attempt.correct_count,
+                attempt.wrong_count,
+                attempt.total_questions,
+            ])
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = 'attachment; filename="awareness_attempts.xlsx"'
+        wb.save(response)
+        return response
 
 
 @admin.register(AwarenessAnswer)

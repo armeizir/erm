@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from io import StringIO
+from io import BytesIO, StringIO
 from smtplib import SMTPAuthenticationError
 
 from django.contrib.admin.sites import AdminSite
@@ -13,6 +13,7 @@ from django.test import RequestFactory, override_settings
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from openpyxl import load_workbook
 
 from .models import (
     AwarenessAnswer,
@@ -21,7 +22,7 @@ from .models import (
     AwarenessQuestion,
     AwarenessUnitTarget,
 )
-from .admin import AwarenessAttemptAdmin
+from .admin import AwarenessAttemptAdmin, AwarenessAttemptGroupFilter
 from .notifications import send_awareness_notification
 from risk.models import AppSetting
 
@@ -60,6 +61,77 @@ class AwarenessAttemptAdminTests(TestCase):
         self.assertEqual(AwarenessAttemptAdmin.user_groups.admin_order_field, "user_group_order")
         self.assertEqual(row.user_group_order, "BID RISIKO")
         self.assertEqual(attempt_admin.user_groups(row), "BID RISIKO")
+
+    def test_group_filter_limits_attempts_by_user_group(self):
+        User = get_user_model()
+        admin_user = User.objects.create_superuser(username="admin", password="secret")
+        group_a = Group.objects.create(name="SEKPER")
+        group_b = Group.objects.create(name="UB BES")
+        user_a = User.objects.create_user(username="sekper.user", password="secret")
+        user_b = User.objects.create_user(username="ubbes.user", password="secret")
+        user_a.groups.add(group_a)
+        user_b.groups.add(group_b)
+        campaign = AwarenessCampaign.objects.create(
+            title="Awareness 2026",
+            description="Kuis",
+            topic="manajemen_risiko",
+            start_date=timezone.localdate(),
+            end_date=timezone.localdate() + timedelta(days=1),
+        )
+        attempt_a = AwarenessAttempt.objects.create(campaign=campaign, user=user_a, attempt_number=1)
+        AwarenessAttempt.objects.create(campaign=campaign, user=user_b, attempt_number=1)
+        request = RequestFactory().get("/admin/awareness/awarenessattempt/", {"user_group": str(group_a.pk)})
+        request.user = admin_user
+        attempt_admin = AwarenessAttemptAdmin(AwarenessAttempt, AdminSite())
+        group_filter = AwarenessAttemptGroupFilter(
+            request,
+            {"user_group": str(group_a.pk)},
+            AwarenessAttempt,
+            attempt_admin,
+        )
+
+        queryset = group_filter.queryset(request, attempt_admin.get_queryset(request))
+
+        self.assertEqual(list(queryset), [attempt_a])
+
+    def test_export_attempts_xlsx_includes_group_column(self):
+        User = get_user_model()
+        admin_user = User.objects.create_superuser(username="admin", password="secret")
+        user = User.objects.create_user(username="risk.user", email="risk@example.com", password="secret")
+        group = Group.objects.create(name="BID RISIKO")
+        user.groups.add(group)
+        campaign = AwarenessCampaign.objects.create(
+            title="Awareness 2026",
+            description="Kuis",
+            topic="manajemen_risiko",
+            start_date=timezone.localdate(),
+            end_date=timezone.localdate() + timedelta(days=1),
+        )
+        attempt = AwarenessAttempt.objects.create(
+            campaign=campaign,
+            user=user,
+            attempt_number=1,
+            status=AwarenessAttempt.STATUS_PASSED,
+            score=100,
+            correct_count=10,
+        )
+        request = RequestFactory().post("/admin/awareness/awarenessattempt/")
+        request.user = admin_user
+        attempt_admin = AwarenessAttemptAdmin(AwarenessAttempt, AdminSite())
+
+        response = attempt_admin.export_attempts_xlsx(
+            request,
+            attempt_admin.get_queryset(request).filter(pk=attempt.pk),
+        )
+        workbook = load_workbook(BytesIO(response.content))
+        rows = list(workbook.active.iter_rows(values_only=True))
+
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("group", rows[0])
+        self.assertEqual(rows[1][3], "BID RISIKO")
 
 
 class AwarenessFlowTests(TestCase):
