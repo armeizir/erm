@@ -139,6 +139,27 @@ class MonthlyRiskReportAdminTests(TestCase):
                 "approved_by",
             ),
         )
+        self.assertIn("pdf_button", MonthlyRiskReportAdmin.list_display)
+
+    def test_monthly_report_pdf_view_returns_pdf(self):
+        report_infra = self._report("INFRA")
+        risk_item = self._risk_item(
+            report_infra,
+            no_item=1,
+            no_risiko=1,
+            no_penyebab_risiko="a",
+        )
+        MonthlyRiskReportItem.objects.create(report=report_infra, risk_event=risk_item)
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/pdf/"
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        response = report_admin.pdf_view(request, str(report_infra.pk))
+
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
 
     def test_risk_item_autocomplete_is_limited_by_selected_reassessment(self):
         report_infra = self._report("INFRA")

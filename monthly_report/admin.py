@@ -5,6 +5,7 @@ from django import forms
 from django.contrib import admin
 from django.contrib.auth.models import Group
 from django.http import Http404
+from django.http import HttpResponse
 from django.http import JsonResponse
 from django.template.response import TemplateResponse
 from django.urls import path
@@ -13,6 +14,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from riskproject.admin_site import risk_admin_site
+from .pdf_reports import render_monthly_risk_report_pdf
 from .models import (
     MonthlyRiskReport,
     MonthlyRiskReportChange,
@@ -373,6 +375,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "total_risiko",
         "total_high",
         "total_mitigasi_terlambat",
+        "pdf_button",
     ]
     list_filter = [MonthlyRiskReportGroupFilter, "status"]
     search_fields = [
@@ -387,6 +390,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "<path:object_id>/peta-risiko-iiic/",
                 self.admin_site.admin_view(self.peta_risiko_iiic_view),
                 name="monthly_report_monthlyriskreport_peta_risiko_iiic",
+            ),
+            path(
+                "<path:object_id>/pdf/",
+                self.admin_site.admin_view(self.pdf_view),
+                name="monthly_report_monthlyriskreport_pdf",
             ),
             path(
                 "risk-items/",
@@ -492,6 +500,29 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "title": "III.C - Peta Risiko Residual",
         }
         return TemplateResponse(request, "monthly_report/peta_risiko_iiic.html", context)
+
+    @admin.display(description="PDF")
+    def pdf_button(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+        url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_pdf",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}" target="_blank">PDF</a>', url)
+
+    def pdf_view(self, request, object_id):
+        report = self.get_object(request, object_id)
+        if report is None:
+            raise Http404("Monthly risk report tidak ditemukan.")
+        pdf_bytes = render_monthly_risk_report_pdf(report)
+        unit = report.reassessment.unit_bisnis.name if report.reassessment.unit_bisnis_id else "unit"
+        month = report.periode.nama_periode if report.periode_id else "periode"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="Laporan_Realisasi_Risiko_{unit}_{month}.pdf"'
+        )
+        return response
 
     def risk_items_for_reassessment(self, request):
         reassessment_id = request.GET.get("reassessment")
