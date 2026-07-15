@@ -4,6 +4,7 @@ import json
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core import mail
 from django.test import RequestFactory, TestCase
 
 from masterdata.models import PeriodeLaporan, TahunBuku
@@ -21,6 +22,7 @@ from risk.models import (
 
 from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportAdminForm, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline
 from .models import MonthlyRiskReport, MonthlyRiskReportItem
+from .notifications import send_monthly_report_notification
 
 
 class MonthlyRiskReportAdminTests(TestCase):
@@ -195,6 +197,23 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_monthly_report_notification_sends_draft_to_prepared_by(self):
+        self.prepared_by.email = "risk.officer@example.com"
+        self.prepared_by.save(update_fields=["email"])
+        report_infra = self._report("INFRA")
+
+        sent = send_monthly_report_notification(report_infra, base_url="https://erm.plnbatam.com")
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(mail.outbox[0].to, ["risk.officer@example.com"])
+        self.assertIn("Input Laporan Risiko Bulanan", mail.outbox[0].subject)
+        self.assertIn("Februari 2026", mail.outbox[0].body)
+        self.assertIn("5 Maret 2026", mail.outbox[0].body)
+        self.assertIn(
+            "https://erm.plnbatam.com/admin/monthly_report/monthlyriskreport/",
+            mail.outbox[0].body,
+        )
 
     def test_risk_item_autocomplete_is_limited_by_selected_reassessment(self):
         report_infra = self._report("INFRA")

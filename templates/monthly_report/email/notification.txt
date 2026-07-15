@@ -1,0 +1,13 @@
+Yth. {{ recipient.get_full_name|default:recipient.get_username }},
+
+{{ stage.instruction }}
+
+Laporan: {{ report.reassessment }}
+Periode: {{ report.periode.nama_periode }}
+Status: {{ report.get_status_display }}
+{% if deadline_text %}Batas waktu: {{ deadline_text }}{% endif %}
+
+Buka laporan:
+{{ report_url }}
+
+Terima kasih.

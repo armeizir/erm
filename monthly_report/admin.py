@@ -3,10 +3,13 @@ from datetime import date
 
 from django import forms
 from django.contrib import admin
+from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
 from django.http import Http404
 from django.http import HttpResponse
+from django.http import HttpResponseRedirect
 from django.http import JsonResponse
 from django.template.response import TemplateResponse
 from django.urls import path
@@ -34,6 +37,7 @@ from risk.models import (
     ReAssessmentSummary,
     RiskMatrix,
 )
+from .notifications import send_monthly_report_notification
 
 
 BULAN_CHOICES = [
@@ -402,11 +406,12 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "peta_risiko_iiic_link",
         "versi",
         "status",
+        "notification_button",
         "prepared_by",
         "reviewed_by",
         "approved_by",
     ]
-    readonly_fields = ["petunjuk_lampiran", "peta_risiko_iiic_link"]
+    readonly_fields = ["petunjuk_lampiran", "peta_risiko_iiic_link", "notification_button"]
     autocomplete_fields = (
         "reassessment",
     )
@@ -418,9 +423,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "total_risiko",
         "total_high",
         "total_mitigasi_terlambat",
+        "notification_button",
         "pdf_button",
     ]
     list_filter = [MonthlyRiskReportGroupFilter, "status"]
+    actions = ["send_next_notification_action"]
     search_fields = [
         "reassessment__judul",
         "reassessment__unit_bisnis__name",
@@ -440,6 +447,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 name="monthly_report_monthlyriskreport_pdf",
             ),
             path(
+                "<path:object_id>/send-notification/",
+                self.admin_site.admin_view(self.send_notification_view),
+                name="monthly_report_monthlyriskreport_send_notification",
+            ),
+            path(
                 "risk-items/",
                 self.admin_site.admin_view(self.risk_items_for_reassessment),
                 name="monthly_report_monthlyriskreport_risk_items",
@@ -456,6 +468,18 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             args=[obj.pk],
         )
         return format_html('<a class="button" href="{}">Lihat Peta Risiko III.C</a>', url)
+
+    @admin.display(description="Notifikasi")
+    def notification_button(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+        if obj.status in {"approved", "locked"}:
+            return "-"
+        url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_send_notification",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}">Kirim Notifikasi</a>', url)
 
     @admin.display(description="Petunjuk Lampiran")
     def petunjuk_lampiran(self, obj):
@@ -566,6 +590,47 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             f'inline; filename="Laporan_Realisasi_Risiko_{unit}_{month}.pdf"'
         )
         return response
+
+    def _send_next_notification(self, request, report):
+        try:
+            sent = send_monthly_report_notification(report, request=request)
+        except ValidationError as exc:
+            message = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+            self.message_user(request, message, level=messages.ERROR)
+            return 0
+        if sent:
+            self.message_user(
+                request,
+                f"Notifikasi terkirim untuk {report.reassessment} - {report.periode.nama_periode}.",
+                level=messages.SUCCESS,
+            )
+        return sent
+
+    def send_notification_view(self, request, object_id):
+        report = self.get_object(request, object_id)
+        if report is None:
+            raise Http404("Monthly risk report tidak ditemukan.")
+        self._send_next_notification(request, report)
+        return HttpResponseRedirect(
+            reverse(
+                f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
+                args=[report.pk],
+            )
+        )
+
+    @admin.action(description="Kirim notifikasi tahap berikutnya")
+    def send_next_notification_action(self, request, queryset):
+        sent_count = 0
+        for report in queryset.select_related(
+            "reassessment",
+            "periode",
+            "prepared_by",
+            "reviewed_by",
+            "approved_by",
+        ):
+            sent_count += self._send_next_notification(request, report)
+        if sent_count:
+            self.message_user(request, f"Total email notifikasi terkirim: {sent_count}.", level=messages.SUCCESS)
 
     def risk_items_for_reassessment(self, request):
         reassessment_id = request.GET.get("reassessment")
