@@ -57,7 +57,14 @@ class MonthlyRiskReportAdminTests(TestCase):
             prepared_by=self.prepared_by,
         )
 
-    def _risk_item(self, report, no_item=1, no_risiko=None, no_penyebab_risiko=None):
+    def _risk_item(
+        self,
+        report,
+        no_item=1,
+        no_risiko=None,
+        no_penyebab_risiko=None,
+        peristiwa_risiko=None,
+    ):
         item_suffix = f"{no_item}-{no_risiko or no_item}-{no_penyebab_risiko or 'x'}"
         template, _ = MasterTemplateKM.objects.get_or_create(
             tahun=2026,
@@ -90,7 +97,7 @@ class MonthlyRiskReportAdminTests(TestCase):
             km_item=km_item,
             no_risiko=no_risiko or no_item,
             no_penyebab_risiko=no_penyebab_risiko,
-            peristiwa_risiko=f"Risiko {report.reassessment.unit_bisnis.name}",
+            peristiwa_risiko=peristiwa_risiko or f"Risiko {report.reassessment.unit_bisnis.name}",
             deskripsi_peristiwa_risiko="Deskripsi risiko",
             penyebab_risiko="Penyebab",
             rencana_perlakuan_risiko="Mitigasi",
@@ -211,9 +218,27 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_risk_items_endpoint_orders_by_item_then_cause_code(self):
         report_infra = self._report("INFRA")
-        self._risk_item(report_infra, no_item=1, no_risiko=3, no_penyebab_risiko="c")
-        self._risk_item(report_infra, no_item=1, no_risiko=1, no_penyebab_risiko="a")
-        self._risk_item(report_infra, no_item=1, no_risiko=2, no_penyebab_risiko="b")
+        self._risk_item(
+            report_infra,
+            no_item=1,
+            no_risiko=3,
+            no_penyebab_risiko="c",
+            peristiwa_risiko="Risiko pertama",
+        )
+        self._risk_item(
+            report_infra,
+            no_item=1,
+            no_risiko=1,
+            no_penyebab_risiko="a",
+            peristiwa_risiko="Risiko pertama",
+        )
+        self._risk_item(
+            report_infra,
+            no_item=1,
+            no_risiko=2,
+            no_penyebab_risiko="b",
+            peristiwa_risiko="Risiko pertama",
+        )
         request = RequestFactory().get(
             "/admin/monthly_report/monthlyriskreport/risk-items/",
             {"reassessment": str(report_infra.reassessment_id)},
@@ -229,3 +254,35 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIn("INFRA-1.a", labels[0])
         self.assertIn("INFRA-1.b", labels[1])
         self.assertIn("INFRA-1.c", labels[2])
+
+    def test_risk_items_endpoint_uses_display_sequence_when_internal_item_number_jumps(self):
+        report_infra = self._report("INFRA")
+        self._risk_item(
+            report_infra,
+            no_item=10,
+            no_risiko=26,
+            no_penyebab_risiko="p",
+            peristiwa_risiko="Risiko urutan kesatu",
+        )
+        self._risk_item(
+            report_infra,
+            no_item=28,
+            no_risiko=11,
+            no_penyebab_risiko="q",
+            peristiwa_risiko="Risiko urutan kedua",
+        )
+        request = RequestFactory().get(
+            "/admin/monthly_report/monthlyriskreport/risk-items/",
+            {"reassessment": str(report_infra.reassessment_id)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        response = report_admin.risk_items_for_reassessment(request)
+        payload = json.loads(response.content)
+        labels = [item["text"] for item in payload["items"]]
+
+        self.assertIn("INFRA-1.p", labels[0])
+        self.assertIn("INFRA-2.q", labels[1])
+        self.assertNotIn("INFRA-28.q", labels[1])

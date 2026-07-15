@@ -102,11 +102,30 @@ def _limit_by_assigned_units(request, queryset, unit_lookup):
     )
 
 
-def _monthly_risk_item_label(item):
+def _monthly_risk_item_key(item):
+    risk_event = (item.peristiwa_risiko or "").strip().casefold()
+    if risk_event:
+        return risk_event
+    return f"item:{item.pk}"
+
+
+def _monthly_risk_item_number_map(items):
+    number_by_key = {}
+    number_by_pk = {}
+    for item in items:
+        key = _monthly_risk_item_key(item)
+        if key not in number_by_key:
+            number_by_key[key] = len(number_by_key) + 1
+        number_by_pk[item.pk] = number_by_key[key]
+    return number_by_pk
+
+
+def _monthly_risk_item_label(item, number_by_pk=None):
     unit_code = ""
     if item.summary_id and item.summary.unit_bisnis_id:
         unit_code = item.summary.unit_bisnis.name
-    risk_number = item.no_item or item.no_risiko or "-"
+    number_by_pk = number_by_pk or {}
+    risk_number = number_by_pk.get(item.pk) or item.no_item or item.no_risiko or "-"
     cause_number = (item.no_penyebab_risiko or "").strip().lower()
     code_parts = [str(part) for part in (unit_code, risk_number) if part]
     risk_code = "-".join(code_parts)
@@ -173,7 +192,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         if db_field.name == "risk_event":
             reassessment_id = getattr(request, "_monthly_report_reassessment_id", None)
             if reassessment_id:
-                kwargs["queryset"] = _limit_by_assigned_units(
+                queryset = _limit_by_assigned_units(
                     request,
                     ReAssessmentItem.objects.select_related("summary__unit_bisnis").filter(
                         summary_id=reassessment_id
@@ -186,9 +205,15 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
                     "id",
                 )
             else:
-                kwargs["queryset"] = ReAssessmentItem.objects.none()
+                queryset = ReAssessmentItem.objects.none()
+            items = list(queryset)
+            number_by_pk = _monthly_risk_item_number_map(items)
+            kwargs["queryset"] = queryset
             formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
-            formfield.label_from_instance = _monthly_risk_item_label
+            formfield.label_from_instance = lambda item: _monthly_risk_item_label(
+                item,
+                number_by_pk,
+            )
             return formfield
         if db_field.name == "realisasi_skala_dampak":
             kwargs["queryset"] = MasterSkalaDampak.objects.filter(aktif=True).order_by(
@@ -484,15 +509,17 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "no_risiko",
                 "id",
             )
+        items = list(queryset)
+        number_by_pk = _monthly_risk_item_number_map(items)
 
         return JsonResponse(
             {
                 "items": [
                     {
                         "id": item.pk,
-                        "text": _monthly_risk_item_label(item),
+                        "text": _monthly_risk_item_label(item, number_by_pk),
                     }
-                    for item in queryset
+                    for item in items
                 ]
             }
         )
