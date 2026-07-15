@@ -8,7 +8,7 @@ from django.test import RequestFactory, TestCase
 from masterdata.models import PeriodeLaporan, TahunBuku
 from risk.models import KontrakManajemen, ReAssessmentSummary
 
-from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportGroupFilter
+from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline
 from .models import MonthlyRiskReport
 
 
@@ -69,4 +69,16 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIn(
             (str(report_aga.reassessment.unit_bisnis_id), "BID AGA"),
             list(group_filter.lookups(request, report_admin)),
+        )
+
+    def test_monthly_report_form_uses_searchable_autocomplete_fields(self):
+        self.assertEqual(MonthlyRiskReportItemInline.autocomplete_fields, ("risk_event",))
+        self.assertEqual(
+            MonthlyRiskReportAdmin.autocomplete_fields,
+            (
+                "reassessment",
+                "prepared_by",
+                "reviewed_by",
+                "approved_by",
+            ),
         )

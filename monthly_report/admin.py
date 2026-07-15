@@ -107,6 +107,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     extra = 1
     verbose_name = "Realisasi Risiko Bulanan"
     verbose_name_plural = "Input Realisasi Risiko Bulanan"
+    autocomplete_fields = ("risk_event",)
     fieldsets = (
         (
             "Item Risiko",
@@ -299,6 +300,12 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "approved_by",
     ]
     readonly_fields = ["petunjuk_lampiran", "peta_risiko_iiic_link"]
+    autocomplete_fields = (
+        "reassessment",
+        "prepared_by",
+        "reviewed_by",
+        "approved_by",
+    )
 
     list_display = [
         "reassessment",
