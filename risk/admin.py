@@ -260,6 +260,7 @@ class AppSettingAdmin(admin.ModelAdmin):
                 "email_use_tls",
                 "email_use_ssl",
                 "default_from_email",
+                "monthly_report_notification_test_email",
             ),
             "description": (
                 "Dipakai untuk mengirim notifikasi email dari aplikasi, termasuk Risk Awareness. "

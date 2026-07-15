@@ -10,6 +10,7 @@ from django.test import RequestFactory, TestCase
 from masterdata.models import PeriodeLaporan, TahunBuku
 from risk.admin import ReAssessmentItemAdmin
 from risk.models import (
+    AppSetting,
     BagianKontrakManajemen,
     ItemKontrakManajemen,
     KontrakManajemen,
@@ -198,7 +199,28 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
 
-    def test_monthly_report_notification_sends_draft_to_prepared_by(self):
+    def test_monthly_report_notification_uses_test_email_when_configured(self):
+        self.prepared_by.email = "risk.officer@example.com"
+        self.prepared_by.save(update_fields=["email"])
+        report_infra = self._report("INFRA")
+
+        sent = send_monthly_report_notification(report_infra, base_url="https://erm.plnbatam.com")
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(mail.outbox[0].to, ["armeizir@plnbatam.com"])
+        self.assertIn("[MODE UJI COBA]", mail.outbox[0].body)
+        self.assertIn("Input Laporan Risiko Bulanan", mail.outbox[0].subject)
+        self.assertIn("Februari 2026", mail.outbox[0].body)
+        self.assertIn("5 Maret 2026", mail.outbox[0].body)
+        self.assertIn(
+            "https://erm.plnbatam.com/admin/monthly_report/monthlyriskreport/",
+            mail.outbox[0].body,
+        )
+
+    def test_monthly_report_notification_sends_to_prepared_by_when_test_email_empty(self):
+        app_setting = AppSetting.get_solo()
+        app_setting.monthly_report_notification_test_email = ""
+        app_setting.save(update_fields=["monthly_report_notification_test_email"])
         self.prepared_by.email = "risk.officer@example.com"
         self.prepared_by.save(update_fields=["email"])
         report_infra = self._report("INFRA")
@@ -207,6 +229,7 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertEqual(sent, 1)
         self.assertEqual(mail.outbox[0].to, ["risk.officer@example.com"])
+        self.assertNotIn("[MODE UJI COBA]", mail.outbox[0].body)
         self.assertIn("Input Laporan Risiko Bulanan", mail.outbox[0].subject)
         self.assertIn("Februari 2026", mail.outbox[0].body)
         self.assertIn("5 Maret 2026", mail.outbox[0].body)

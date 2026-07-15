@@ -97,17 +97,23 @@ def send_monthly_report_notification(report, request=None, base_url=None):
     if not stage:
         raise ValidationError("Status laporan tidak memerlukan notifikasi tahap berikutnya.")
 
-    recipient = stage["recipient"]
-    if not recipient:
-        raise ValidationError(f"Penerima untuk tahap {stage['title']} belum diisi.")
-    if not recipient.email:
-        raise ValidationError(f"Email user {recipient.get_username()} belum diisi.")
-
     app_setting = AppSetting.get_solo()
+    recipient = stage["recipient"]
+    test_email = app_setting.monthly_report_notification_test_email
+    if test_email:
+        recipients = [test_email]
+    else:
+        if not recipient:
+            raise ValidationError(f"Penerima untuk tahap {stage['title']} belum diisi.")
+        if not recipient.email:
+            raise ValidationError(f"Email user {recipient.get_username()} belum diisi.")
+        recipients = [recipient.email]
+
     context = {
         "report": report,
         "stage": stage,
         "recipient": recipient,
+        "test_email": test_email,
         "deadline": monthly_report_deadline(report),
         "deadline_text": format_indonesian_date(monthly_report_deadline(report)),
         "report_url": monthly_report_admin_url(report, request=request, base_url=base_url),
@@ -122,7 +128,7 @@ def send_monthly_report_notification(report, request=None, base_url=None):
         subject,
         text_body,
         from_email,
-        [recipient.email],
+        recipients,
         connection=_mail_connection(app_setting),
     )
     message.attach_alternative(html_body, "text/html")

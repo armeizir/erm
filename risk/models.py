@@ -171,6 +171,15 @@ class AppSetting(models.Model):
         verbose_name="Default From Email",
         help_text="Contoh: PLNBATAM CSIRT <noreply@plnbatam.com>",
     )
+    monthly_report_notification_test_email = models.EmailField(
+        blank=True,
+        default="armeizir@plnbatam.com",
+        verbose_name="Email Test Notifikasi Laporan Bulanan",
+        help_text=(
+            "Jika diisi, semua notifikasi laporan bulanan dikirim ke email ini, "
+            "bukan ke Prepared/Reviewed/Approved by. Kosongkan saat sudah produksi."
+        ),
+    )
     support_email = models.EmailField(
         blank=True,
         default="",
