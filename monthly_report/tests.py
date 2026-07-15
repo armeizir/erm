@@ -14,11 +14,12 @@ from risk.models import (
     KontrakManajemen,
     MasterBagianKM,
     MasterTemplateKM,
+    PenugasanUnitBisnis,
     ReAssessmentItem,
     ReAssessmentSummary,
 )
 
-from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline
+from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportAdminForm, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline
 from .models import MonthlyRiskReport, MonthlyRiskReportItem
 
 
@@ -132,14 +133,48 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(getattr(MonthlyRiskReportItemInline, "autocomplete_fields", ()), ())
         self.assertEqual(
             MonthlyRiskReportAdmin.autocomplete_fields,
-            (
-                "reassessment",
-                "prepared_by",
-                "reviewed_by",
-                "approved_by",
-            ),
+            ("reassessment",),
         )
         self.assertIn("pdf_button", MonthlyRiskReportAdmin.list_display)
+
+    def test_monthly_report_signer_fields_are_limited_by_report_unit_and_role(self):
+        User = get_user_model()
+        report_infra = self._report("UB INFRA")
+        report_bes = self._report("UB BES")
+        infra_ro = User.objects.create_user(username="infra_ro")
+        infra_rc = User.objects.create_user(username="infra_rc")
+        infra_member = User.objects.create_user(username="infra_member")
+        bes_ro = User.objects.create_user(username="bes_ro")
+        bes_rc = User.objects.create_user(username="bes_rc")
+        outsider = User.objects.create_user(username="outsider")
+        report_infra.reassessment.unit_bisnis.user_set.add(infra_member)
+        report_bes.reassessment.unit_bisnis.user_set.add(outsider)
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report_infra.reassessment.unit_bisnis,
+            user=infra_ro,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report_infra.reassessment.unit_bisnis,
+            user=infra_rc,
+            peran=PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
+        )
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report_bes.reassessment.unit_bisnis,
+            user=bes_ro,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report_bes.reassessment.unit_bisnis,
+            user=bes_rc,
+            peran=PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
+        )
+
+        form = MonthlyRiskReportAdminForm(instance=report_infra)
+
+        self.assertEqual(list(form.fields["prepared_by"].queryset), [infra_ro])
+        self.assertEqual(list(form.fields["reviewed_by"].queryset), [infra_rc])
+        self.assertEqual(list(form.fields["approved_by"].queryset), [infra_member])
 
     def test_monthly_report_pdf_view_returns_pdf(self):
         report_infra = self._report("INFRA")

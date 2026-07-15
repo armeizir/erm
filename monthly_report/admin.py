@@ -3,6 +3,7 @@ from datetime import date
 
 from django import forms
 from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.http import Http404
 from django.http import HttpResponse
@@ -68,6 +69,33 @@ class MonthlyRiskReportAdminForm(forms.ModelForm):
         if self.instance and self.instance.periode_id:
             self.fields["bulan_laporan"].initial = self.instance.periode.tanggal_mulai.month
 
+        unit = self._selected_unit_bisnis()
+        if unit:
+            self.fields["prepared_by"].queryset = _users_for_unit_role(
+                unit,
+                PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            )
+            self.fields["reviewed_by"].queryset = _users_for_unit_role(
+                unit,
+                PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
+            )
+            self.fields["approved_by"].queryset = _users_for_unit_group(unit)
+
+    def _selected_unit_bisnis(self):
+        if self.instance and self.instance.reassessment_id:
+            return self.instance.reassessment.unit_bisnis
+
+        reassessment_id = self.data.get("reassessment") or self.initial.get("reassessment")
+        if not reassessment_id:
+            return None
+
+        return (
+            ReAssessmentSummary.objects.filter(pk=reassessment_id)
+            .select_related("unit_bisnis")
+            .values_list("unit_bisnis", flat=True)
+            .first()
+        )
+
 
 def _get_selected_reassessment_id(request):
     """Extract selected ReAssessmentSummary id from bound POST/GET on the parent form."""
@@ -102,6 +130,24 @@ def _limit_by_assigned_units(request, queryset, unit_lookup):
     return queryset.filter(
         **{f"{unit_lookup}__in": _assigned_unit_businesses_for_user(request.user)}
     )
+
+
+def _users_for_unit_role(unit, role):
+    User = get_user_model()
+    return User.objects.filter(
+        penugasan_unit_bisnis__unit_bisnis=unit,
+        penugasan_unit_bisnis__peran=role,
+        penugasan_unit_bisnis__aktif=True,
+        is_active=True,
+    ).distinct().order_by("first_name", "last_name", "username")
+
+
+def _users_for_unit_group(unit):
+    User = get_user_model()
+    return User.objects.filter(
+        groups=unit,
+        is_active=True,
+    ).distinct().order_by("first_name", "last_name", "username")
 
 
 def _monthly_risk_item_key(item):
@@ -363,9 +409,6 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
     readonly_fields = ["petunjuk_lampiran", "peta_risiko_iiic_link"]
     autocomplete_fields = (
         "reassessment",
-        "prepared_by",
-        "reviewed_by",
-        "approved_by",
     )
 
     list_display = [
