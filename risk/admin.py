@@ -2962,6 +2962,9 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
+        reassessment_id = request.GET.get("reassessment")
+        if reassessment_id:
+            qs = qs.filter(summary_id=reassessment_id)
         if request.user.is_superuser:
             return qs
         return qs.filter(

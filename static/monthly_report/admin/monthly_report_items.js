@@ -7,6 +7,41 @@
     return Array.from(document.querySelectorAll("select[name$='-risk_event']"));
   }
 
+  function urlWithReassessment(url, reassessmentId) {
+    var parsed = new URL(url, window.location.origin);
+    parsed.searchParams.set("reassessment", reassessmentId);
+    return parsed.pathname + parsed.search;
+  }
+
+  function refreshAutocomplete(select) {
+    if (!window.django || !django.jQuery) {
+      return;
+    }
+    var $select = django.jQuery(select);
+    if (!$select.hasClass("admin-autocomplete")) {
+      return;
+    }
+    if ($select.data("select2")) {
+      $select.select2("destroy");
+    }
+    if ($select.djangoAdminSelect2) {
+      $select.djangoAdminSelect2();
+    }
+  }
+
+  function updateAutocompleteUrl(select, reassessmentId) {
+    if (!select.classList.contains("admin-autocomplete")) {
+      return;
+    }
+    var baseUrl = select.dataset.baseAutocompleteUrl || select.getAttribute("data-ajax--url");
+    if (!baseUrl) {
+      return;
+    }
+    select.dataset.baseAutocompleteUrl = baseUrl;
+    select.setAttribute("data-ajax--url", urlWithReassessment(baseUrl, reassessmentId));
+    refreshAutocomplete(select);
+  }
+
   function resetSelect(select, placeholder) {
     select.innerHTML = "";
     var option = document.createElement("option");
@@ -39,6 +74,10 @@
 
     if (!reassessmentId) {
       selects.forEach(function (select) {
+        if (select.dataset.baseAutocompleteUrl) {
+          select.setAttribute("data-ajax--url", select.dataset.baseAutocompleteUrl);
+          refreshAutocomplete(select);
+        }
         resetSelect(select, "Pilih Profil Risiko terlebih dahulu");
       });
       return;
@@ -52,6 +91,7 @@
       })
       .then(function (payload) {
         selects.forEach(function (select) {
+          updateAutocompleteUrl(select, reassessmentId);
           fillSelect(select, payload.items || [], select.value);
         });
       });

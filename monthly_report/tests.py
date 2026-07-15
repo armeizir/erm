@@ -6,7 +6,16 @@ from django.contrib.auth.models import Group
 from django.test import RequestFactory, TestCase
 
 from masterdata.models import PeriodeLaporan, TahunBuku
-from risk.models import KontrakManajemen, ReAssessmentSummary
+from risk.admin import ReAssessmentItemAdmin
+from risk.models import (
+    BagianKontrakManajemen,
+    ItemKontrakManajemen,
+    KontrakManajemen,
+    MasterBagianKM,
+    MasterTemplateKM,
+    ReAssessmentItem,
+    ReAssessmentSummary,
+)
 
 from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline
 from .models import MonthlyRiskReport
@@ -47,6 +56,44 @@ class MonthlyRiskReportAdminTests(TestCase):
             prepared_by=self.prepared_by,
         )
 
+    def _risk_item(self, report, no_item=1):
+        template, _ = MasterTemplateKM.objects.get_or_create(
+            tahun=2026,
+            defaults={"nama": "Template 2026"},
+        )
+        master_bagian = MasterBagianKM.objects.create(
+            template=template,
+            kode_bagian=f"B{report.pk}",
+            nama_bagian="Keuangan",
+            urutan=1,
+        )
+        bagian = BagianKontrakManajemen.objects.create(
+            kontrak=report.reassessment.kontrak_manajemen,
+            kode_bagian=f"B{report.pk}",
+            nama_bagian="Keuangan",
+        )
+        km_item = ItemKontrakManajemen.objects.create(
+            kontrak=report.reassessment.kontrak_manajemen,
+            bagian=bagian,
+            master_bagian=master_bagian,
+            no_urut=1,
+            indikator_kinerja_kunci=f"KPI {report.reassessment.unit_bisnis.name}",
+            satuan="%",
+            bobot=10,
+            target="100",
+        )
+        return ReAssessmentItem.objects.create(
+            summary=report.reassessment,
+            no_item=no_item,
+            km_item=km_item,
+            no_risiko=no_item,
+            peristiwa_risiko=f"Risiko {report.reassessment.unit_bisnis.name}",
+            deskripsi_peristiwa_risiko="Deskripsi risiko",
+            penyebab_risiko="Penyebab",
+            rencana_perlakuan_risiko="Mitigasi",
+            output_perlakuan_risiko="Output",
+        )
+
     def test_group_filter_limits_monthly_reports_by_reassessment_group(self):
         report_aga = self._report("BID AGA")
         self._report("SEKPER")
@@ -82,3 +129,19 @@ class MonthlyRiskReportAdminTests(TestCase):
                 "approved_by",
             ),
         )
+
+    def test_risk_item_autocomplete_is_limited_by_selected_reassessment(self):
+        report_infra = self._report("INFRA")
+        report_bes = self._report("BES")
+        infra_item = self._risk_item(report_infra, no_item=1)
+        self._risk_item(report_bes, no_item=2)
+        request = RequestFactory().get(
+            "/admin/autocomplete/",
+            {"reassessment": str(report_infra.reassessment_id), "term": "Risiko"},
+        )
+        request.user = self.admin_user
+        item_admin = ReAssessmentItemAdmin(ReAssessmentItem, AdminSite())
+
+        queryset = item_admin.get_queryset(request)
+
+        self.assertEqual(list(queryset), [infra_item])
