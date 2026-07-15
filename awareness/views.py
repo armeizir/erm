@@ -105,6 +105,7 @@ def campaign_participants(request, campaign_id):
             "awareness": _user_display_name(attempt.user),
             "group": _user_group_label(attempt.user),
         })
+    rows.sort(key=lambda row: (row["group"].casefold(), row["awareness"].casefold()))
     return render(
         request,
         "awareness/participants.html",

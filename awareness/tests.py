@@ -230,12 +230,28 @@ class AwarenessFlowTests(TestCase):
 
     def test_campaign_participants_shows_awareness_and_group_only(self):
         unit = Group.objects.create(name="BID RISIKO")
+        earlier_unit = Group.objects.create(name="BID AGA")
         self.user.first_name = "Risk"
         self.user.last_name = "User"
         self.user.save(update_fields=["first_name", "last_name"])
         self.user.groups.add(unit)
+        self.other.first_name = "Other"
+        self.other.last_name = "User"
+        self.other.save(update_fields=["first_name", "last_name"])
+        self.other.groups.add(earlier_unit)
         AwarenessAttempt.objects.create(
             user=self.user,
+            campaign=self.campaign,
+            attempt_number=1,
+            total_questions=2,
+            correct_count=2,
+            wrong_count=0,
+            score=100,
+            status=AwarenessAttempt.STATUS_PASSED,
+            submitted_at=timezone.now(),
+        )
+        AwarenessAttempt.objects.create(
+            user=self.other,
             campaign=self.campaign,
             attempt_number=1,
             total_questions=2,
@@ -248,12 +264,16 @@ class AwarenessFlowTests(TestCase):
         self.client.force_login(self.other)
 
         response = self.client.get(reverse("awareness:campaign_participants", args=[self.campaign.pk]))
+        html = response.content.decode()
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "AWARENESS")
         self.assertContains(response, "GROUP")
+        self.assertContains(response, "Other User")
+        self.assertContains(response, "BID AGA")
         self.assertContains(response, "Risk User")
         self.assertContains(response, "BID RISIKO")
+        self.assertLess(html.index("BID AGA"), html.index("BID RISIKO"))
         self.assertNotContains(response, "SCORE")
         self.assertNotContains(response, "STATUS")
         self.assertNotContains(response, "Lulus")
