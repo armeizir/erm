@@ -119,7 +119,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
 
     def test_monthly_report_form_uses_searchable_autocomplete_fields(self):
-        self.assertEqual(MonthlyRiskReportItemInline.autocomplete_fields, ("risk_event",))
+        self.assertEqual(getattr(MonthlyRiskReportItemInline, "autocomplete_fields", ()), ())
         self.assertEqual(
             MonthlyRiskReportAdmin.autocomplete_fields,
             (

@@ -107,7 +107,6 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     extra = 1
     verbose_name = "Realisasi Risiko Bulanan"
     verbose_name_plural = "Input Realisasi Risiko Bulanan"
-    autocomplete_fields = ("risk_event",)
     fieldsets = (
         (
             "Item Risiko",
@@ -301,7 +300,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         MonthlyRiskReportLossEventInline,
     ]
     class Media:
-        js = ("monthly_report/admin/monthly_report_items.js?v=20260715-autocomplete-profile-only",)
+        js = ("monthly_report/admin/monthly_report_items.js?v=20260715-local-filtered-risk-items",)
 
     fields = [
         "reassessment",
