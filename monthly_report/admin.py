@@ -3,6 +3,7 @@ from datetime import date
 
 from django import forms
 from django.contrib import admin
+from django.contrib.auth.models import Group
 from django.http import Http404
 from django.http import JsonResponse
 from django.template.response import TemplateResponse
@@ -86,8 +87,6 @@ def _assigned_unit_businesses_for_user(user):
     if not user.is_authenticated:
         return PenugasanUnitBisnis.objects.none().values_list("unit_bisnis_id", flat=True)
     if user.is_superuser:
-        from django.contrib.auth.models import Group
-
         return Group.objects.all()
     return PenugasanUnitBisnis.objects.filter(
         user=user,
@@ -255,6 +254,28 @@ class MonthlyRiskReportLossEventInline(admin.StackedInline):
     )
 
 
+class MonthlyRiskReportGroupFilter(admin.SimpleListFilter):
+    title = "group"
+    parameter_name = "group"
+
+    def lookups(self, request, model_admin):
+        group_ids = (
+            model_admin.get_queryset(request)
+            .exclude(reassessment__unit_bisnis__isnull=True)
+            .values_list("reassessment__unit_bisnis_id", flat=True)
+            .distinct()
+        )
+        return [
+            (str(group.pk), group.name)
+            for group in Group.objects.filter(pk__in=group_ids).order_by("name")
+        ]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(reassessment__unit_bisnis_id=self.value())
+        return queryset
+
+
 @admin.register(MonthlyRiskReport, site=risk_admin_site)
 class MonthlyRiskReportAdmin(admin.ModelAdmin):
     form = MonthlyRiskReportAdminForm
@@ -287,7 +308,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "total_high",
         "total_mitigasi_terlambat",
     ]
-    list_filter = ["status"]
+    list_filter = [MonthlyRiskReportGroupFilter, "status"]
     search_fields = [
         "reassessment__judul",
         "reassessment__unit_bisnis__name",
