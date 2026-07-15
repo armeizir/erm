@@ -7,6 +7,15 @@
     return Array.from(document.querySelectorAll("select[name$='-risk_event']"));
   }
 
+  function isAutocompleteSelect(select) {
+    return (
+      select.classList.contains("admin-autocomplete") ||
+      select.hasAttribute("data-ajax--url") ||
+      !!select.dataset.baseAutocompleteUrl ||
+      !!(select.nextElementSibling && select.nextElementSibling.classList.contains("select2"))
+    );
+  }
+
   function urlWithReassessment(url, reassessmentId) {
     var parsed = new URL(url, window.location.origin);
     parsed.searchParams.set("reassessment", reassessmentId);
@@ -18,7 +27,7 @@
       return;
     }
     var $select = django.jQuery(select);
-    if (!$select.hasClass("admin-autocomplete")) {
+    if (!isAutocompleteSelect(select)) {
       return;
     }
     if ($select.data("select2")) {
@@ -30,7 +39,7 @@
   }
 
   function updateAutocompleteUrl(select, reassessmentId) {
-    if (!select.classList.contains("admin-autocomplete")) {
+    if (!isAutocompleteSelect(select)) {
       return false;
     }
     var baseUrl = select.dataset.baseAutocompleteUrl || select.getAttribute("data-ajax--url");
@@ -116,6 +125,10 @@
       .then(function (payload) {
         selects.forEach(function (select) {
           if (updateAutocompleteUrl(select, reassessmentId)) {
+            syncAutocompleteSelect(select, payload.items || []);
+            return;
+          }
+          if (isAutocompleteSelect(select)) {
             syncAutocompleteSelect(select, payload.items || []);
             return;
           }
