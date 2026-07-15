@@ -286,7 +286,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         MonthlyRiskReportLossEventInline,
     ]
     class Media:
-        js = ("monthly_report/admin/monthly_report_items.js",)
+        js = ("monthly_report/admin/monthly_report_items.js?v=20260715-filtered-autocomplete",)
 
     fields = [
         "reassessment",

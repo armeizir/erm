@@ -31,14 +31,38 @@
 
   function updateAutocompleteUrl(select, reassessmentId) {
     if (!select.classList.contains("admin-autocomplete")) {
-      return;
+      return false;
     }
     var baseUrl = select.dataset.baseAutocompleteUrl || select.getAttribute("data-ajax--url");
     if (!baseUrl) {
-      return;
+      return false;
     }
     select.dataset.baseAutocompleteUrl = baseUrl;
     select.setAttribute("data-ajax--url", urlWithReassessment(baseUrl, reassessmentId));
+    return true;
+  }
+
+  function syncAutocompleteSelect(select, items) {
+    var selectedValue = select.value;
+    var validIds = new Set((items || []).map(function (item) {
+      return String(item.id);
+    }));
+    var selectedOption = null;
+    Array.from(select.options).forEach(function (option) {
+      if (option.value && option.value === selectedValue && validIds.has(option.value)) {
+        selectedOption = option.cloneNode(true);
+      }
+    });
+
+    select.innerHTML = "";
+    var blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "---------";
+    select.appendChild(blank);
+    if (selectedOption) {
+      selectedOption.selected = true;
+      select.appendChild(selectedOption);
+    }
     refreshAutocomplete(select);
   }
 
@@ -76,9 +100,9 @@
       selects.forEach(function (select) {
         if (select.dataset.baseAutocompleteUrl) {
           select.setAttribute("data-ajax--url", select.dataset.baseAutocompleteUrl);
-          refreshAutocomplete(select);
         }
         resetSelect(select, "Pilih Profil Risiko terlebih dahulu");
+        refreshAutocomplete(select);
       });
       return;
     }
@@ -91,7 +115,10 @@
       })
       .then(function (payload) {
         selects.forEach(function (select) {
-          updateAutocompleteUrl(select, reassessmentId);
+          if (updateAutocompleteUrl(select, reassessmentId)) {
+            syncAutocompleteSelect(select, payload.items || []);
+            return;
+          }
           fillSelect(select, payload.items || [], select.value);
         });
       });
