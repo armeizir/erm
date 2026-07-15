@@ -62,7 +62,7 @@ def normalize_code(value):
 
 
 def category_for(code_letter):
-    return code_letter if code_letter in {"A", "B", "C", "D"} else None
+    return code_letter if code_letter in {"A", "B", "C", "D", "E", "F"} else None
 
 
 def calculate_achievement(target, actual, polarity):

@@ -1323,6 +1323,8 @@ class RKMItem(models.Model):
         ("B", "B - Pelanggan"),
         ("C", "C - Bisnis Proses Internal"),
         ("D", "D - Pengembangan dan Lingkungan"),
+        ("E", "E - Pengembangan Talenta"),
+        ("F", "F - Compliance"),
     ]
 
     summary = models.ForeignKey(
