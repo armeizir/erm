@@ -25,6 +25,16 @@ def _template_context(**context):
     return {"app_setting": AppSetting.get_solo(), **context}
 
 
+def _user_display_name(user):
+    full_name = user.get_full_name().strip()
+    return full_name or user.get_username()
+
+
+def _user_group_label(user):
+    group_names = [group.name for group in user.groups.all()]
+    return ", ".join(group_names) if group_names else "-"
+
+
 def _campaign_status(campaign, user):
     attempts = campaign.attempts.filter(user=user).order_by("-attempt_number", "-started_at")
     latest = attempts.first()
@@ -68,6 +78,38 @@ def campaign_list(request):
             "question_count": campaign.question_count,
         })
     return render(request, "awareness/campaign_list.html", _template_context(rows=rows))
+
+
+@login_required
+def campaign_participants(request, campaign_id):
+    campaign = get_object_or_404(AwarenessCampaign, pk=campaign_id)
+    attempts = (
+        campaign.attempts
+        .filter(status__in=[
+            AwarenessAttempt.STATUS_SUBMITTED,
+            AwarenessAttempt.STATUS_PASSED,
+            AwarenessAttempt.STATUS_FAILED,
+            AwarenessAttempt.STATUS_EXPIRED,
+        ])
+        .select_related("user")
+        .prefetch_related("user__groups")
+        .order_by("user__first_name", "user__last_name", "user__username", "-submitted_at", "-started_at")
+    )
+    seen_users = set()
+    rows = []
+    for attempt in attempts:
+        if attempt.user_id in seen_users:
+            continue
+        seen_users.add(attempt.user_id)
+        rows.append({
+            "awareness": _user_display_name(attempt.user),
+            "group": _user_group_label(attempt.user),
+        })
+    return render(
+        request,
+        "awareness/participants.html",
+        _template_context(campaign=campaign, rows=rows),
+    )
 
 
 @login_required

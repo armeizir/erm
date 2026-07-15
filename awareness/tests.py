@@ -228,6 +228,36 @@ class AwarenessFlowTests(TestCase):
         self.assertContains(response, reverse("awareness:start_campaign", args=[self.campaign.pk]))
         self.assertFalse(AwarenessAttempt.objects.filter(user=self.user, campaign=self.campaign).exists())
 
+    def test_campaign_participants_shows_awareness_and_group_only(self):
+        unit = Group.objects.create(name="BID RISIKO")
+        self.user.first_name = "Risk"
+        self.user.last_name = "User"
+        self.user.save(update_fields=["first_name", "last_name"])
+        self.user.groups.add(unit)
+        AwarenessAttempt.objects.create(
+            user=self.user,
+            campaign=self.campaign,
+            attempt_number=1,
+            total_questions=2,
+            correct_count=2,
+            wrong_count=0,
+            score=100,
+            status=AwarenessAttempt.STATUS_PASSED,
+            submitted_at=timezone.now(),
+        )
+        self.client.force_login(self.other)
+
+        response = self.client.get(reverse("awareness:campaign_participants", args=[self.campaign.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "AWARENESS")
+        self.assertContains(response, "GROUP")
+        self.assertContains(response, "Risk User")
+        self.assertContains(response, "BID RISIKO")
+        self.assertNotContains(response, "SCORE")
+        self.assertNotContains(response, "STATUS")
+        self.assertNotContains(response, "Lulus")
+
     def test_user_can_submit_answers_and_score_is_calculated(self):
         self.client.force_login(self.user)
         attempt = AwarenessAttempt.objects.create(
@@ -535,6 +565,24 @@ class AwarenessFlowTests(TestCase):
         self.assertIn("50%", html_body)
         self.assertIn("TOTAL", html_body)
         self.assertIn("1/2 responden (50%)", text_body)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="PLNBATAM ERM <erm@plnbatam.com>",
+    )
+    def test_awareness_email_includes_participants_link(self):
+        send_awareness_notification(
+            self.campaign,
+            ["risk.admin@plnbatam.com"],
+            base_url="https://erm.plnbatam.com",
+        )
+
+        html_body = mail.outbox[0].alternatives[0].content
+        text_body = mail.outbox[0].body
+        participants_path = reverse("awareness:campaign_participants", args=[self.campaign.pk])
+        self.assertIn("Lihat Pengisi Awareness", html_body)
+        self.assertIn(f"https://erm.plnbatam.com{participants_path}", html_body)
+        self.assertIn(f"https://erm.plnbatam.com{participants_path}", text_body)
 
     @override_settings(
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",

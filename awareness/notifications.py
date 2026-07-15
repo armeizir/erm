@@ -66,6 +66,10 @@ def campaign_material_url(campaign, request=None, base_url=None):
     return f"{awareness_base_url(request=request, base_url=base_url)}{reverse('awareness:campaign_material', args=[campaign.pk])}"
 
 
+def campaign_participants_url(campaign, request=None, base_url=None):
+    return f"{awareness_base_url(request=request, base_url=base_url)}{reverse('awareness:campaign_participants', args=[campaign.pk])}"
+
+
 def campaign_period_text(campaign):
     start = campaign.start_date
     end = campaign.end_date
@@ -212,6 +216,7 @@ def send_awareness_notification(campaign, recipients, request=None, base_url=Non
         "campaign": campaign,
         "app_setting": app_setting,
         "material_url": campaign_material_url(campaign, request=request, base_url=base_url),
+        "participants_url": campaign_participants_url(campaign, request=request, base_url=base_url),
         "period_text": campaign_period_text(campaign),
         "month_year": f"{MONTH_NAMES[campaign.start_date.month]} {campaign.start_date.year}",
         "email_heading": campaign.email_heading,

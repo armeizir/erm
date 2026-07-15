@@ -13,5 +13,8 @@ Progress Responden per Bidang / Unit:
 {% endfor %}TOTAL: {{ progress_total.respondent_count }}/{{ progress_total.employee_count }} responden ({{ progress_total.percent }}%), belum {{ progress_total.pending_count }}
 
 {% endif %}
+Daftar pengisi awareness dan group:
+{{ participants_url }}
+
 Terima kasih atas partisipasi Bapak/Ibu.
 {{ app_setting.nama_aplikasi|default:"Manajemen Risiko PLN Batam" }}

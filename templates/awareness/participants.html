@@ -1,0 +1,27 @@
+{% extends "awareness/base_awareness.html" %}
+{% block title %}Pengisi Awareness{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0;">{{ campaign.title }}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>AWARENESS</th>
+        <th>GROUP</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.awareness }}</td>
+          <td>{{ row.group }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="2">Belum ada pengisi awareness.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
