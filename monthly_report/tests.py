@@ -18,7 +18,7 @@ from risk.models import (
 )
 
 from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline
-from .models import MonthlyRiskReport
+from .models import MonthlyRiskReport, MonthlyRiskReportItem
 
 
 class MonthlyRiskReportAdminTests(TestCase):
@@ -145,3 +145,22 @@ class MonthlyRiskReportAdminTests(TestCase):
         queryset = item_admin.get_queryset(request)
 
         self.assertEqual(list(queryset), [infra_item])
+
+    def test_inline_risk_event_field_is_limited_by_parent_report(self):
+        report_infra = self._report("INFRA")
+        report_bes = self._report("BES")
+        infra_item = self._risk_item(report_infra, no_item=1)
+        self._risk_item(report_bes, no_item=2)
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/change/"
+        )
+        request.user = self.admin_user
+        request._monthly_report_reassessment_id = report_infra.reassessment_id
+        inline = MonthlyRiskReportItemInline(MonthlyRiskReport, AdminSite())
+
+        formfield = inline.formfield_for_foreignkey(
+            MonthlyRiskReportItem._meta.get_field("risk_event"),
+            request,
+        )
+
+        self.assertEqual(list(formfield.queryset), [infra_item])

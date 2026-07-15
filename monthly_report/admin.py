@@ -157,6 +157,20 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     )
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "risk_event":
+            reassessment_id = getattr(request, "_monthly_report_reassessment_id", None)
+            if reassessment_id:
+                kwargs["queryset"] = _limit_by_assigned_units(
+                    request,
+                    ReAssessmentItem.objects.filter(summary_id=reassessment_id),
+                    "summary__unit_bisnis",
+                ).order_by(
+                    "no_item",
+                    "no_risiko",
+                    "no_penyebab_risiko",
+                )
+            else:
+                kwargs["queryset"] = ReAssessmentItem.objects.none()
         if db_field.name == "realisasi_skala_dampak":
             kwargs["queryset"] = MasterSkalaDampak.objects.filter(aktif=True).order_by(
                 "urutan",
@@ -171,10 +185,11 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
 
     def get_formset(self, request, obj=None, **kwargs):
         # Filter inline FK dropdown based on parent MonthlyRiskReport.reassessment.
-        formset = super().get_formset(request, obj, **kwargs)
         reassessment_id = _get_selected_reassessment_id(request) or getattr(
             obj, "reassessment_id", None
         )
+        request._monthly_report_reassessment_id = reassessment_id
+        formset = super().get_formset(request, obj, **kwargs)
 
         if reassessment_id:
             try:
