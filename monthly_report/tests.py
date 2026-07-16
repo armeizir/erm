@@ -21,7 +21,7 @@ from risk.models import (
     ReAssessmentSummary,
 )
 
-from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportAdminForm, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline
+from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportAdminForm, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline, _monthly_risk_item_label
 from .models import MonthlyRiskReport, MonthlyRiskReportItem
 from .notifications import send_monthly_report_notification
 
@@ -293,6 +293,22 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertEqual(list(formfield.queryset), [infra_item])
 
+    def test_monthly_risk_item_label_uses_excel_risk_number_and_cause_code(self):
+        report_infra = self._report("UB INFRA")
+        item = self._risk_item(
+            report_infra,
+            no_item=42,
+            no_risiko=25,
+            no_penyebab_risiko="ae",
+            peristiwa_risiko="Tidak tercapai KPI HCR, OCR dan Produktifitas",
+        )
+
+        label = _monthly_risk_item_label(item)
+
+        self.assertIn("UB INFRA-25.ae", label)
+        self.assertIn("Risiko 25", label)
+        self.assertNotIn("Item 42", label)
+
     def test_inline_risk_event_label_includes_item_number_and_event(self):
         report_infra = self._report("INFRA")
         infra_item = self._risk_item(report_infra, no_item=1)
@@ -310,7 +326,7 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         label = formfield.label_from_instance(infra_item)
         self.assertIn("INFRA-1.a", label)
-        self.assertIn("Item 1", label)
+        self.assertIn("Risiko 1", label)
         self.assertIn("Penyebab a", label)
         self.assertIn("Risiko INFRA", label)
 
@@ -330,7 +346,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         label = payload["items"][0]["text"]
 
         self.assertIn("INFRA-1.a", label)
-        self.assertIn("Item 1", label)
+        self.assertIn("Risiko 1", label)
         self.assertIn("Penyebab a", label)
         self.assertIn("Risiko INFRA", label)
 
@@ -370,10 +386,10 @@ class MonthlyRiskReportAdminTests(TestCase):
         labels = [item["text"] for item in payload["items"]]
 
         self.assertIn("INFRA-1.a", labels[0])
-        self.assertIn("INFRA-1.b", labels[1])
-        self.assertIn("INFRA-1.c", labels[2])
+        self.assertIn("INFRA-2.b", labels[1])
+        self.assertIn("INFRA-3.c", labels[2])
 
-    def test_risk_items_endpoint_uses_display_sequence_when_internal_item_number_jumps(self):
+    def test_risk_items_endpoint_uses_excel_risk_number_when_internal_item_number_jumps(self):
         report_infra = self._report("INFRA")
         self._risk_item(
             report_infra,
@@ -401,6 +417,6 @@ class MonthlyRiskReportAdminTests(TestCase):
         payload = json.loads(response.content)
         labels = [item["text"] for item in payload["items"]]
 
-        self.assertIn("INFRA-1.p", labels[0])
-        self.assertIn("INFRA-2.q", labels[1])
+        self.assertIn("INFRA-26.p", labels[0])
+        self.assertIn("INFRA-11.q", labels[1])
         self.assertNotIn("INFRA-28.q", labels[1])

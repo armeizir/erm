@@ -178,15 +178,14 @@ def _monthly_risk_item_label(item, number_by_pk=None):
     unit_code = ""
     if item.summary_id and item.summary.unit_bisnis_id:
         unit_code = item.summary.unit_bisnis.name
-    number_by_pk = number_by_pk or {}
-    risk_number = number_by_pk.get(item.pk) or item.no_item or item.no_risiko or "-"
+    risk_number = item.no_risiko or item.no_item or "-"
     cause_number = (item.no_penyebab_risiko or "").strip().lower()
     code_parts = [str(part) for part in (unit_code, risk_number) if part]
     risk_code = "-".join(code_parts)
     if cause_number:
         risk_code = f"{risk_code}.{cause_number}"
     risk_event = (item.peristiwa_risiko or "").strip() or "Peristiwa risiko belum diisi"
-    return f"{risk_code} | Item {item.no_item} | Penyebab {cause_number or '-'} - {risk_event}"
+    return f"{risk_code} | Risiko {risk_number} | Penyebab {cause_number or '-'} - {risk_event}"
 
 
 class MonthlyRiskReportItemInline(admin.StackedInline):
