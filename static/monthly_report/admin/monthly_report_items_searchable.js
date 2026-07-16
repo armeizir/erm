@@ -18,7 +18,13 @@
     if ($select.data("select2")) {
       $select.select2("destroy");
     }
-    $select.select2({ width: "style" });
+    $select.addClass("admin-autocomplete");
+    $select.select2({
+      allowClear: true,
+      dropdownAutoWidth: true,
+      placeholder: select.options[0] ? select.options[0].textContent : "---------",
+      width: "resolve"
+    });
   }
 
   function resetSelect(select, placeholder) {

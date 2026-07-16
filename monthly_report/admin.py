@@ -397,7 +397,16 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         MonthlyRiskReportLossEventInline,
     ]
     class Media:
-        js = ("monthly_report/admin/monthly_report_items.js?v=20260715-local-filtered-risk-items",)
+        css = {
+            "screen": (
+                "admin/css/vendor/select2/select2.css",
+                "admin/css/autocomplete.css",
+            )
+        }
+        js = (
+            "admin/js/vendor/select2/select2.full.js",
+            "monthly_report/admin/monthly_report_items_searchable.js",
+        )
 
     fields = [
         "reassessment",

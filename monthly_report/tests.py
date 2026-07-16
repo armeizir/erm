@@ -140,6 +140,12 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
         self.assertIn("pdf_button", MonthlyRiskReportAdmin.list_display)
 
+    def test_monthly_report_admin_loads_select2_for_inline_risk_event_dropdown(self):
+        media = str(MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite()).media)
+
+        self.assertIn("admin/js/vendor/select2/select2.full.js", media)
+        self.assertIn("monthly_report_items_searchable.js", media)
+
     def test_monthly_report_signer_fields_are_limited_by_report_unit_and_role(self):
         User = get_user_model()
         report_infra = self._report("UB INFRA")
