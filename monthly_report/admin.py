@@ -37,6 +37,8 @@ from risk.models import (
     ReAssessmentSummary,
     RiskMatrix,
 )
+from risk.services.kpmr_automation import calculate_kpmr_for_unit
+from risk.services.kpmr_automation import month_to_quarter
 from .notifications import send_monthly_report_notification
 
 
@@ -566,6 +568,15 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 )
             rows.append({"probabilitas": prob, "cells": row})
 
+        kpmr_calculation = None
+        kpmr_quarter = month_to_quarter(report.periode.tanggal_mulai.month) if report.periode_id else None
+        if report.reassessment_id and report.reassessment.unit_bisnis_id and kpmr_quarter:
+            kpmr_calculation = calculate_kpmr_for_unit(
+                report.reassessment.tahun,
+                kpmr_quarter,
+                report.reassessment.unit_bisnis,
+            )
+
         context = {
             **self.admin_site.each_context(request),
             "opts": self.model._meta,
@@ -573,6 +584,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "matrix": matrix,
             "dampak_scales": dampak_scales,
             "rows": rows,
+            "kpmr_calculation": kpmr_calculation,
+            "kpmr_quarter": kpmr_quarter,
             "title": "III.C - Peta Risiko Residual",
         }
         return TemplateResponse(request, "monthly_report/peta_risiko_iiic.html", context)

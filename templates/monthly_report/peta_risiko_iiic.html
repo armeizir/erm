@@ -104,6 +104,74 @@
     margin: 16px 0;
     padding: 12px;
   }
+
+  .kpmr-panel {
+    background: #fff;
+    border: 1px solid #d7dde5;
+    margin-top: 22px;
+    padding: 18px;
+  }
+
+  .kpmr-panel h2 {
+    margin: 0 0 4px;
+  }
+
+  .kpmr-meta {
+    color: #555;
+    margin: 0 0 14px;
+  }
+
+  .kpmr-summary {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin: 12px 0 18px;
+  }
+
+  .kpmr-card {
+    background: #f8fafc;
+    border: 1px solid #e1e7ef;
+    padding: 12px;
+  }
+
+  .kpmr-card span {
+    color: #5b6573;
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+  }
+
+  .kpmr-card strong {
+    font-size: 22px;
+  }
+
+  .kpmr-table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  .kpmr-table th,
+  .kpmr-table td {
+    border: 1px solid #d7dde5;
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .kpmr-table th {
+    background: #eef3f7;
+  }
+
+  .kpmr-notes {
+    margin: 12px 0 0;
+    padding-left: 18px;
+  }
+
+  @media (max-width: 900px) {
+    .kpmr-summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
 </style>
 
 <div class="iiic-page">
@@ -166,5 +234,65 @@
       </tr>
     </tfoot>
   </table>
+
+  {% if kpmr_calculation %}
+    <section class="kpmr-panel">
+      <h2>KPMR Otomatis</h2>
+      <p class="kpmr-meta">
+        Dihitung otomatis dari laporan risiko bulanan
+        {{ report.reassessment.unit_bisnis.name }} tahun {{ report.reassessment.tahun }}
+        TW {{ kpmr_quarter }}.
+      </p>
+      <div class="kpmr-summary">
+        <div class="kpmr-card">
+          <span>Skor KPMR</span>
+          <strong>{{ kpmr_calculation.score_total }}</strong>
+        </div>
+        <div class="kpmr-card">
+          <span>Rating</span>
+          <strong>{{ kpmr_calculation.rating }}</strong>
+        </div>
+        <div class="kpmr-card">
+          <span>Laporan TW</span>
+          <strong>{{ kpmr_calculation.report_count }}</strong>
+        </div>
+        <div class="kpmr-card">
+          <span>Item Risiko</span>
+          <strong>{{ kpmr_calculation.item_count }}</strong>
+        </div>
+      </div>
+      <table class="kpmr-table">
+        <thead>
+          <tr>
+            <th style="width: 70px;">Kode</th>
+            <th>Indikator</th>
+            <th style="width: 90px;">Bobot</th>
+            <th style="width: 90px;">Hasil</th>
+            <th style="width: 90px;">Skor</th>
+            <th>Keterangan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for indicator in kpmr_calculation.indicators %}
+            <tr>
+              <td>{{ indicator.kode }}</td>
+              <td>{{ indicator.nama }}</td>
+              <td>{{ indicator.bobot }}</td>
+              <td>{{ indicator.hasil|default:"-" }}</td>
+              <td>{{ indicator.skor }}</td>
+              <td>{{ indicator.keterangan }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if kpmr_calculation.notes %}
+        <ul class="kpmr-notes">
+          {% for note in kpmr_calculation.notes %}
+            <li>{{ note }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </section>
+  {% endif %}
 </div>
 {% endblock %}

@@ -205,6 +205,20 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
 
+    def test_peta_risiko_iiic_includes_automatic_kpmr_calculation(self):
+        report_infra = self._report("INFRA")
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/peta-risiko-iiic/"
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        response = report_admin.peta_risiko_iiic_view(request, str(report_infra.pk))
+
+        self.assertEqual(response.context_data["kpmr_quarter"], 1)
+        self.assertEqual(response.context_data["kpmr_calculation"].unit, report_infra.reassessment.unit_bisnis)
+        self.assertEqual(response.context_data["kpmr_calculation"].report_count, 1)
+
     def test_monthly_report_notification_uses_test_email_when_configured(self):
         self.prepared_by.email = "risk.officer@example.com"
         self.prepared_by.save(update_fields=["email"])
