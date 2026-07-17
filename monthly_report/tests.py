@@ -27,6 +27,7 @@ from risk.models import (
 from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportAdminForm, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline, _monthly_risk_item_label
 from .models import MonthlyRiskReport, MonthlyRiskReportItem
 from .notifications import send_monthly_report_notification
+from .services import refresh_monthly_report_summary
 
 
 class MonthlyRiskReportAdminTests(TestCase):
@@ -271,6 +272,27 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(len(response.context_data["iiib_rows"]), 1)
         self.assertIn(b"LAPORAN REALISASI MANAJEMEN RISIKO", response.content)
         self.assertIn(b"III.A. FORMAT TABEL REALISASI RISIKO RESIDUAL BULANAN", response.content)
+
+    def test_refresh_summary_counts_manual_items_and_realization_high_level(self):
+        report_infra = self._report("INFRA")
+        high_item = self._risk_item(report_infra, no_item=1, no_risiko=1)
+        moderate_item = self._risk_item(report_infra, no_item=2, no_risiko=2)
+        high_report_item = MonthlyRiskReportItem.objects.create(
+            report=report_infra,
+            risk_event=high_item,
+        )
+        MonthlyRiskReportItem.objects.create(
+            report=report_infra,
+            risk_event=moderate_item,
+        )
+        MonthlyRiskReportItem.objects.filter(pk=high_report_item.pk).update(realisasi_skor_risiko=15)
+
+        self.assertEqual(report_infra.items.filter(realisasi_skor_risiko__gte=15).count(), 1)
+        refresh_monthly_report_summary(report_infra)
+        report_infra.refresh_from_db()
+
+        self.assertEqual(report_infra.total_risiko, 2)
+        self.assertEqual(report_infra.total_high, 1)
 
     def test_peta_risiko_iiic_includes_automatic_kpmr_calculation(self):
         report_infra = self._report("INFRA")

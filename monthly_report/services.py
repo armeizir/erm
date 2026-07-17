@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.db import transaction
 from django.utils import timezone
 
@@ -34,11 +35,27 @@ def refresh_monthly_report_summary(report: MonthlyRiskReport):
     items = report.items.all()
 
     report.total_risiko = items.count()
-    report.total_high = items.filter(residual_level__gte=15).count()
+    report.total_high = (
+        items.filter(
+            Q(realisasi_level_risiko__icontains="tinggi")
+            | Q(realisasi_skor_risiko__gte=15)
+            | Q(residual_level__gte=15)
+        )
+        .distinct()
+        .count()
+    )
     report.total_selesai = items.filter(mitigation_status="done").count()
     report.total_mitigasi_terlambat = items.filter(mitigation_status="delayed").count()
 
-    top_items = items.filter(residual_level__gte=12).select_related("risk_event")[:5]
+    top_items = (
+        items.filter(
+            Q(realisasi_level_risiko__icontains="tinggi")
+            | Q(realisasi_skor_risiko__gte=12)
+            | Q(residual_level__gte=12)
+        )
+        .select_related("risk_event")
+        .distinct()[:5]
+    )
     if top_items:
         report.summary_risiko = "; ".join(
             [

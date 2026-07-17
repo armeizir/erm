@@ -48,6 +48,7 @@ from risk.models import (
 from risk.services.kpmr_automation import calculate_kpmr_for_unit
 from risk.services.kpmr_automation import month_to_quarter
 from .notifications import send_monthly_report_notification
+from .services import refresh_monthly_report_summary
 
 
 BULAN_CHOICES = [
@@ -1094,6 +1095,10 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 },
             )
         super().save_model(request, obj, form, change)
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        refresh_monthly_report_summary(form.instance)
 
     def get_queryset(self, request):
         return _limit_by_assigned_units(
