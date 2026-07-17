@@ -1,0 +1,438 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<style>
+  .mrr-page {
+    max-width: none;
+  }
+
+  .mrr-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 16px;
+  }
+
+  .mrr-title {
+    margin: 0 0 4px;
+  }
+
+  .mrr-meta {
+    color: #4b5563;
+    margin: 0 0 18px;
+  }
+
+  .mrr-summary {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
+    margin: 0 0 18px;
+  }
+
+  .mrr-card {
+    background: #f8fafc;
+    border: 1px solid #d7dde5;
+    padding: 12px;
+  }
+
+  .mrr-card span {
+    color: #64748b;
+    display: block;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  .mrr-card strong {
+    color: #111827;
+    font-size: 24px;
+  }
+
+  .mrr-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 14px;
+  }
+
+  .mrr-tabs a {
+    background: #eef3f7;
+    border: 1px solid #cbd5e1;
+    color: #1f4e78;
+    padding: 7px 10px;
+    text-decoration: none;
+  }
+
+  .mrr-section {
+    margin: 22px 0;
+  }
+
+  .mrr-section h2 {
+    background: #1f4e78;
+    color: #fff;
+    font-size: 16px;
+    letter-spacing: 0;
+    margin: 0;
+    padding: 9px 12px;
+  }
+
+  .mrr-scroll {
+    border: 1px solid #b7b7b7;
+    max-height: 78vh;
+    overflow: auto;
+  }
+
+  .mrr-table {
+    border-collapse: collapse;
+    min-width: 2600px;
+    width: max-content;
+  }
+
+  .mrr-table th,
+  .mrr-table td {
+    border: 1px solid #111;
+    font-size: 12px;
+    line-height: 1.25;
+    padding: 6px 7px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .mrr-table th {
+    background: #808080;
+    color: #fff;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .mrr-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+
+  .mrr-table thead tr:nth-child(2) th {
+    top: 31px;
+  }
+
+  .mrr-table thead tr:nth-child(3) th {
+    top: 62px;
+  }
+
+  .mrr-table tbody td {
+    background: #fff2cc;
+  }
+
+  .mrr-table .note-head {
+    background: #ffff00;
+    color: #111;
+    font-style: italic;
+  }
+
+  .mrr-table .note {
+    background: #fff;
+    color: #0000ff;
+    font-size: 11px;
+    font-style: italic;
+  }
+
+  .mrr-table .group-head {
+    background: #2f75b5;
+    color: #fff;
+  }
+
+  .mrr-table .center {
+    text-align: center;
+  }
+
+  .mrr-table .right {
+    text-align: right;
+  }
+
+  .mrr-table .nowrap {
+    white-space: nowrap;
+  }
+
+  .mrr-table .wide {
+    min-width: 260px;
+  }
+
+  .mrr-table .xwide {
+    min-width: 420px;
+  }
+
+  .mrr-table .small {
+    min-width: 72px;
+  }
+
+  .mrr-table .level-low,
+  .mrr-table .progress-done {
+    background: #c6efce;
+  }
+
+  .mrr-table .level-moderate {
+    background: #ffff00;
+  }
+
+  .mrr-table .level-high,
+  .mrr-table .progress-warning {
+    background: #fff2cc;
+  }
+
+  .mrr-table .level-danger,
+  .mrr-table .progress-danger {
+    background: #f4cccc;
+  }
+
+  .mrr-simple {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  .mrr-simple th,
+  .mrr-simple td {
+    border: 1px solid #111;
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .mrr-simple th {
+    background: #808080;
+    color: #fff;
+  }
+
+  .mrr-simple td {
+    background: #fff2cc;
+  }
+
+  @media (max-width: 900px) {
+    .mrr-summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+</style>
+
+<div class="mrr-page">
+  <div class="mrr-toolbar">
+    <a class="button" href="../">Kembali ke Laporan</a>
+    <a class="button" href="../pdf/" target="_blank">Buka PDF</a>
+    <a class="button" href="../peta-risiko-iiic/">Peta Risiko III.C</a>
+  </div>
+
+  <h1 class="mrr-title">LAPORAN REALISASI MANAJEMEN RISIKO</h1>
+  <p class="mrr-meta">
+    <strong>Profil Risiko:</strong> {{ report.reassessment }}<br>
+    <strong>Unit/Bidang:</strong> {{ report.reassessment.unit_bisnis.name }}<br>
+    <strong>Bulan Laporan:</strong> {{ report.periode.nama_periode }}<br>
+    <strong>Status:</strong> {{ report.get_status_display }}
+  </p>
+
+  <div class="mrr-summary">
+    <div class="mrr-card"><span>Total Risiko</span><strong>{{ report.total_risiko }}</strong></div>
+    <div class="mrr-card"><span>Total High</span><strong>{{ report.total_high }}</strong></div>
+    <div class="mrr-card"><span>Mitigasi Terlambat</span><strong>{{ report.total_mitigasi_terlambat }}</strong></div>
+    <div class="mrr-card"><span>Versi</span><strong>{{ report.versi }}</strong></div>
+  </div>
+
+  <nav class="mrr-tabs">
+    <a href="#iiia">III.A Realisasi Risiko Residual</a>
+    <a href="#iiib">III.B Perlakuan Risiko dan Biaya</a>
+    <a href="#iiid">III.D Perubahan Profil</a>
+    <a href="#iiie">III.E Loss Event</a>
+  </nav>
+
+  <section class="mrr-section" id="iiia">
+    <h2>III.A. FORMAT TABEL REALISASI RISIKO RESIDUAL BULANAN</h2>
+    <div class="mrr-scroll">
+      <table class="mrr-table">
+        <thead>
+          <tr>
+            <th class="note-head">Petunjuk</th>
+            <th class="note">Diisi dengan nomor urutan risiko</th>
+            <th class="note">Nama peristiwa risiko harus sama persis dengan profil risiko</th>
+            <th class="note">Diisi penjelasan asumsi/pendekatan dampak</th>
+            <th class="note" colspan="7">Target nilai dampak, probabilitas, eksposur, skor dan level per triwulan</th>
+            <th class="note" colspan="7">Realisasi bulan {{ report.periode.nama_periode }}</th>
+            <th class="note"></th>
+          </tr>
+          <tr>
+            <th rowspan="2" class="small">No. Risiko</th>
+            <th rowspan="2" class="xwide">Peristiwa Risiko</th>
+            <th rowspan="2" class="small">Jenis Risiko</th>
+            <th rowspan="2" class="xwide">Asumsi Perhitungan Dampak</th>
+            <th colspan="7" class="group-head">Target TW {{ quarter }}</th>
+            <th colspan="7" class="group-head">Realisasi</th>
+            <th rowspan="2" class="wide">Efektivitas Perlakuan</th>
+          </tr>
+          <tr>
+            <th class="small">Nilai Dampak</th>
+            <th class="small">Skala Dampak</th>
+            <th class="small">Nilai Probabilitas</th>
+            <th class="small">Skala Probabilitas</th>
+            <th class="small">Eksposur Risiko</th>
+            <th class="small">Skor</th>
+            <th class="small">Level</th>
+            <th class="small">Nilai Dampak</th>
+            <th class="small">Skala Dampak</th>
+            <th class="small">Nilai Probabilitas</th>
+            <th class="small">Skala Probabilitas</th>
+            <th class="small">Eksposur Risiko</th>
+            <th class="small">Skor</th>
+            <th class="small">Level</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in iiia_rows %}
+            <tr>
+              <td class="center nowrap">{{ row.risk_no }}</td>
+              <td>{{ row.event }}</td>
+              <td class="center">{{ row.risk_type }}</td>
+              <td>{{ row.assumption }}</td>
+              <td class="right nowrap">{{ row.target.impact_value }}</td>
+              <td class="center">{{ row.target.impact_scale }}</td>
+              <td class="center nowrap">{{ row.target.probability_value }}</td>
+              <td class="center">{{ row.target.probability_scale }}</td>
+              <td class="right nowrap">{{ row.target.exposure }}</td>
+              <td class="center">{{ row.target.score }}</td>
+              <td class="center {{ row.target.level_class }}">{{ row.target.level }}</td>
+              <td class="right nowrap">{{ row.realization.impact_value }}</td>
+              <td class="center">{{ row.realization.impact_scale }}</td>
+              <td class="center nowrap">{{ row.realization.probability_value }}</td>
+              <td class="center">{{ row.realization.probability_scale }}</td>
+              <td class="right nowrap">{{ row.realization.exposure }}</td>
+              <td class="center">{{ row.realization.score }}</td>
+              <td class="center {{ row.realization.level_class }}">{{ row.realization.level }}</td>
+              <td>{{ row.effectiveness }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="19">Belum ada data realisasi risiko bulanan.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="mrr-section" id="iiib">
+    <h2>III.B. FORMAT TABEL REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA</h2>
+    <div class="mrr-scroll">
+      <table class="mrr-table">
+        <thead>
+          <tr>
+            <th class="note-head">Notes</th>
+            <th class="note" colspan="2">Nomor risiko harus konsisten pada saat pelaporan</th>
+            <th class="note" colspan="3">Setiap penyebab kejadian diberikan unique ID</th>
+            <th class="note" colspan="22">Rencana perlakuan dan realisasi diisi per penyebab risiko</th>
+          </tr>
+          <tr>
+            <th rowspan="2" class="small">No. Risiko</th>
+            <th rowspan="2" class="xwide">Peristiwa Risiko</th>
+            <th rowspan="2" class="xwide">Deskripsi Peristiwa Risiko</th>
+            <th rowspan="2" class="small">No. Penyebab Risiko</th>
+            <th rowspan="2" class="wide">Kode Penyebab Risiko</th>
+            <th rowspan="2" class="xwide">Penyebab Risiko</th>
+            <th rowspan="2" class="xwide">Rencana Perlakuan Risiko</th>
+            <th rowspan="2" class="wide">Output Perlakuan Risiko</th>
+            <th rowspan="2" class="small">Biaya Perlakuan Risiko</th>
+            <th rowspan="2" class="xwide">Realisasi Rencana Perlakuan Risiko</th>
+            <th rowspan="2" class="wide">Realisasi Output</th>
+            <th rowspan="2" class="small">Serapan Biaya</th>
+            <th rowspan="2" class="wide">PIC</th>
+            <th rowspan="2" class="small">Status</th>
+            <th rowspan="2" class="small">Progress</th>
+            <th rowspan="2" class="wide">Realisasi Threshold KRI</th>
+            <th colspan="12" class="group-head">Timeline RKAP</th>
+          </tr>
+          <tr>
+            <th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>Mei</th><th>Jun</th>
+            <th>Jul</th><th>Agu</th><th>Sep</th><th>Okt</th><th>Nov</th><th>Des</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in iiib_rows %}
+            <tr>
+              <td class="center nowrap">{{ row.risk_no }}</td>
+              <td>{{ row.event }}</td>
+              <td>{{ row.description }}</td>
+              <td class="center">{{ row.cause_no }}</td>
+              <td class="center nowrap">{{ row.cause_code }}</td>
+              <td>{{ row.cause }}</td>
+              <td>{{ row.treatment_plan }}</td>
+              <td>{{ row.treatment_output }}</td>
+              <td class="right nowrap">{{ row.treatment_cost }}</td>
+              <td>{{ row.realized_plan }}</td>
+              <td>{{ row.realized_output }}</td>
+              <td class="center nowrap">{{ row.absorbed_cost }}</td>
+              <td>{{ row.pic }}</td>
+              <td class="center">{{ row.status }}</td>
+              <td class="center {{ row.progress_class }}">{{ row.progress }}</td>
+              <td>{{ row.kri }}</td>
+              {% for month in row.timeline %}
+                <td class="center">{{ month }}</td>
+              {% endfor %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="28">Belum ada data pelaksanaan perlakuan risiko.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="mrr-section" id="iiid">
+    <h2>III.D. IKHTISAR PERUBAHAN PROFIL DAN STRATEGI RISIKO</h2>
+    <table class="mrr-simple">
+      <thead>
+        <tr>
+          <th>Jenis Perubahan</th>
+          <th>Peristiwa Risiko yang Terdampak</th>
+          <th>Penjelasan</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for change in changes %}
+          <tr>
+            <td>{{ change.get_jenis_perubahan_display }}</td>
+            <td>{{ change.peristiwa_risiko_terdampak }}</td>
+            <td>{{ change.penjelasan }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3">Tidak ada perubahan profil dan strategi risiko.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="mrr-section" id="iiie">
+    <h2>III.E. CATATAN KEJADIAN KERUGIAN (LOSS EVENT DATABASE)</h2>
+    <table class="mrr-simple">
+      <thead>
+        <tr>
+          <th>Nama Kejadian</th>
+          <th>Identifikasi Kejadian</th>
+          <th>Kategori</th>
+          <th>Sumber</th>
+          <th>Penyebab</th>
+          <th>Penanganan</th>
+          <th>Nilai Kerugian</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in loss_events %}
+          <tr>
+            <td>{{ event.nama_kejadian }}</td>
+            <td>{{ event.identifikasi_kejadian }}</td>
+            <td>{{ event.kategori_kejadian }}</td>
+            <td>{{ event.get_sumber_penyebab_kejadian_display }}</td>
+            <td>{{ event.penyebab_kejadian }}</td>
+            <td>{{ event.penanganan_saat_kejadian }}</td>
+            <td>{{ event.nilai_kerugian|default:"" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7">Tidak ada catatan kejadian kerugian.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}

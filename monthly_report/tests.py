@@ -139,6 +139,7 @@ class MonthlyRiskReportAdminTests(TestCase):
             ("reassessment",),
         )
         self.assertIn("pdf_button", MonthlyRiskReportAdmin.list_display)
+        self.assertIn("web_button", MonthlyRiskReportAdmin.list_display)
 
     def test_monthly_report_admin_loads_select2_for_inline_risk_event_dropdown(self):
         media = str(MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite()).media)
@@ -204,6 +205,30 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_monthly_report_web_view_returns_report_context(self):
+        report_infra = self._report("INFRA")
+        risk_item = self._risk_item(
+            report_infra,
+            no_item=1,
+            no_risiko=1,
+            no_penyebab_risiko="a",
+        )
+        MonthlyRiskReportItem.objects.create(report=report_infra, risk_event=risk_item)
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/web/"
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        response = report_admin.web_report_view(request, str(report_infra.pk))
+        response.render()
+
+        self.assertEqual(response.context_data["report"], report_infra)
+        self.assertEqual(len(response.context_data["iiia_rows"]), 1)
+        self.assertEqual(len(response.context_data["iiib_rows"]), 1)
+        self.assertIn(b"LAPORAN REALISASI MANAJEMEN RISIKO", response.content)
+        self.assertIn(b"III.A. FORMAT TABEL REALISASI RISIKO RESIDUAL BULANAN", response.content)
 
     def test_peta_risiko_iiic_includes_automatic_kpmr_calculation(self):
         report_infra = self._report("INFRA")

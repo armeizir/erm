@@ -18,7 +18,16 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from riskproject.admin_site import risk_admin_site
-from .pdf_reports import render_monthly_risk_report_pdf
+from .pdf_reports import (
+    _display_number_map,
+    _money,
+    _ordered_items,
+    _percent,
+    _quarter_number,
+    _risk_level_text,
+    _scale_value,
+    render_monthly_risk_report_pdf,
+)
 from .models import (
     MonthlyRiskReport,
     MonthlyRiskReportChange,
@@ -57,6 +66,38 @@ BULAN_CHOICES = [
     (12, "Desember"),
 ]
 BULAN_LABELS = dict(BULAN_CHOICES)
+
+
+def _monthly_level_class(value):
+    text = str(value or "").lower()
+    if "sangat tinggi" in text or "very high" in text or "ekstr" in text:
+        return "level-danger"
+    if "tinggi" in text or "high" in text:
+        return "level-high"
+    if "moderat" in text or "moderate" in text or "sedang" in text:
+        return "level-moderate"
+    if "rendah" in text or "low" in text:
+        return "level-low"
+    return ""
+
+
+def _monthly_progress_class(value):
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        return ""
+    if number >= 100:
+        return "progress-done"
+    if number >= 50:
+        return "progress-warning"
+    return "progress-danger"
+
+
+def _monthly_timeline_mark(value):
+    try:
+        return "1" if int(value or 0) else ""
+    except (TypeError, ValueError):
+        return ""
 
 
 class MonthlyRiskReportAdminForm(forms.ModelForm):
@@ -434,6 +475,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "total_high",
         "total_mitigasi_terlambat",
         "notification_button",
+        "web_button",
         "pdf_button",
     ]
     list_filter = [MonthlyRiskReportGroupFilter, "status"]
@@ -455,6 +497,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "<path:object_id>/pdf/",
                 self.admin_site.admin_view(self.pdf_view),
                 name="monthly_report_monthlyriskreport_pdf",
+            ),
+            path(
+                "<path:object_id>/web/",
+                self.admin_site.admin_view(self.web_report_view),
+                name="monthly_report_monthlyriskreport_web",
             ),
             path(
                 "<path:object_id>/send-notification/",
@@ -598,6 +645,103 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             args=[obj.pk],
         )
         return format_html('<a class="button" href="{}" target="_blank">PDF</a>', url)
+
+    @admin.display(description="Web")
+    def web_button(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+        url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_web",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}" target="_blank">Web</a>', url)
+
+    def _monthly_report_web_context(self, request, report):
+        items = _ordered_items(report)
+        number_by_risk = _display_number_map(items)
+        quarter = _quarter_number(report)
+        iiia_rows = []
+        iiib_rows = []
+        for item in items:
+            risk = item.risk_event
+            risk_no = number_by_risk.get(risk.id, risk.no_risiko or risk.no_item)
+            target_level = _risk_level_text(
+                getattr(risk, f"skala_risiko_q{quarter}", ""),
+                getattr(risk, f"level_nilai_risiko_q{quarter}", ""),
+            )
+            iiia_rows.append(
+                {
+                    "risk_no": risk_no,
+                    "event": risk.peristiwa_risiko,
+                    "risk_type": "Kualitatif",
+                    "assumption": item.realisasi_asumsi_dampak or risk.asumsi_perhitungan_dampak,
+                    "target": {
+                        "impact_value": _money(getattr(risk, f"nilai_dampak_q{quarter}", None)),
+                        "impact_scale": _scale_value(getattr(risk, f"skala_dampak_q{quarter}", None)),
+                        "probability_value": _percent(getattr(risk, f"nilai_probabilitas_q{quarter}", None)),
+                        "probability_scale": _scale_value(getattr(risk, f"skala_probabilitas_q{quarter}", None)),
+                        "exposure": _money(getattr(risk, f"eksposur_risiko_q{quarter}", None)),
+                        "score": getattr(risk, f"skala_risiko_q{quarter}", "") or "",
+                        "level": target_level,
+                        "level_class": _monthly_level_class(target_level),
+                    },
+                    "realization": {
+                        "impact_value": _money(item.realisasi_nilai_dampak),
+                        "impact_scale": item.realisasi_skala_dampak or "",
+                        "probability_value": _percent(item.realisasi_nilai_probabilitas),
+                        "probability_scale": item.realisasi_skala_probabilitas or "",
+                        "exposure": _money(item.realisasi_eksposur),
+                        "score": item.realisasi_skor_risiko or "",
+                        "level": item.realisasi_level_risiko or "",
+                        "level_class": _monthly_level_class(item.realisasi_level_risiko),
+                    },
+                    "effectiveness": item.get_efektivitas_perlakuan_risiko_display() or "",
+                }
+            )
+            iiib_rows.append(
+                {
+                    "risk_no": risk_no,
+                    "event": risk.peristiwa_risiko,
+                    "description": risk.deskripsi_peristiwa_risiko,
+                    "cause_no": (risk.no_penyebab_risiko or "").lower(),
+                    "cause_code": risk.kode_penyebab_risiko,
+                    "cause": risk.penyebab_risiko,
+                    "treatment_plan": risk.rencana_perlakuan_risiko,
+                    "treatment_output": risk.output_perlakuan_risiko,
+                    "treatment_cost": _money(risk.biaya_perlakuan_risiko),
+                    "realized_plan": item.realisasi_rencana_perlakuan,
+                    "realized_output": item.realisasi_output_perlakuan,
+                    "absorbed_cost": _percent(item.persentase_serapan_biaya),
+                    "pic": item.realisasi_pic or risk.pic,
+                    "status": item.get_status_rencana_perlakuan_display() or "",
+                    "progress": _percent(item.progress_pelaksanaan_percent),
+                    "progress_class": _monthly_progress_class(item.progress_pelaksanaan_percent),
+                    "kri": item.realisasi_threshold_kri,
+                    "timeline": [_monthly_timeline_mark(getattr(risk, f"timeline_{month}", 0)) for month in range(1, 13)],
+                }
+            )
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.model._meta,
+            "title": "Laporan Realisasi Manajemen Risiko",
+            "report": report,
+            "quarter": quarter,
+            "iiia_rows": iiia_rows,
+            "iiib_rows": iiib_rows,
+            "changes": report.changes.all(),
+            "loss_events": report.loss_events.all(),
+        }
+        return context
+
+    def web_report_view(self, request, object_id):
+        report = self.get_object(request, object_id)
+        if report is None:
+            raise Http404("Monthly risk report tidak ditemukan.")
+        return TemplateResponse(
+            request,
+            "monthly_report/monthly_risk_report_web.html",
+            self._monthly_report_web_context(request, report),
+        )
 
     def pdf_view(self, request, object_id):
         report = self.get_object(request, object_id)
