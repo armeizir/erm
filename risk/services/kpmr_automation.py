@@ -246,6 +246,13 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         i1_raw = Decimal("90")
         i1_option = "a"
         i1_note = f"Seluruh {below_target} risiko yang bisa dihitung berada di bawah target residual."
+    notes.append(
+        "I1 Pencapaian eksposur risiko: "
+        f"data lengkap {len(comparable)} dari {item_count} item; "
+        f"di bawah target {below_target}, sama target {same_target}, di atas target {above_target}. "
+        f"Jawaban {i1_option or '-'} menghasilkan nilai {i1_raw if i1_raw is not None else '-'} "
+        f"dan skor {_weighted_score(i1_raw, 30)}."
+    )
 
     progress_values = [
         item.progress_pelaksanaan_percent
@@ -263,6 +270,13 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         notes.append(i2_note)
     else:
         i2_note = f"Rata-rata progress perlakuan risiko {quantize_score(avg_progress)}% dari {len(progress_values)} item."
+        notes.append(
+            "I2 Output perlakuan risiko: "
+            f"total progress {quantize_score(sum(progress_values, Decimal('0')))} "
+            f"dibagi {len(progress_values)} item = {quantize_score(avg_progress)}%. "
+            "Ambang jawaban: a=90-100, b=80-89, c=70-79, d=60-69, e=<60. "
+            f"Jawaban {i2_option} menghasilkan nilai {i2_raw} dan skor {_weighted_score(i2_raw, 20)}."
+        )
 
     absorption_values = [
         item.persentase_serapan_biaya
@@ -280,6 +294,13 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         notes.append(i3_note)
     else:
         i3_note = f"Rata-rata serapan biaya perlakuan risiko {quantize_score(avg_absorption)}% dari {len(absorption_values)} item."
+        notes.append(
+            "I3 Realisasi biaya perlakuan risiko: "
+            f"total serapan {quantize_score(sum(absorption_values, Decimal('0')))} "
+            f"dibagi {len(absorption_values)} item = {quantize_score(avg_absorption)}%. "
+            "Ambang jawaban: a jika realisasi <= anggaran/100%, b jika >100%. "
+            f"Jawaban {i3_option} menghasilkan nilai {i3_raw} dan skor {_weighted_score(i3_raw, 20)}."
+        )
 
     loss_event_count = MonthlyRiskReportLossEvent.objects.filter(report_id__in=report_ids).count()
     new_risk_count = MonthlyRiskReportChange.objects.filter(
@@ -312,8 +333,17 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         if quantification_ratio is not None
         else "Belum ada item laporan untuk menguji kuantifikasi risiko."
     )
-    if quantification_ratio is not None and quantification_ratio < Decimal("95"):
-        notes.append("Kuantifikasi realisasi belum lengkap pada seluruh item laporan.")
+    quant_option = "a" if quant_raw >= Decimal("90") else "b"
+    if quantification_ratio is None:
+        notes.append("I4.2 Kuantifikasi risiko: belum ada item laporan untuk dihitung.")
+    else:
+        notes.append(
+            "I4.2 Kuantifikasi risiko: "
+            f"{len(quantified_items)} dari {item_count} item memiliki skor realisasi dan target residual lengkap "
+            f"= {quantize_score(quantification_ratio)}%. "
+            "Ambang jawaban: a jika kelengkapan >=95%, b jika <95%. "
+            f"Jawaban {quant_option} menghasilkan nilai {quant_raw} dan skor {_weighted_score(quant_raw, 25)}."
+        )
 
     plan_raw = Decimal("90") if comparable and not above_target else Decimal("50")
     plan_note = (
@@ -336,6 +366,11 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
     ]
     i4_raw = sum(score for _, score, _ in sub_scores) / Decimal(len(sub_scores))
     i4_note = "Rata-rata sub indikator ketepatan penilaian risiko."
+    notes.append(
+        "I4 Ketepatan penilaian risiko: "
+        f"rata-rata subindikator ({', '.join(str(score) for _, score, _ in sub_scores)}) "
+        f"/ {len(sub_scores)} = {quantize_score(i4_raw)}; skor KPMR {_weighted_score(i4_raw, 30)}."
+    )
 
     indicators = [
         _indicator("I1", i1_raw, 30, i1_option, i1_note, "III.C / III.D Laporan Risiko Bulanan"),
