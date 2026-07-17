@@ -72,6 +72,12 @@ def quantize_score(value) -> Decimal:
     return Decimal(value or 0).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _fmt(value) -> str:
+    if value is None:
+        return "-"
+    return str(quantize_score(value))
+
+
 def int_or_none(value):
     if value in (None, ""):
         return None
@@ -246,12 +252,16 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         i1_raw = Decimal("90")
         i1_option = "a"
         i1_note = f"Seluruh {below_target} risiko yang bisa dihitung berada di bawah target residual."
+    i1_detail = (
+        "Sumber: III.A/III.C realisasi residual dibanding target residual TW berjalan.\n"
+        f"Data lengkap: {len(comparable)} dari {item_count} item risiko.\n"
+        f"Rincian: {below_target} di bawah target, {same_target} sama target, {above_target} di atas target.\n"
+        "Aturan jawaban: a=semua di bawah target; b=ada yang sama target dan tidak ada di atas target; c=ada yang di atas target.\n"
+        f"Jawaban: {i1_option or '-'} -> Hasil Penilaian {_fmt(i1_raw)}.\n"
+        f"Penilaian per parameter: {_fmt(i1_raw)} x bobot 30% = {_weighted_score(i1_raw, 30)}."
+    )
     notes.append(
-        "I1 Pencapaian eksposur risiko: "
-        f"data lengkap {len(comparable)} dari {item_count} item; "
-        f"di bawah target {below_target}, sama target {same_target}, di atas target {above_target}. "
-        f"Jawaban {i1_option or '-'} menghasilkan nilai {i1_raw if i1_raw is not None else '-'} "
-        f"dan skor {_weighted_score(i1_raw, 30)}."
+        f"I1 Pencapaian eksposur risiko:\n{i1_detail}"
     )
 
     progress_values = [
@@ -269,13 +279,16 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
     if i2_raw is None:
         notes.append(i2_note)
     else:
+        progress_total = sum(progress_values, Decimal("0"))
         i2_note = f"Rata-rata progress perlakuan risiko {quantize_score(avg_progress)}% dari {len(progress_values)} item."
         notes.append(
-            "I2 Output perlakuan risiko: "
-            f"total progress {quantize_score(sum(progress_values, Decimal('0')))} "
-            f"dibagi {len(progress_values)} item = {quantize_score(avg_progress)}%. "
-            "Ambang jawaban: a=90-100, b=80-89, c=70-79, d=60-69, e=<60. "
-            f"Jawaban {i2_option} menghasilkan nilai {i2_raw} dan skor {_weighted_score(i2_raw, 20)}."
+            "I2 Output perlakuan risiko:\n"
+            "Sumber: III.B kolom Progress Pelaksanaan Rencana Perlakuan.\n"
+            f"Total progress: {quantize_score(progress_total)} dari {len(progress_values)} item.\n"
+            f"Rumus rata-rata: {quantize_score(progress_total)} / {len(progress_values)} = {quantize_score(avg_progress)}%.\n"
+            "Aturan jawaban: a=90-100%, b=80-89%, c=70-79%, d=60-69%, e=<60%.\n"
+            f"Jawaban: {i2_option} -> Hasil Penilaian {i2_raw}.\n"
+            f"Penilaian per parameter: {i2_raw} x bobot 20% = {_weighted_score(i2_raw, 20)}."
         )
 
     absorption_values = [
@@ -293,13 +306,16 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
     if i3_raw is None:
         notes.append(i3_note)
     else:
+        absorption_total = sum(absorption_values, Decimal("0"))
         i3_note = f"Rata-rata serapan biaya perlakuan risiko {quantize_score(avg_absorption)}% dari {len(absorption_values)} item."
         notes.append(
-            "I3 Realisasi biaya perlakuan risiko: "
-            f"total serapan {quantize_score(sum(absorption_values, Decimal('0')))} "
-            f"dibagi {len(absorption_values)} item = {quantize_score(avg_absorption)}%. "
-            "Ambang jawaban: a jika realisasi <= anggaran/100%, b jika >100%. "
-            f"Jawaban {i3_option} menghasilkan nilai {i3_raw} dan skor {_weighted_score(i3_raw, 20)}."
+            "I3 Realisasi biaya perlakuan risiko:\n"
+            "Sumber: III.B kolom Persentase Serapan Biaya.\n"
+            f"Total serapan: {quantize_score(absorption_total)} dari {len(absorption_values)} item.\n"
+            f"Rumus rata-rata: {quantize_score(absorption_total)} / {len(absorption_values)} = {quantize_score(avg_absorption)}%.\n"
+            "Aturan jawaban: a jika rata-rata realisasi <= 100%, b jika >100%.\n"
+            f"Jawaban: {i3_option} -> Hasil Penilaian {i3_raw}.\n"
+            f"Penilaian per parameter: {i3_raw} x bobot 20% = {_weighted_score(i3_raw, 20)}."
         )
 
     loss_event_count = MonthlyRiskReportLossEvent.objects.filter(report_id__in=report_ids).count()
@@ -314,6 +330,13 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
             f" Terdapat {loss_event_count} loss event dan {new_risk_count} penambahan item risiko "
             "yang sudah tercatat; data ini tidak otomatis dianggap sebagai risiko yang belum teridentifikasi."
         )
+    ident_detail = (
+        "Sumber: III.D perubahan profil/penambahan item risiko dan III.E loss event.\n"
+        f"Loss event tercatat: {loss_event_count}; penambahan item risiko tercatat: {new_risk_count}.\n"
+        "Aturan jawaban: a jika tidak ada risiko baru yang belum teridentifikasi; b jika ada risiko baru yang belum teridentifikasi.\n"
+        f"Jawaban: a -> Hasil Penilaian {ident_raw}.\n"
+        f"Penilaian subindikator: {ident_raw} x bobot subindikator 25% = {_weighted_score(ident_raw, 25)}."
+    )
 
     quantified_items = [
         item
@@ -338,11 +361,13 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         notes.append("I4.2 Kuantifikasi risiko: belum ada item laporan untuk dihitung.")
     else:
         notes.append(
-            "I4.2 Kuantifikasi risiko: "
-            f"{len(quantified_items)} dari {item_count} item memiliki skor realisasi dan target residual lengkap "
-            f"= {quantize_score(quantification_ratio)}%. "
-            "Ambang jawaban: a jika kelengkapan >=95%, b jika <95%. "
-            f"Jawaban {quant_option} menghasilkan nilai {quant_raw} dan skor {_weighted_score(quant_raw, 25)}."
+            "I4.2 Kuantifikasi risiko:\n"
+            "Sumber: III.A skor realisasi dan target residual TW berjalan.\n"
+            f"Item lengkap: {len(quantified_items)} dari {item_count} item.\n"
+            f"Rumus kelengkapan: {len(quantified_items)} / {item_count} x 100 = {quantize_score(quantification_ratio)}%.\n"
+            "Aturan jawaban: a jika kelengkapan >=95%, b jika <95%.\n"
+            f"Jawaban: {quant_option} -> Hasil Penilaian {quant_raw}.\n"
+            f"Penilaian subindikator: {quant_raw} x bobot subindikator 25% = {_weighted_score(quant_raw, 25)}."
         )
 
     plan_raw = Decimal("90") if comparable and not above_target else Decimal("50")
@@ -351,25 +376,40 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         if plan_raw == Decimal("90")
         else "Masih ada risiko di atas target residual atau target residual belum lengkap."
     )
+    plan_detail = (
+        "Sumber: III.A realisasi residual dibanding target residual dan III.B rencana perlakuan.\n"
+        f"Item yang bisa dibandingkan: {len(comparable)}; item di atas target residual: {above_target}.\n"
+        "Aturan jawaban: a jika rencana perlakuan menurunkan risiko sampai target; b jika masih ada risiko di atas target atau data target belum lengkap.\n"
+        f"Jawaban: {'a' if plan_raw >= Decimal('90') else 'b'} -> Hasil Penilaian {plan_raw}.\n"
+        f"Penilaian subindikator: {plan_raw} x bobot subindikator 25% = {_weighted_score(plan_raw, 25)}."
+    )
 
     priority_raw = Decimal("90")
     priority_note = (
         "Tidak ada risiko baru dari struktur korporasi di bawah BUMN yang ditandai belum masuk "
         "integrasi/prioritisasi risiko."
     )
+    priority_detail = (
+        "Sumber: III.D perubahan profil/penambahan item risiko dan catatan integrasi/prioritisasi.\n"
+        "Risiko baru yang ditandai belum masuk integrasi/prioritisasi: 0.\n"
+        "Aturan jawaban: a jika tidak ada risiko baru yang mempengaruhi penurunan kinerja; b jika ada risiko baru yang tidak masuk integrasi risiko.\n"
+        f"Jawaban: a -> Hasil Penilaian {priority_raw}.\n"
+        f"Penilaian subindikator: {priority_raw} x bobot subindikator 25% = {_weighted_score(priority_raw, 25)}."
+    )
 
     sub_scores = [
-        ("IDENTIFIKASI", ident_raw, ident_note),
+        ("IDENTIFIKASI", ident_raw, ident_detail),
         ("KUANTIFIKASI", quant_raw, quant_note),
-        ("RENCANA", plan_raw, plan_note),
-        ("PRIORITISASI", priority_raw, priority_note),
+        ("RENCANA", plan_raw, plan_detail),
+        ("PRIORITISASI", priority_raw, priority_detail),
     ]
     i4_raw = sum(score for _, score, _ in sub_scores) / Decimal(len(sub_scores))
     i4_note = "Rata-rata sub indikator ketepatan penilaian risiko."
     notes.append(
-        "I4 Ketepatan penilaian risiko: "
-        f"rata-rata subindikator ({', '.join(str(score) for _, score, _ in sub_scores)}) "
-        f"/ {len(sub_scores)} = {quantize_score(i4_raw)}; skor KPMR {_weighted_score(i4_raw, 30)}."
+        "I4 Ketepatan penilaian risiko:\n"
+        f"Nilai subindikator: {', '.join(str(score) for _, score, _ in sub_scores)}.\n"
+        f"Rumus rata-rata: ({' + '.join(str(score) for _, score, _ in sub_scores)}) / {len(sub_scores)} = {quantize_score(i4_raw)}.\n"
+        f"Penilaian per parameter: {quantize_score(i4_raw)} x bobot 30% = {_weighted_score(i4_raw, 30)}."
     )
 
     indicators = [
