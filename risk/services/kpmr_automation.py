@@ -72,6 +72,29 @@ def quantize_score(value) -> Decimal:
     return Decimal(value or 0).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def int_or_none(value):
+    if value in (None, ""):
+        return None
+    try:
+        return int(Decimal(str(value).strip()))
+    except Exception:
+        return None
+
+
+def target_residual_score(item, quarter: int):
+    if item.target_residual_level is not None:
+        return item.target_residual_level
+    if item.risk_event_id:
+        return int_or_none(getattr(item.risk_event, f"skala_risiko_q{quarter}", None))
+    return None
+
+
+def actual_residual_score(item):
+    if item.realisasi_skor_risiko is not None:
+        return item.realisasi_skor_risiko
+    return item.residual_level
+
+
 def rating_for_score(score: Decimal) -> str:
     if score > Decimal("90"):
         return "STRONG"
@@ -179,37 +202,26 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
     )
     report_ids = list(reports.values_list("id", flat=True))
     report_items = []
-    for report in reports.prefetch_related("items"):
+    for report in reports.prefetch_related("items__risk_event"):
         report_items.extend(list(report.items.all()))
 
     notes = []
     item_count = len(report_items)
-    saved_period = (
-        KPMRPeriode.objects.filter(
-            tahun=year,
-            triwulan=quarter,
-            unit_bisnis=unit,
-        )
-        .prefetch_related("indikator_resmi", "indikator_resmi__subindikator")
-        .first()
-    )
-    if saved_period and saved_period.indikator_resmi.exists():
-        return _calculation_from_saved_period(saved_period, len(report_ids), item_count)
-
     comparable = [
         item
         for item in report_items
-        if item.target_residual_level is not None
-        and (item.realisasi_skor_risiko is not None or item.residual_level is not None)
+        if target_residual_score(item, quarter) is not None
+        and actual_residual_score(item) is not None
     ]
     above_target = 0
     same_target = 0
     below_target = 0
     for item in comparable:
-        actual = item.realisasi_skor_risiko if item.realisasi_skor_risiko is not None else item.residual_level
-        if actual > item.target_residual_level:
+        actual = actual_residual_score(item)
+        target = target_residual_score(item, quarter)
+        if actual > target:
             above_target += 1
-        elif actual == item.target_residual_level:
+        elif actual == target:
             same_target += 1
         else:
             below_target += 1
@@ -284,10 +296,8 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
     quantified_items = [
         item
         for item in report_items
-        if item.realisasi_nilai_dampak is not None
-        and item.realisasi_nilai_probabilitas is not None
-        and item.realisasi_skala_dampak_id
-        and item.realisasi_skala_probabilitas_id
+        if actual_residual_score(item) is not None
+        and target_residual_score(item, quarter) is not None
     ]
     quantification_ratio = (
         Decimal(len(quantified_items)) / Decimal(item_count) * Decimal("100")
@@ -296,8 +306,8 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
     )
     quant_raw = Decimal("90") if quantification_ratio is not None and quantification_ratio >= Decimal("95") else Decimal("50")
     quant_note = (
-        f"Kelengkapan kuantifikasi realisasi {quantize_score(quantification_ratio)}%; "
-        "deviasi target detail belum tersedia sebagai field terstruktur."
+        f"Kelengkapan skor realisasi dan target residual {quantize_score(quantification_ratio)}%; "
+        "berlaku untuk risiko kuantitatif maupun kualitatif."
         if quantification_ratio is not None
         else "Belum ada item laporan untuk menguji kuantifikasi risiko."
     )

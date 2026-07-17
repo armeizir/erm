@@ -286,7 +286,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response.context_data["kpmr_calculation"].unit, report_infra.reassessment.unit_bisnis)
         self.assertEqual(response.context_data["kpmr_calculation"].report_count, 1)
 
-    def test_peta_risiko_iiic_prefers_saved_kpmr_result(self):
+    def test_peta_risiko_iiic_calculates_kpmr_from_monthly_data_even_when_saved_result_exists(self):
         report_infra = self._report("INFRA")
         period = KPMRPeriode.objects.create(
             tahun=2026,
@@ -312,8 +312,11 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         response = report_admin.peta_risiko_iiic_view(request, str(report_infra.pk))
 
-        self.assertEqual(response.context_data["kpmr_calculation"].score_total, Decimal("81.00"))
-        self.assertEqual(response.context_data["kpmr_calculation"].rating, "FAIR")
+        self.assertNotEqual(response.context_data["kpmr_calculation"].score_total, Decimal("81.00"))
+        self.assertIn(
+            "Belum ada item dengan realisasi risiko dan target residual yang lengkap.",
+            response.context_data["kpmr_calculation"].notes,
+        )
 
     def test_monthly_report_notification_sends_prepare_stage_to_risk_office_and_cc_pairing(self):
         self.prepared_by.email = "risk.office@example.com"
