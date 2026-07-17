@@ -107,6 +107,18 @@ def _kpmr_detail_groups(calculation):
         item["kode"]: item
         for item in indicators.get("I4", {}).get("subindikator", [])
     }
+    detail_notes = {}
+    for note in calculation.notes:
+        if note.startswith("I4.2 "):
+            detail_notes["KUANTIFIKASI"] = note
+        elif note.startswith("I1 "):
+            detail_notes["I1"] = note
+        elif note.startswith("I2 "):
+            detail_notes["I2"] = note
+        elif note.startswith("I3 "):
+            detail_notes["I3"] = note
+        elif note.startswith("I4 "):
+            detail_notes["I4"] = note
 
     def group(no, title, indicator_code, options):
         indicator = indicators.get(indicator_code, {})
@@ -118,6 +130,7 @@ def _kpmr_detail_groups(calculation):
             "skor": indicator.get("skor"),
             "options": options,
             "rowspan": len(options) + 1,
+            "keterangan": detail_notes.get(indicator_code) or indicator.get("keterangan", ""),
         }
 
     def subgroup(title, sub_code, options):
@@ -129,6 +142,7 @@ def _kpmr_detail_groups(calculation):
             "skor": indicator.get("skor"),
             "options": options,
             "rowspan": len(options) + 1,
+            "keterangan": detail_notes.get(sub_code) or indicator.get("keterangan", ""),
         }
 
     i4_subgroups = [

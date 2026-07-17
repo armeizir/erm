@@ -174,6 +174,12 @@
     text-align: center;
   }
 
+  .kpmr-table .kpmr-description {
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: left;
+  }
+
   .kpmr-table .kpmr-section {
     background: #b8c7e6;
     font-weight: 700;
@@ -234,11 +240,6 @@
     background: #ff0000;
     color: #fff;
     font-weight: 700;
-  }
-
-  .kpmr-notes {
-    margin: 12px 0 0;
-    padding-left: 18px;
   }
 
   @media (max-width: 900px) {
@@ -344,6 +345,7 @@
             <th colspan="2" style="width: 150px;">Skala</th>
             <th style="width: 130px;">Hasil Penilaian</th>
             <th style="width: 150px;">Penilaian per Parameter</th>
+            <th style="width: 320px;">Keterangan</th>
           </tr>
         </thead>
         <tbody>
@@ -351,11 +353,11 @@
             {% if group.subgroups %}
               <tr>
                 <td class="kpmr-no" rowspan="{{ group.rowspan }}">{{ group.no }}</td>
-                <td class="kpmr-section" colspan="6">{{ group.title }}</td>
+                <td class="kpmr-section" colspan="7">{{ group.title }}</td>
               </tr>
               {% for subgroup in group.subgroups %}
                 <tr>
-                  <td class="kpmr-subsection" colspan="6">{{ subgroup.title }}</td>
+                  <td class="kpmr-subsection" colspan="7">{{ subgroup.title }}</td>
                 </tr>
                 {% for option in subgroup.options %}
                   <tr>
@@ -368,6 +370,7 @@
                     {% if forloop.first %}
                       <td class="kpmr-result" rowspan="{{ subgroup.options|length }}">{{ subgroup.hasil|default:"-" }}</td>
                       <td class="kpmr-score" rowspan="{{ subgroup.options|length }}">{{ subgroup.skor|default:"-" }}</td>
+                      <td class="kpmr-description" rowspan="{{ subgroup.options|length }}">{{ subgroup.keterangan|default:"-" }}</td>
                     {% endif %}
                   </tr>
                 {% endfor %}
@@ -375,7 +378,7 @@
             {% else %}
               <tr>
                 <td class="kpmr-no" rowspan="{{ group.rowspan }}">{{ group.no }}</td>
-                <td class="kpmr-section" colspan="6">{{ group.title }}</td>
+                <td class="kpmr-section" colspan="7">{{ group.title }}</td>
               </tr>
               {% for option in group.options %}
                 <tr>
@@ -388,6 +391,7 @@
                   {% if forloop.first %}
                     <td class="kpmr-result" rowspan="{{ group.options|length }}">{{ group.hasil|default:"-" }}</td>
                     <td class="kpmr-score" rowspan="{{ group.options|length }}">{{ group.skor|default:"-" }}</td>
+                    <td class="kpmr-description" rowspan="{{ group.options|length }}">{{ group.keterangan|default:"-" }}</td>
                   {% endif %}
                 </tr>
               {% endfor %}
@@ -402,13 +406,6 @@
         <tr><td class="rating-marginal">Marginal</td><td>75 - 79</td></tr>
         <tr><td class="rating-unsatisfactory">Unsatisfactory</td><td>&lt; 75</td></tr>
       </table>
-      {% if kpmr_calculation.notes %}
-        <ul class="kpmr-notes">
-          {% for note in kpmr_calculation.notes %}
-            <li>{{ note }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
     </section>
   {% endif %}
 </div>
