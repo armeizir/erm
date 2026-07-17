@@ -3172,6 +3172,12 @@ class KPMRIndikatorResmi(models.Model):
         blank=True,
         verbose_name="Hasil",
     )
+    jawaban = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Jawaban / Opsi",
+    )
     skor = models.DecimalField(
         max_digits=8,
         decimal_places=2,

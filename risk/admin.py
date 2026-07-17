@@ -3474,6 +3474,7 @@ class KPMRIndikatorResmiInline(admin.TabularInline):
         "kode",
         "nama",
         "bobot",
+        "jawaban",
         "hasil",
         "skor",
         "dokumen_referensi",
@@ -3507,6 +3508,7 @@ class KPMRIndikatorResmiAdmin(admin.ModelAdmin):
         "kode",
         "nama",
         "bobot",
+        "jawaban",
         "hasil",
         "skor",
     )

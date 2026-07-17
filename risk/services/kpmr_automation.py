@@ -127,6 +127,46 @@ def _indicator(code, raw_score, weight, option, note, reference="Laporan Risiko 
     }
 
 
+def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_count: int):
+    indicators = []
+    for indicator in period.indikator_resmi.prefetch_related("subindikator").order_by("kode"):
+        indicator_data = {
+            "kode": indicator.kode,
+            "nama": indicator.nama,
+            "bobot": indicator.bobot,
+            "hasil": indicator.hasil,
+            "skor": indicator.skor,
+            "jawaban": indicator.jawaban or "",
+            "dokumen_referensi": indicator.dokumen_referensi or "",
+            "keterangan": indicator.keterangan or "",
+        }
+        if indicator.kode == "I4":
+            indicator_data["subindikator"] = [
+                {
+                    "kode": sub.kode,
+                    "nama": sub.nama,
+                    "bobot": sub.bobot,
+                    "hasil": sub.hasil,
+                    "skor": sub.skor,
+                    "jawaban": sub.jawaban or "",
+                    "keterangan": sub.keterangan or "",
+                }
+                for sub in indicator.subindikator.order_by("kode")
+            ]
+        indicators.append(indicator_data)
+    return KPMRCalculation(
+        year=period.tahun,
+        quarter=period.triwulan,
+        unit=period.unit_bisnis,
+        report_count=report_count,
+        item_count=item_count,
+        score_total=period.skor_total,
+        rating=period.rating or rating_for_score(period.skor_total),
+        indicators=indicators,
+        notes=[period.catatan] if period.catatan else [],
+    )
+
+
 def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalculation:
     reports = (
         MonthlyRiskReport.objects.filter(
@@ -144,6 +184,17 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
 
     notes = []
     item_count = len(report_items)
+    saved_period = (
+        KPMRPeriode.objects.filter(
+            tahun=year,
+            triwulan=quarter,
+            unit_bisnis=unit,
+        )
+        .prefetch_related("indikator_resmi", "indikator_resmi__subindikator")
+        .first()
+    )
+    if saved_period and saved_period.indikator_resmi.exists():
+        return _calculation_from_saved_period(saved_period, len(report_ids), item_count)
 
     comparable = [
         item
@@ -327,6 +378,7 @@ def save_kpmr_calculation(calculation: KPMRCalculation) -> KPMRPeriode:
             defaults={
                 "nama": indicator_data["nama"],
                 "bobot": indicator_data["bobot"],
+                "jawaban": indicator_data.get("jawaban", ""),
                 "hasil": indicator_data["hasil"],
                 "skor": indicator_data["skor"],
                 "dokumen_referensi": indicator_data["dokumen_referensi"],

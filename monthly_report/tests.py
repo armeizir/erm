@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 import json
 
 from django.contrib.admin.sites import AdminSite
@@ -14,6 +15,8 @@ from risk.models import (
     BagianKontrakManajemen,
     ItemKontrakManajemen,
     KontrakManajemen,
+    KPMRIndikatorResmi,
+    KPMRPeriode,
     MasterBagianKM,
     MasterTemplateKM,
     PenugasanUnitBisnis,
@@ -243,6 +246,35 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response.context_data["kpmr_quarter"], 1)
         self.assertEqual(response.context_data["kpmr_calculation"].unit, report_infra.reassessment.unit_bisnis)
         self.assertEqual(response.context_data["kpmr_calculation"].report_count, 1)
+
+    def test_peta_risiko_iiic_prefers_saved_kpmr_result(self):
+        report_infra = self._report("INFRA")
+        period = KPMRPeriode.objects.create(
+            tahun=2026,
+            triwulan=1,
+            unit_bisnis=report_infra.reassessment.unit_bisnis,
+            skor_total=Decimal("81.00"),
+            rating="FAIR",
+        )
+        KPMRIndikatorResmi.objects.create(
+            periode=period,
+            kode="I1",
+            nama="Pencapaian Nilai Eksposur Risiko dibandingkan target Risiko Residual",
+            bobot=Decimal("30.00"),
+            jawaban="b",
+            hasil=Decimal("60.00"),
+            skor=Decimal("18.00"),
+        )
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/peta-risiko-iiic/"
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        response = report_admin.peta_risiko_iiic_view(request, str(report_infra.pk))
+
+        self.assertEqual(response.context_data["kpmr_calculation"].score_total, Decimal("81.00"))
+        self.assertEqual(response.context_data["kpmr_calculation"].rating, "FAIR")
 
     def test_monthly_report_notification_uses_test_email_when_configured(self):
         self.prepared_by.email = "risk.officer@example.com"
