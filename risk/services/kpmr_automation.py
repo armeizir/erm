@@ -78,6 +78,32 @@ def _fmt(value) -> str:
     return str(quantize_score(value))
 
 
+def _sum_detail_by_report(reports, attr: str) -> tuple[list, Decimal, int]:
+    details = []
+    total = Decimal("0")
+    count = 0
+    for report in reports:
+        values = [
+            getattr(item, attr)
+            for item in report.items.all()
+            if getattr(item, attr) is not None
+        ]
+        subtotal = sum(values, Decimal("0"))
+        total += subtotal
+        count += len(values)
+        details.append((report.periode.nama_periode, subtotal, len(values)))
+    return details, total, count
+
+
+def _format_report_sum_details(details) -> str:
+    if not details:
+        return "-"
+    return "; ".join(
+        f"{name}: {_fmt(subtotal)} dari {count} item"
+        for name, subtotal, count in details
+    )
+
+
 def int_or_none(value):
     if value in (None, ""):
         return None
@@ -197,18 +223,19 @@ def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_
 
 
 def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalculation:
-    reports = (
+    reports = list(
         MonthlyRiskReport.objects.filter(
             reassessment__tahun=year,
             reassessment__unit_bisnis=unit,
             periode__tanggal_mulai__month__in=quarter_months(quarter),
         )
         .select_related("periode", "reassessment", "reassessment__unit_bisnis")
+        .prefetch_related("items__risk_event")
         .order_by("periode__tanggal_mulai", "-versi")
     )
-    report_ids = list(reports.values_list("id", flat=True))
+    report_ids = [report.id for report in reports]
     report_items = []
-    for report in reports.prefetch_related("items__risk_event"):
+    for report in reports:
         report_items.extend(list(report.items.all()))
 
     notes = []
@@ -279,13 +306,17 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
     if i2_raw is None:
         notes.append(i2_note)
     else:
-        progress_total = sum(progress_values, Decimal("0"))
+        progress_details, progress_total, progress_count = _sum_detail_by_report(
+            reports,
+            "progress_pelaksanaan_percent",
+        )
         i2_note = f"Rata-rata progress perlakuan risiko {quantize_score(avg_progress)}% dari {len(progress_values)} item."
         notes.append(
             "I2 Output perlakuan risiko:\n"
             "Sumber: III.B kolom Progress Pelaksanaan Rencana Perlakuan.\n"
-            f"Total progress: {quantize_score(progress_total)} dari {len(progress_values)} item.\n"
-            f"Rumus rata-rata: {quantize_score(progress_total)} / {len(progress_values)} = {quantize_score(avg_progress)}%.\n"
+            f"Rincian sumber: {_format_report_sum_details(progress_details)}.\n"
+            f"Total progress: {quantize_score(progress_total)} = jumlah seluruh nilai progress dari {progress_count} item.\n"
+            f"Rumus rata-rata: {quantize_score(progress_total)} / {progress_count} = {quantize_score(avg_progress)}%.\n"
             "Aturan jawaban: a=90-100%, b=80-89%, c=70-79%, d=60-69%, e=<60%.\n"
             f"Jawaban: {i2_option} -> Hasil Penilaian {i2_raw}.\n"
             f"Penilaian per parameter: {i2_raw} x bobot 20% = {_weighted_score(i2_raw, 20)}."
@@ -306,13 +337,17 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
     if i3_raw is None:
         notes.append(i3_note)
     else:
-        absorption_total = sum(absorption_values, Decimal("0"))
+        absorption_details, absorption_total, absorption_count = _sum_detail_by_report(
+            reports,
+            "persentase_serapan_biaya",
+        )
         i3_note = f"Rata-rata serapan biaya perlakuan risiko {quantize_score(avg_absorption)}% dari {len(absorption_values)} item."
         notes.append(
             "I3 Realisasi biaya perlakuan risiko:\n"
             "Sumber: III.B kolom Persentase Serapan Biaya.\n"
-            f"Total serapan: {quantize_score(absorption_total)} dari {len(absorption_values)} item.\n"
-            f"Rumus rata-rata: {quantize_score(absorption_total)} / {len(absorption_values)} = {quantize_score(avg_absorption)}%.\n"
+            f"Rincian sumber: {_format_report_sum_details(absorption_details)}.\n"
+            f"Total serapan: {quantize_score(absorption_total)} = jumlah seluruh nilai serapan biaya dari {absorption_count} item.\n"
+            f"Rumus rata-rata: {quantize_score(absorption_total)} / {absorption_count} = {quantize_score(avg_absorption)}%.\n"
             "Aturan jawaban: a jika rata-rata realisasi <= 100%, b jika >100%.\n"
             f"Jawaban: {i3_option} -> Hasil Penilaian {i3_raw}.\n"
             f"Penilaian per parameter: {i3_raw} x bobot 20% = {_weighted_score(i3_raw, 20)}."
