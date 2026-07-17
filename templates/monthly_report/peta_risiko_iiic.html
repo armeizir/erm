@@ -152,14 +152,88 @@
 
   .kpmr-table th,
   .kpmr-table td {
-    border: 1px solid #d7dde5;
-    padding: 8px;
-    text-align: left;
-    vertical-align: top;
+    border: 1px solid #111;
+    color: #111;
+    padding: 5px 7px;
+    vertical-align: middle;
   }
 
   .kpmr-table th {
-    background: #eef3f7;
+    background: #8faadc;
+    color: #fff;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .kpmr-table .kpmr-no,
+  .kpmr-table .kpmr-answer,
+  .kpmr-table .kpmr-scale-code,
+  .kpmr-table .kpmr-scale,
+  .kpmr-table .kpmr-result,
+  .kpmr-table .kpmr-score {
+    text-align: center;
+  }
+
+  .kpmr-table .kpmr-section {
+    background: #b8c7e6;
+    font-weight: 700;
+  }
+
+  .kpmr-table .kpmr-subsection {
+    background: #d9e2f3;
+    font-weight: 700;
+  }
+
+  .kpmr-table .kpmr-answer {
+    background: #e2f0d9;
+    font-weight: 700;
+    min-width: 74px;
+  }
+
+  .kpmr-table .kpmr-selected {
+    background: #f8fbf6;
+    box-shadow: inset 0 0 0 2px #217346;
+    font-weight: 700;
+  }
+
+  .kpmr-rating-table {
+    border-collapse: collapse;
+    margin: 12px 0 0 auto;
+    min-width: 330px;
+  }
+
+  .kpmr-rating-table td {
+    border: 1px solid #111;
+    padding: 4px 12px;
+    text-align: center;
+  }
+
+  .rating-strong {
+    background: #00b050;
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .rating-satisfactory {
+    background: #92d050;
+    font-weight: 700;
+  }
+
+  .rating-fair {
+    background: #ffc000;
+    font-weight: 700;
+  }
+
+  .rating-marginal {
+    background: #ed7d31;
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .rating-unsatisfactory {
+    background: #ff0000;
+    color: #fff;
+    font-weight: 700;
   }
 
   .kpmr-notes {
@@ -264,26 +338,69 @@
       <table class="kpmr-table">
         <thead>
           <tr>
-            <th style="width: 70px;">Kode</th>
-            <th>Indikator</th>
-            <th style="width: 90px;">Bobot</th>
-            <th style="width: 90px;">Hasil</th>
-            <th style="width: 90px;">Skor</th>
-            <th>Keterangan</th>
+            <th style="width: 52px;">No</th>
+            <th>Parameter</th>
+            <th style="width: 120px;">Jawaban</th>
+            <th colspan="2" style="width: 150px;">Skala</th>
+            <th style="width: 130px;">Hasil Penilaian</th>
+            <th style="width: 150px;">Penilaian per Parameter</th>
           </tr>
         </thead>
         <tbody>
-          {% for indicator in kpmr_calculation.indicators %}
-            <tr>
-              <td>{{ indicator.kode }}</td>
-              <td>{{ indicator.nama }}</td>
-              <td>{{ indicator.bobot }}</td>
-              <td>{{ indicator.hasil|default:"-" }}</td>
-              <td>{{ indicator.skor }}</td>
-              <td>{{ indicator.keterangan }}</td>
-            </tr>
+          {% for group in kpmr_detail_groups %}
+            {% if group.subgroups %}
+              <tr>
+                <td class="kpmr-no" rowspan="{{ group.rowspan }}">{{ group.no }}</td>
+                <td class="kpmr-section" colspan="6">{{ group.title }}</td>
+              </tr>
+              {% for subgroup in group.subgroups %}
+                <tr>
+                  <td class="kpmr-subsection" colspan="6">{{ subgroup.title }}</td>
+                </tr>
+                {% for option in subgroup.options %}
+                  <tr>
+                    <td>{{ option.1 }}</td>
+                    {% if forloop.first %}
+                      <td class="kpmr-answer" rowspan="{{ subgroup.options|length }}">{{ subgroup.answer|default:"-" }}</td>
+                    {% endif %}
+                    <td class="kpmr-scale-code">{{ option.0 }}</td>
+                    <td class="kpmr-scale {% if subgroup.answer == option.0 %}kpmr-selected{% endif %}">{{ option.2 }}</td>
+                    {% if forloop.first %}
+                      <td class="kpmr-result" rowspan="{{ subgroup.options|length }}">{{ subgroup.hasil|default:"-" }}</td>
+                      <td class="kpmr-score" rowspan="{{ subgroup.options|length }}">{{ subgroup.skor|default:"-" }}</td>
+                    {% endif %}
+                  </tr>
+                {% endfor %}
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td class="kpmr-no" rowspan="{{ group.rowspan }}">{{ group.no }}</td>
+                <td class="kpmr-section" colspan="6">{{ group.title }}</td>
+              </tr>
+              {% for option in group.options %}
+                <tr>
+                  <td>{{ option.1 }}</td>
+                  {% if forloop.first %}
+                    <td class="kpmr-answer" rowspan="{{ group.options|length }}">{{ group.answer|default:"-" }}</td>
+                  {% endif %}
+                  <td class="kpmr-scale-code">{{ option.0 }}</td>
+                  <td class="kpmr-scale {% if group.answer == option.0 %}kpmr-selected{% endif %}">{{ option.2 }}</td>
+                  {% if forloop.first %}
+                    <td class="kpmr-result" rowspan="{{ group.options|length }}">{{ group.hasil|default:"-" }}</td>
+                    <td class="kpmr-score" rowspan="{{ group.options|length }}">{{ group.skor|default:"-" }}</td>
+                  {% endif %}
+                </tr>
+              {% endfor %}
+            {% endif %}
           {% endfor %}
         </tbody>
+      </table>
+      <table class="kpmr-rating-table">
+        <tr><td class="rating-strong">Strong</td><td>&gt; 90</td></tr>
+        <tr><td class="rating-satisfactory">Satisfactory</td><td>85 - 90</td></tr>
+        <tr><td class="rating-fair">Fair</td><td>80 - 84</td></tr>
+        <tr><td class="rating-marginal">Marginal</td><td>75 - 79</td></tr>
+        <tr><td class="rating-unsatisfactory">Unsatisfactory</td><td>&lt; 75</td></tr>
       </table>
       {% if kpmr_calculation.notes %}
         <ul class="kpmr-notes">

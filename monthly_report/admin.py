@@ -99,6 +99,138 @@ def _monthly_timeline_mark(value):
         return ""
 
 
+def _kpmr_detail_groups(calculation):
+    if not calculation:
+        return []
+    indicators = {item["kode"]: item for item in calculation.indicators}
+    i4_subindicators = {
+        item["kode"]: item
+        for item in indicators.get("I4", {}).get("subindikator", [])
+    }
+
+    def group(no, title, indicator_code, options):
+        indicator = indicators.get(indicator_code, {})
+        return {
+            "no": no,
+            "title": title,
+            "answer": indicator.get("jawaban", ""),
+            "hasil": indicator.get("hasil"),
+            "skor": indicator.get("skor"),
+            "options": options,
+            "rowspan": len(options) + 1,
+        }
+
+    def subgroup(title, sub_code, options):
+        indicator = i4_subindicators.get(sub_code, {})
+        return {
+            "title": title,
+            "answer": indicator.get("jawaban", ""),
+            "hasil": indicator.get("hasil"),
+            "skor": indicator.get("skor"),
+            "options": options,
+            "rowspan": len(options) + 1,
+        }
+
+    i4_subgroups = [
+        subgroup(
+            "1). Ketepatan identifikasi Risiko (Bobot 25%)",
+            "IDENTIFIKASI",
+            [
+                ("a", "Tidak ada Risiko baru yang mempengaruhi penurunan kinerja pada triwulan berjalan", 90),
+                ("b", "Terdapat Risiko baru yang belum teridentifikasi yang mempengaruhi penurunan kinerja", 50),
+            ],
+        ),
+        subgroup(
+            "2). Ketepatan kuantifikasi Risiko (Bobot 25%)",
+            "KUANTIFIKASI",
+            [
+                (
+                    "a",
+                    "Realisasi perhitungan nilai dampak dan nilai probabilitas memiliki deviasi negatif tidak lebih dari 5% dengan nilai dampak dan nilai probabilitas yang ditargetkan pada triwulan berjalan",
+                    90,
+                ),
+                (
+                    "b",
+                    "Realisasi perhitungan nilai dampak dan nilai probabilitas memiliki deviasi negatif lebih dari 5% dengan nilai dampak dan nilai probabilitas yang ditargetkan pada triwulan berjalan",
+                    50,
+                ),
+            ],
+        ),
+        subgroup(
+            "3). Ketepatan rencana perlakuan Risiko (Bobot 25%)",
+            "RENCANA",
+            [
+                (
+                    "a",
+                    "Rencana perlakuan Risiko dapat menurunkan nilai Eksposur Risiko residual sesuai dengan target Risiko residual pada triwulan berjalan",
+                    90,
+                ),
+                (
+                    "b",
+                    "Rencana perlakuan Risiko belum dapat menurunkan nilai Eksposur Risiko residual sesuai dengan target Risiko residual pada triwulan berjalan",
+                    50,
+                ),
+            ],
+        ),
+        subgroup(
+            "4). Ketepatan prioritisasi Risiko (Bobot 25%)",
+            "PRIORITISASI",
+            [
+                (
+                    "a",
+                    "Seluruh Risiko dari struktur korporasi di bawah BUMN tidak ada yang baru yang mempengaruhi penurunan kinerja",
+                    90,
+                ),
+                (
+                    "b",
+                    "Terdapat Risiko baru dari struktur korporasi di bawah BUMN yang tidak masuk dalam Integrasi Risiko yang mempengaruhi penurunan kinerja",
+                    50,
+                ),
+            ],
+        ),
+    ]
+
+    return [
+        group(
+            "1",
+            "Pencapaian Nilai Eksposur Risiko sesuai dengan target Risiko Residual (Bobot 30%)",
+            "I1",
+            [
+                ("a", "Nilai Eksposur Risiko lebih rendah dari target Risiko Residual", 90),
+                ("b", "Nilai Eksposur Risiko sama dengan target Risiko Residual", 60),
+                ("c", "Nilai Eksposur Risiko lebih tinggi dari target Risiko Residual*)", 40),
+            ],
+        ),
+        group(
+            "2",
+            "Pencapaian output pelaksanaan kegiatan perlakuan Risiko sesuai dengan target (Bobot 20%)",
+            "I2",
+            [
+                ("a", "Terealisasi 90-100%", 100),
+                ("b", "Terealisasi 80-89%", 80),
+                ("c", "Terealisasi 70-79%", 60),
+                ("d", "Terealisasi 60-69%", 40),
+                ("e", "Terealisasi kurang dari 60%", 20),
+            ],
+        ),
+        group(
+            "3",
+            "Realisasi anggaran pelaksanaan kegiatan perlakuan Risiko sesuai dengan anggaran (Bobot 20%)",
+            "I3",
+            [
+                ("a", "Realisasi biaya perlakuan Risiko sama dengan atau lebih rendah dari anggaran", 80),
+                ("b", "Realisasi biaya perlakuan Risiko lebih tinggi dari anggaran", 40),
+            ],
+        ),
+        {
+            "no": "4",
+            "title": "Ketepatan penilaian Risiko (Bobot 30%)",
+            "subgroups": i4_subgroups,
+            "rowspan": 1 + sum(item["rowspan"] for item in i4_subgroups),
+        },
+    ]
+
+
 class MonthlyRiskReportAdminForm(forms.ModelForm):
     bulan_laporan = forms.ChoiceField(
         choices=[("", "---------")] + [(str(value), label) for value, label in BULAN_CHOICES],
@@ -664,6 +796,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "dampak_scales": dampak_scales,
             "rows": rows,
             "kpmr_calculation": kpmr_calculation,
+            "kpmr_detail_groups": _kpmr_detail_groups(kpmr_calculation),
             "kpmr_quarter": kpmr_quarter,
             "title": "III.C - Peta Risiko Residual",
         }
