@@ -266,16 +266,19 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response.context_data["kpmr_calculation"].score_total, Decimal("81.00"))
         self.assertEqual(response.context_data["kpmr_calculation"].rating, "FAIR")
 
-    def test_monthly_report_notification_sends_prepare_stage_to_pairing_officer(self):
+    def test_monthly_report_notification_sends_prepare_stage_to_risk_office_and_cc_pairing(self):
+        self.prepared_by.email = "risk.office@example.com"
+        self.prepared_by.save(update_fields=["email"])
         report_infra = self._report("INFRA")
         self._assign_pairing_officer(report_infra)
 
         sent = send_monthly_report_notification(report_infra, base_url="https://erm.plnbatam.com")
 
         self.assertEqual(sent, 1)
-        self.assertEqual(mail.outbox[0].to, ["pairing@example.com"])
+        self.assertEqual(mail.outbox[0].to, ["risk.office@example.com"])
+        self.assertEqual(mail.outbox[0].cc, ["pairing@example.com"])
         self.assertNotIn("[MODE UJI COBA]", mail.outbox[0].body)
-        self.assertIn("Mode uji coba", mail.outbox[0].body)
+        self.assertIn("Pairing Officer", mail.outbox[0].body)
         self.assertIn("Input Laporan Risiko Bulanan", mail.outbox[0].subject)
         self.assertIn("Februari 2026", mail.outbox[0].body)
         self.assertIn("5 Maret 2026", mail.outbox[0].body)

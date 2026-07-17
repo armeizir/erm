@@ -72,14 +72,16 @@ def monthly_report_notification_stage(report):
     if report.status in {"draft", "revision"}:
         return {
             "stage": STAGE_PREPARE,
-            "recipient": _pairing_officer_for_report(report),
-            "recipient_role": "Pairing Officer",
+            "recipient": report.prepared_by,
+            "recipient_role": "Risk Office",
+            "cc_recipient": _pairing_officer_for_report(report),
+            "cc_recipient_role": "Pairing Officer",
             "ignore_test_email": True,
-            "title": "Uji Coba Notifikasi Input Laporan Risiko Bulanan",
+            "title": "Input Laporan Risiko Bulanan",
             "instruction": (
-                "Mode uji coba: notifikasi input laporan risiko bulanan dikirim ke Pairing Officer "
-                "unit terkait terlebih dahulu, belum ke Risk Office. Mohon cek alur notifikasi "
-                "dan kesiapan laporan bulan sebelumnya paling lambat tanggal 5."
+                "Mohon Risk Office menyiapkan dan melengkapi laporan risiko bulan sebelumnya "
+                "paling lambat tanggal 5. Pairing Officer unit terkait menerima salinan email ini "
+                "sebagai pendamping pemantauan."
             ),
         }
     if report.status == "submitted":
@@ -120,7 +122,9 @@ def send_monthly_report_notification(report, request=None, base_url=None):
 
     app_setting = AppSetting.get_solo()
     recipient = stage["recipient"]
+    cc_recipient = stage.get("cc_recipient")
     test_email = "" if stage.get("ignore_test_email") else app_setting.monthly_report_notification_test_email
+    cc_recipients = []
     if test_email:
         recipients = [test_email]
     else:
@@ -130,6 +134,13 @@ def send_monthly_report_notification(report, request=None, base_url=None):
         if not recipient.email:
             raise ValidationError(f"Email user {recipient.get_username()} belum diisi.")
         recipients = [recipient.email]
+        if "cc_recipient" in stage:
+            if not cc_recipient:
+                role = stage.get("cc_recipient_role") or "CC"
+                raise ValidationError(f"Penerima CC {role} untuk laporan ini belum diisi.")
+            if not cc_recipient.email:
+                raise ValidationError(f"Email user {cc_recipient.get_username()} belum diisi.")
+            cc_recipients = [cc_recipient.email]
 
     context = {
         "report": report,
@@ -151,6 +162,7 @@ def send_monthly_report_notification(report, request=None, base_url=None):
         text_body,
         from_email,
         recipients,
+        cc=cc_recipients,
         connection=_mail_connection(app_setting),
     )
     message.attach_alternative(html_body, "text/html")
