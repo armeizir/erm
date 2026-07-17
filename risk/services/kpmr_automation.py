@@ -286,12 +286,13 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         report_id__in=report_ids,
         jenis_perubahan=MonthlyRiskReportChange.CHANGE_TYPE_ADD_ITEM,
     ).count()
-    ident_raw = Decimal("50") if loss_event_count or new_risk_count else Decimal("90")
-    ident_note = (
-        f"Terdapat {loss_event_count} loss event dan {new_risk_count} penambahan item risiko pada triwulan berjalan."
-        if ident_raw == Decimal("50")
-        else "Tidak ada risiko baru/loss event yang tercatat pada laporan triwulan berjalan."
-    )
+    ident_raw = Decimal("90")
+    ident_note = "Tidak ada risiko baru yang belum teridentifikasi pada data laporan triwulan berjalan."
+    if loss_event_count or new_risk_count:
+        ident_note += (
+            f" Terdapat {loss_event_count} loss event dan {new_risk_count} penambahan item risiko "
+            "yang sudah tercatat; data ini tidak otomatis dianggap sebagai risiko yang belum teridentifikasi."
+        )
 
     quantified_items = [
         item
@@ -321,11 +322,10 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         else "Masih ada risiko di atas target residual atau target residual belum lengkap."
     )
 
-    priority_raw = Decimal("90") if not loss_event_count else Decimal("50")
+    priority_raw = Decimal("90")
     priority_note = (
-        "Tidak ada loss event baru yang mengindikasikan prioritas risiko terlewat."
-        if priority_raw == Decimal("90")
-        else f"Terdapat {loss_event_count} loss event; perlu validasi prioritisasi risiko."
+        "Tidak ada risiko baru dari struktur korporasi di bawah BUMN yang ditandai belum masuk "
+        "integrasi/prioritisasi risiko."
     )
 
     sub_scores = [
