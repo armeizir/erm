@@ -7,6 +7,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 from risk.models import AppSetting
+from risk.models import PenugasanUnitBisnis
 
 
 STAGE_PREPARE = "prepare"
@@ -50,15 +51,35 @@ def monthly_report_admin_url(report, request=None, base_url=None):
     return path
 
 
+def _pairing_officer_for_report(report):
+    if not report.reassessment_id or not report.reassessment.unit_bisnis_id:
+        return None
+    assignment = (
+        PenugasanUnitBisnis.objects.filter(
+            unit_bisnis=report.reassessment.unit_bisnis,
+            peran=PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
+            aktif=True,
+            user__is_active=True,
+        )
+        .select_related("user")
+        .order_by("user__first_name", "user__last_name", "user__username", "id")
+        .first()
+    )
+    return assignment.user if assignment else None
+
+
 def monthly_report_notification_stage(report):
     if report.status in {"draft", "revision"}:
         return {
             "stage": STAGE_PREPARE,
-            "recipient": report.prepared_by,
-            "title": "Input Laporan Risiko Bulanan",
+            "recipient": _pairing_officer_for_report(report),
+            "recipient_role": "Pairing Officer",
+            "ignore_test_email": True,
+            "title": "Uji Coba Notifikasi Input Laporan Risiko Bulanan",
             "instruction": (
-                "Mohon Risk Officer menyiapkan dan melengkapi laporan risiko bulan sebelumnya "
-                "paling lambat tanggal 5."
+                "Mode uji coba: notifikasi input laporan risiko bulanan dikirim ke Pairing Officer "
+                "unit terkait terlebih dahulu, belum ke Risk Office. Mohon cek alur notifikasi "
+                "dan kesiapan laporan bulan sebelumnya paling lambat tanggal 5."
             ),
         }
     if report.status == "submitted":
@@ -99,12 +120,13 @@ def send_monthly_report_notification(report, request=None, base_url=None):
 
     app_setting = AppSetting.get_solo()
     recipient = stage["recipient"]
-    test_email = app_setting.monthly_report_notification_test_email
+    test_email = "" if stage.get("ignore_test_email") else app_setting.monthly_report_notification_test_email
     if test_email:
         recipients = [test_email]
     else:
         if not recipient:
-            raise ValidationError(f"Penerima untuk tahap {stage['title']} belum diisi.")
+            role = stage.get("recipient_role") or f"tahap {stage['title']}"
+            raise ValidationError(f"Penerima {role} untuk laporan ini belum diisi.")
         if not recipient.email:
             raise ValidationError(f"Email user {recipient.get_username()} belum diisi.")
         recipients = [recipient.email]

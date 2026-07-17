@@ -8,7 +8,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.http import Http404
-from django.http import HttpResponse
 from django.http import HttpResponseRedirect
 from django.http import JsonResponse
 from django.template.response import TemplateResponse
@@ -26,7 +25,6 @@ from .pdf_reports import (
     _quarter_number,
     _risk_level_text,
     _scale_value,
-    render_monthly_risk_report_pdf,
 )
 from .models import (
     MonthlyRiskReport,
@@ -476,7 +474,6 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "total_mitigasi_terlambat",
         "notification_button",
         "web_button",
-        "pdf_button",
     ]
     list_filter = [MonthlyRiskReportGroupFilter, "status"]
     actions = ["send_next_notification_action"]
@@ -492,11 +489,6 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "<path:object_id>/peta-risiko-iiic/",
                 self.admin_site.admin_view(self.peta_risiko_iiic_view),
                 name="monthly_report_monthlyriskreport_peta_risiko_iiic",
-            ),
-            path(
-                "<path:object_id>/pdf/",
-                self.admin_site.admin_view(self.pdf_view),
-                name="monthly_report_monthlyriskreport_pdf",
             ),
             path(
                 "<path:object_id>/web/",
@@ -636,17 +628,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         }
         return TemplateResponse(request, "monthly_report/peta_risiko_iiic.html", context)
 
-    @admin.display(description="PDF")
-    def pdf_button(self, obj):
-        if not obj or not obj.pk:
-            return "-"
-        url = reverse(
-            f"{self.admin_site.name}:monthly_report_monthlyriskreport_pdf",
-            args=[obj.pk],
-        )
-        return format_html('<a class="button" href="{}" target="_blank">PDF</a>', url)
-
-    @admin.display(description="Web")
+    @admin.display(description="Laporan")
     def web_button(self, obj):
         if not obj or not obj.pk:
             return "-"
@@ -654,7 +636,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             f"{self.admin_site.name}:monthly_report_monthlyriskreport_web",
             args=[obj.pk],
         )
-        return format_html('<a class="button" href="{}" target="_blank">Web</a>', url)
+        return format_html('<a class="button" href="{}" target="_blank">Lihat</a>', url)
 
     def _monthly_report_web_context(self, request, report):
         items = _ordered_items(report)
@@ -742,19 +724,6 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "monthly_report/monthly_risk_report_web.html",
             self._monthly_report_web_context(request, report),
         )
-
-    def pdf_view(self, request, object_id):
-        report = self.get_object(request, object_id)
-        if report is None:
-            raise Http404("Monthly risk report tidak ditemukan.")
-        pdf_bytes = render_monthly_risk_report_pdf(report)
-        unit = report.reassessment.unit_bisnis.name if report.reassessment.unit_bisnis_id else "unit"
-        month = report.periode.nama_periode if report.periode_id else "periode"
-        response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        response["Content-Disposition"] = (
-            f'inline; filename="Laporan_Realisasi_Risiko_{unit}_{month}.pdf"'
-        )
-        return response
 
     def _send_next_notification(self, request, report):
         try:

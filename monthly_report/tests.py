@@ -64,6 +64,16 @@ class MonthlyRiskReportAdminTests(TestCase):
             prepared_by=self.prepared_by,
         )
 
+    def _assign_pairing_officer(self, report, username="pairing", email="pairing@example.com"):
+        User = get_user_model()
+        pairing = User.objects.create_user(username=username, email=email)
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report.reassessment.unit_bisnis,
+            user=pairing,
+            peran=PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
+        )
+        return pairing
+
     def _risk_item(
         self,
         report,
@@ -141,14 +151,8 @@ class MonthlyRiskReportAdminTests(TestCase):
             MonthlyRiskReportAdmin.autocomplete_fields,
             ("reassessment",),
         )
-        self.assertIn("pdf_button", MonthlyRiskReportAdmin.list_display)
         self.assertIn("web_button", MonthlyRiskReportAdmin.list_display)
-
-    def test_monthly_report_admin_loads_select2_for_inline_risk_event_dropdown(self):
-        media = str(MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite()).media)
-
-        self.assertIn("admin/js/vendor/select2/select2.full.js", media)
-        self.assertIn("monthly_report_items_searchable.js", media)
+        self.assertNotIn("pdf_button", MonthlyRiskReportAdmin.list_display)
 
     def test_monthly_report_signer_fields_are_limited_by_report_unit_and_role(self):
         User = get_user_model()
@@ -189,25 +193,11 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(list(form.fields["reviewed_by"].queryset), [infra_rc])
         self.assertEqual(list(form.fields["approved_by"].queryset), [infra_member])
 
-    def test_monthly_report_pdf_view_returns_pdf(self):
-        report_infra = self._report("INFRA")
-        risk_item = self._risk_item(
-            report_infra,
-            no_item=1,
-            no_risiko=1,
-            no_penyebab_risiko="a",
-        )
-        MonthlyRiskReportItem.objects.create(report=report_infra, risk_event=risk_item)
-        request = RequestFactory().get(
-            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/pdf/"
-        )
-        request.user = self.admin_user
-        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+    def test_monthly_report_admin_loads_select2_for_inline_risk_event_dropdown(self):
+        media = str(MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite()).media)
 
-        response = report_admin.pdf_view(request, str(report_infra.pk))
-
-        self.assertEqual(response["Content-Type"], "application/pdf")
-        self.assertTrue(response.content.startswith(b"%PDF"))
+        self.assertIn("admin/js/vendor/select2/select2.full.js", media)
+        self.assertIn("monthly_report_items_searchable.js", media)
 
     def test_monthly_report_web_view_returns_report_context(self):
         report_infra = self._report("INFRA")
@@ -276,16 +266,16 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response.context_data["kpmr_calculation"].score_total, Decimal("81.00"))
         self.assertEqual(response.context_data["kpmr_calculation"].rating, "FAIR")
 
-    def test_monthly_report_notification_uses_test_email_when_configured(self):
-        self.prepared_by.email = "risk.officer@example.com"
-        self.prepared_by.save(update_fields=["email"])
+    def test_monthly_report_notification_sends_prepare_stage_to_pairing_officer(self):
         report_infra = self._report("INFRA")
+        self._assign_pairing_officer(report_infra)
 
         sent = send_monthly_report_notification(report_infra, base_url="https://erm.plnbatam.com")
 
         self.assertEqual(sent, 1)
-        self.assertEqual(mail.outbox[0].to, ["armeizir@plnbatam.com"])
-        self.assertIn("[MODE UJI COBA]", mail.outbox[0].body)
+        self.assertEqual(mail.outbox[0].to, ["pairing@example.com"])
+        self.assertNotIn("[MODE UJI COBA]", mail.outbox[0].body)
+        self.assertIn("Mode uji coba", mail.outbox[0].body)
         self.assertIn("Input Laporan Risiko Bulanan", mail.outbox[0].subject)
         self.assertIn("Februari 2026", mail.outbox[0].body)
         self.assertIn("5 Maret 2026", mail.outbox[0].body)
@@ -294,22 +284,24 @@ class MonthlyRiskReportAdminTests(TestCase):
             mail.outbox[0].body,
         )
 
-    def test_monthly_report_notification_sends_to_prepared_by_when_test_email_empty(self):
+    def test_monthly_report_review_notification_still_uses_test_email_when_configured(self):
         app_setting = AppSetting.get_solo()
-        app_setting.monthly_report_notification_test_email = ""
+        app_setting.monthly_report_notification_test_email = "armeizir@plnbatam.com"
         app_setting.save(update_fields=["monthly_report_notification_test_email"])
-        self.prepared_by.email = "risk.officer@example.com"
-        self.prepared_by.save(update_fields=["email"])
+        User = get_user_model()
+        reviewer = User.objects.create_user(username="reviewer", email="reviewer@example.com")
         report_infra = self._report("INFRA")
+        report_infra.status = "submitted"
+        report_infra.reviewed_by = reviewer
+        report_infra.save(update_fields=["status", "reviewed_by"])
 
         sent = send_monthly_report_notification(report_infra, base_url="https://erm.plnbatam.com")
 
         self.assertEqual(sent, 1)
-        self.assertEqual(mail.outbox[0].to, ["risk.officer@example.com"])
-        self.assertNotIn("[MODE UJI COBA]", mail.outbox[0].body)
-        self.assertIn("Input Laporan Risiko Bulanan", mail.outbox[0].subject)
+        self.assertEqual(mail.outbox[0].to, ["armeizir@plnbatam.com"])
+        self.assertIn("[MODE UJI COBA]", mail.outbox[0].body)
+        self.assertIn("Paraf / Review Laporan Risiko Bulanan", mail.outbox[0].subject)
         self.assertIn("Februari 2026", mail.outbox[0].body)
-        self.assertIn("5 Maret 2026", mail.outbox[0].body)
         self.assertIn(
             "https://erm.plnbatam.com/admin/monthly_report/monthlyriskreport/",
             mail.outbox[0].body,
