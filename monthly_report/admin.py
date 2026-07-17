@@ -13,6 +13,7 @@ from django.http import JsonResponse
 from django.template.response import TemplateResponse
 from django.urls import path
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
@@ -455,12 +456,18 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "peta_risiko_iiic_link",
         "versi",
         "status",
+        "flow_action_button",
         "notification_button",
         "prepared_by",
         "reviewed_by",
         "approved_by",
     ]
-    readonly_fields = ["petunjuk_lampiran", "peta_risiko_iiic_link", "notification_button"]
+    readonly_fields = [
+        "petunjuk_lampiran",
+        "peta_risiko_iiic_link",
+        "flow_action_button",
+        "notification_button",
+    ]
     autocomplete_fields = (
         "reassessment",
     )
@@ -472,6 +479,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "total_risiko",
         "total_high",
         "total_mitigasi_terlambat",
+        "flow_action_button",
         "notification_button",
         "web_button",
     ]
@@ -501,12 +509,23 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 name="monthly_report_monthlyriskreport_send_notification",
             ),
             path(
+                "<path:object_id>/flow/<str:flow_action>/",
+                self.admin_site.admin_view(self.flow_action_view),
+                name="monthly_report_monthlyriskreport_flow_action",
+            ),
+            path(
                 "risk-items/",
                 self.admin_site.admin_view(self.risk_items_for_reassessment),
                 name="monthly_report_monthlyriskreport_risk_items",
             ),
         ]
         return custom_urls + urls
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj and "status" not in readonly_fields:
+            readonly_fields.append("status")
+        return readonly_fields
 
     @admin.display(description="III.C - Peta Risiko Residual")
     def peta_risiko_iiic_link(self, obj):
@@ -517,6 +536,28 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             args=[obj.pk],
         )
         return format_html('<a class="button" href="{}">Lihat Peta Risiko III.C</a>', url)
+
+    def _flow_action_for_status(self, status):
+        return {
+            "draft": ("submit", "Submit Laporan"),
+            "revision": ("submit", "Submit Ulang"),
+            "submitted": ("review", "Review & Paraf"),
+            "under_review": ("approve", "Approve"),
+        }.get(status)
+
+    @admin.display(description="Flow")
+    def flow_action_button(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+        action = self._flow_action_for_status(obj.status)
+        if not action:
+            return obj.get_status_display()
+        action_name, label = action
+        url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_flow_action",
+            args=[obj.pk, action_name],
+        )
+        return format_html('<a class="button" href="{}">{}</a>', url, label)
 
     @admin.display(description="Notifikasi")
     def notification_button(self, obj):
@@ -739,6 +780,72 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 level=messages.SUCCESS,
             )
         return sent
+
+    def _apply_flow_action(self, report, flow_action, user):
+        valid_actions = {
+            "submit": {"draft", "revision"},
+            "review": {"submitted"},
+            "approve": {"under_review"},
+        }
+        if flow_action not in valid_actions:
+            raise ValidationError("Aksi flow tidak dikenal.")
+        if report.status not in valid_actions[flow_action]:
+            raise ValidationError(
+                f"Aksi tidak sesuai. Status laporan saat ini: {report.get_status_display()}."
+            )
+
+        update_fields = ["status", "updated_at"]
+        note = ""
+        if flow_action == "submit":
+            if not report.prepared_by_id:
+                raise ValidationError("Prepared by/Risk Office belum diisi.")
+            report.status = "submitted"
+            report.submitted_at = timezone.now()
+            update_fields.append("submitted_at")
+            note = "Submitted oleh Prepared by/Risk Office."
+        elif flow_action == "review":
+            if not report.reviewed_by_id:
+                raise ValidationError("Reviewed by belum diisi.")
+            report.status = "under_review"
+            note = "Review dan paraf oleh Reviewed by."
+        elif flow_action == "approve":
+            if not report.approved_by_id:
+                raise ValidationError("Approved by belum diisi.")
+            report.status = "approved"
+            report.approved_at = timezone.now()
+            update_fields.append("approved_at")
+            note = "Approved oleh Approved by."
+
+        report.save(update_fields=update_fields)
+        MonthlyRiskReportSubmissionLog.objects.create(
+            report=report,
+            action=flow_action,
+            action_by=user,
+            note=note,
+        )
+        return report
+
+    def flow_action_view(self, request, object_id, flow_action):
+        report = self.get_object(request, object_id)
+        if report is None:
+            raise Http404("Monthly risk report tidak ditemukan.")
+        try:
+            self._apply_flow_action(report, flow_action, request.user)
+        except ValidationError as exc:
+            message = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+            self.message_user(request, message, level=messages.ERROR)
+        else:
+            self.message_user(
+                request,
+                f"Flow laporan berhasil diproses. Status sekarang: {report.get_status_display()}.",
+                level=messages.SUCCESS,
+            )
+        return HttpResponseRedirect(
+            reverse(
+                f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
+                args=[report.pk],
+            )
+        )
 
     def send_notification_view(self, request, object_id):
         report = self.get_object(request, object_id)

@@ -193,6 +193,55 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(list(form.fields["reviewed_by"].queryset), [infra_rc])
         self.assertEqual(list(form.fields["approved_by"].queryset), [infra_member])
 
+    def test_monthly_report_status_is_readonly_after_saved(self):
+        report_infra = self._report("INFRA")
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/change/"
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        readonly_fields = report_admin.get_readonly_fields(request, report_infra)
+
+        self.assertIn("status", readonly_fields)
+
+    def test_monthly_report_flow_moves_draft_to_submitted_to_under_review_to_approved(self):
+        User = get_user_model()
+        reviewer = User.objects.create_user(username="reviewer")
+        approver = User.objects.create_user(username="approver")
+        report_infra = self._report("INFRA")
+        report_infra.reviewed_by = reviewer
+        report_infra.approved_by = approver
+        report_infra.save(update_fields=["reviewed_by", "approved_by"])
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        report_admin._apply_flow_action(report_infra, "submit", self.admin_user)
+        report_infra.refresh_from_db()
+        self.assertEqual(report_infra.status, "submitted")
+        self.assertIsNotNone(report_infra.submitted_at)
+
+        report_admin._apply_flow_action(report_infra, "review", reviewer)
+        report_infra.refresh_from_db()
+        self.assertEqual(report_infra.status, "under_review")
+
+        report_admin._apply_flow_action(report_infra, "approve", approver)
+        report_infra.refresh_from_db()
+        self.assertEqual(report_infra.status, "approved")
+        self.assertIsNotNone(report_infra.approved_at)
+        self.assertEqual(
+            list(report_infra.submission_logs.order_by("action_at").values_list("action", flat=True)),
+            ["submit", "review", "approve"],
+        )
+
+    def test_monthly_report_flow_button_matches_current_status(self):
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        self.assertEqual(report_admin._flow_action_for_status("draft"), ("submit", "Submit Laporan"))
+        self.assertEqual(report_admin._flow_action_for_status("revision"), ("submit", "Submit Ulang"))
+        self.assertEqual(report_admin._flow_action_for_status("submitted"), ("review", "Review & Paraf"))
+        self.assertEqual(report_admin._flow_action_for_status("under_review"), ("approve", "Approve"))
+        self.assertIsNone(report_admin._flow_action_for_status("approved"))
+
     def test_monthly_report_admin_loads_select2_for_inline_risk_event_dropdown(self):
         media = str(MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite()).media)
 
