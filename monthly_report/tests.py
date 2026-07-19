@@ -294,6 +294,26 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(report_infra.total_risiko, 2)
         self.assertEqual(report_infra.total_high, 1)
 
+    def test_monthly_report_item_inline_cost_absorption_is_read_only(self):
+        inline = MonthlyRiskReportItemInline(MonthlyRiskReport, AdminSite())
+
+        self.assertIn("persentase_serapan_biaya", inline.readonly_fields)
+
+    def test_monthly_report_item_calculates_cost_absorption_from_budget_formula(self):
+        report_infra = self._report("INFRA")
+        risk_item = self._risk_item(report_infra, no_item=1, no_risiko=1)
+        risk_item.biaya_perlakuan_risiko = Decimal("100.00")
+        risk_item.save()
+
+        report_item = MonthlyRiskReportItem.objects.create(
+            report=report_infra,
+            risk_event=risk_item,
+            realisasi_biaya_perlakuan=Decimal("150.00"),
+            persentase_serapan_biaya=Decimal("12.00"),
+        )
+
+        self.assertEqual(report_item.persentase_serapan_biaya, Decimal("150.00"))
+
     def test_peta_risiko_iiic_includes_automatic_kpmr_calculation(self):
         report_infra = self._report("INFRA")
         request = RequestFactory().get(

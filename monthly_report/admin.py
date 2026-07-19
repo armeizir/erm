@@ -45,7 +45,7 @@ from risk.models import (
     ReAssessmentSummary,
     RiskMatrix,
 )
-from risk.services.kpmr_automation import calculate_kpmr_for_unit
+from risk.services.kpmr_automation import calculate_kpmr_for_report
 from risk.services.kpmr_automation import month_to_quarter
 from .notifications import send_monthly_report_notification
 from .services import refresh_monthly_report_summary
@@ -378,6 +378,7 @@ def _monthly_risk_item_label(item, number_by_pk=None):
 class MonthlyRiskReportItemInline(admin.StackedInline):
     model = MonthlyRiskReportItem
     extra = 1
+    readonly_fields = ("persentase_serapan_biaya",)
     verbose_name = "Realisasi Risiko Bulanan"
     verbose_name_plural = "Input Realisasi Risiko Bulanan"
     fieldsets = (
@@ -795,13 +796,10 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             rows.append({"probabilitas": prob, "cells": row})
 
         kpmr_calculation = None
-        kpmr_quarter = month_to_quarter(report.periode.tanggal_mulai.month) if report.periode_id else None
+        kpmr_month = report.periode.tanggal_mulai.month if report.periode_id else None
+        kpmr_quarter = month_to_quarter(kpmr_month) if kpmr_month else None
         if report.reassessment_id and report.reassessment.unit_bisnis_id and kpmr_quarter:
-            kpmr_calculation = calculate_kpmr_for_unit(
-                report.reassessment.tahun,
-                kpmr_quarter,
-                report.reassessment.unit_bisnis,
-            )
+            kpmr_calculation = calculate_kpmr_for_report(report)
 
         context = {
             **self.admin_site.each_context(request),
@@ -812,7 +810,9 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "rows": rows,
             "kpmr_calculation": kpmr_calculation,
             "kpmr_detail_groups": _kpmr_detail_groups(kpmr_calculation),
+            "kpmr_month": kpmr_month,
             "kpmr_quarter": kpmr_quarter,
+            "kpmr_is_quarter_snapshot": kpmr_month in {3, 6, 9, 12} if kpmr_month else False,
             "title": "III.C - Peta Risiko Residual",
         }
         return TemplateResponse(request, "monthly_report/peta_risiko_iiic.html", context)
@@ -885,6 +885,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                     "absorbed_cost": _percent(item.persentase_serapan_biaya),
                     "pic": item.realisasi_pic or risk.pic,
                     "status": item.get_status_rencana_perlakuan_display() or "",
+                    "status_explanation": item.penjelasan_status_rencana or "",
                     "progress": _percent(item.progress_pelaksanaan_percent),
                     "progress_class": _monthly_progress_class(item.progress_pelaksanaan_percent),
                     "kri": item.realisasi_threshold_kri,

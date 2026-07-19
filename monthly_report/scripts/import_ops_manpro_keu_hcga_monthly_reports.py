@@ -335,15 +335,18 @@ def read_rows(ws, start_row=1):
         yield offset, list(row)
 
 
-def update_item_common(item, *, rencana=None, output=None, biaya=None, serapan=None, pic=None):
+def update_item_common(item, *, rencana=None, output=None, anggaran=None, biaya=None, serapan=None, pic=None):
     if rencana not in (None, ""):
         item.realisasi_rencana_perlakuan = rencana
     if output not in (None, ""):
         item.realisasi_output_perlakuan = output
+    if anggaran not in (None, ""):
+        budget = decimal_or_none(anggaran)
+        if budget is not None:
+            item.risk_event.biaya_perlakuan_risiko = budget
+            item.risk_event.save(update_fields=["biaya_perlakuan_risiko"])
     if biaya not in (None, ""):
         item.realisasi_biaya_perlakuan = decimal_or_none(biaya)
-    if serapan not in (None, ""):
-        item.persentase_serapan_biaya = percent_or_none(serapan)
     if pic not in (None, ""):
         item.realisasi_pic = str(pic)[:255]
 
@@ -400,6 +403,7 @@ def import_standard_iiib(workbook, report, maps, month, skipped, resolver=resolv
             item,
             rencana=row_value(row, 11),
             output=row_value(row, 12),
+            anggaran=row_value(row, 10),
             biaya=row_value(row, 13),
             serapan=row_value(row, 14),
             pic=row_value(row, 15),
@@ -496,6 +500,7 @@ def import_keu_iiib(workbook, report, maps, month, skipped):
             item,
             rencana=row_value(row, 11),
             output=row_value(row, 12),
+            anggaran=row_value(row, 10),
             biaya=row_value(row, 13),
             serapan=row_value(row, 14),
             pic=row_value(row, 15),

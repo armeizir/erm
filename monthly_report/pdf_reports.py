@@ -45,7 +45,10 @@ def _percent(value):
         number = Decimal(value)
     except Exception:
         return _clean(value)
-    return f"{number.normalize()}%"
+    text = format(number, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return f"{text}%"
 
 
 def _label(value):
@@ -339,6 +342,7 @@ def _iiia(styles, report, items, number_by_risk):
 
 def _iiib(styles, report, items, number_by_risk):
     unit = _unit_code(report)
+    quarter = _quarter_number(report)
     rows = [
         [
             _p(styles, "Notes", "NoteHeader"),
@@ -348,6 +352,7 @@ def _iiib(styles, report, items, number_by_risk):
             _p(styles, "Setiap penyebab kejadian diberikan unique ID", "Note"),
             "",
             _p(styles, "Rencana perlakuan dan realisasi diisi per penyebab risiko", "Note"),
+            "",
             "",
             "",
             "",
@@ -378,8 +383,9 @@ def _iiib(styles, report, items, number_by_risk):
             _p(styles, "Realisasi Output", "Header"),
             _p(styles, "Serapan Biaya", "Header"),
             _p(styles, "PIC", "Header"),
-            _p(styles, "Status", "Header"),
-            _p(styles, "Progress", "Header"),
+            _p(styles, "Status Rencana Perlakuan Risiko", "Header"),
+            _p(styles, "Penjelasan Status Rencana Perlakuan", "Header"),
+            _p(styles, f"Progress Pelaksanaan Rencana Perlakuan (Q{quarter})", "Header"),
             _p(styles, "Realisasi Threshold KRI", "Header"),
             _p(styles, "Timeline RKAP", "Header"),
             "",
@@ -389,6 +395,7 @@ def _iiib(styles, report, items, number_by_risk):
             "",
         ],
         [
+            "",
             "",
             "",
             "",
@@ -434,6 +441,7 @@ def _iiib(styles, report, items, number_by_risk):
                 _p(styles, _percent(item.persentase_serapan_biaya), "Center"),
                 _p(styles, item.realisasi_pic),
                 _p(styles, item.get_status_rencana_perlakuan_display() or "", "Center"),
+                _p(styles, item.penjelasan_status_rencana),
                 _p(styles, _percent(item.progress_pelaksanaan_percent), "Center"),
                 _p(styles, item.realisasi_threshold_kri),
                 _p(styles, _timeline_mark(risk.timeline_1), "Center"),
@@ -444,12 +452,12 @@ def _iiib(styles, report, items, number_by_risk):
                 _p(styles, _timeline_mark(risk.timeline_6), "Center"),
             ]
         )
-    widths = [1.1, 4, 4.4, 1.3, 2.2, 3.8, 4, 3.4, 1.9, 3.8, 3.2, 1.4, 1.8, 1.5, 1.4, 2.6, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8]
+    widths = [1.1, 4, 4.4, 1.3, 2.2, 3.8, 4, 3.4, 1.9, 3.8, 3.2, 1.4, 1.8, 1.8, 3.6, 2.6, 2.6, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8]
     style = [
         ("SPAN", (1, 0), (2, 0)),
         ("SPAN", (4, 0), (5, 0)),
-        ("SPAN", (6, 0), (15, 0)),
-        ("SPAN", (16, 1), (21, 1)),
+        ("SPAN", (6, 0), (16, 0)),
+        ("SPAN", (17, 1), (22, 1)),
         ("SPAN", (0, 1), (0, 2)),
         ("SPAN", (1, 1), (1, 2)),
         ("SPAN", (2, 1), (2, 2)),
@@ -466,13 +474,14 @@ def _iiib(styles, report, items, number_by_risk):
         ("SPAN", (13, 1), (13, 2)),
         ("SPAN", (14, 1), (14, 2)),
         ("SPAN", (15, 1), (15, 2)),
+        ("SPAN", (16, 1), (16, 2)),
         ("BACKGROUND", (0, 0), (0, 0), NOTE_YELLOW),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
         ("BACKGROUND", (1, 0), (-1, 0), colors.white),
-        ("BACKGROUND", (16, 1), (21, 2), SECTION_BLUE),
+        ("BACKGROUND", (17, 1), (22, 2), SECTION_BLUE),
     ]
     for index, item in enumerate(items, start=3):
-        style.append(("BACKGROUND", (14, index), (14, index), _progress_color(item.progress_pelaksanaan_percent)))
+        style.append(("BACKGROUND", (15, index), (15, index), _progress_color(item.progress_pelaksanaan_percent)))
     return _section_title(styles, "III.B. FORMAT TABEL REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA") + [
         _table(rows, [w * cm for w in widths], repeat_rows=3, extra_style=style),
         PageBreak(),

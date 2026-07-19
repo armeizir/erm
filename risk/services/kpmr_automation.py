@@ -55,6 +55,7 @@ class KPMRCalculation:
     rating: str
     indicators: list[dict]
     notes: list[str]
+    month: int | None = None
 
 
 def month_to_quarter(month: int | None) -> int | None:
@@ -222,23 +223,71 @@ def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_
     )
 
 
-def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalculation:
-    reports = list(
-        MonthlyRiskReport.objects.filter(
-            reassessment__tahun=year,
-            reassessment__unit_bisnis=unit,
-            periode__tanggal_mulai__month__in=quarter_months(quarter),
-        )
+def calculate_kpmr_for_unit(
+    year: int,
+    quarter: int,
+    unit: Group,
+    *,
+    month: int | None = None,
+    report_ids: list[int] | None = None,
+) -> KPMRCalculation:
+    """Hitung KPMR dari satu snapshot bulanan.
+
+    - ``month`` diisi: monitoring KPMR bulan tersebut.
+    - ``month`` kosong: KPMR formal triwulan memakai bulan penutup triwulan
+      (Maret/Juni/September/Desember), bukan rata-rata tiga bulan.
+    - ``report_ids`` dipakai halaman Monthly Risk Report agar perhitungan persis
+      menggunakan laporan yang sedang dibuka.
+    """
+    selected_month = month or quarter_months(quarter)[-1]
+    report_qs = MonthlyRiskReport.objects.filter(
+        reassessment__tahun=year,
+        reassessment__unit_bisnis=unit,
+    )
+    if report_ids is not None:
+        report_qs = report_qs.filter(id__in=report_ids)
+    else:
+        report_qs = report_qs.filter(periode__tanggal_mulai__month=selected_month)
+
+    candidates = list(
+        report_qs
         .select_related("periode", "reassessment", "reassessment__unit_bisnis")
         .prefetch_related("items__risk_event")
-        .order_by("periode__tanggal_mulai", "-versi")
+        .order_by("periode__tanggal_mulai", "reassessment_id", "-versi", "-id")
     )
+
+    # Jika ada beberapa versi laporan pada bulan yang sama, gunakan versi terbaru
+    # agar satu risiko tidak dihitung berulang. Pemanggilan dengan report_ids
+    # sengaja memakai laporan yang dipilih secara eksplisit.
+    if report_ids is None:
+        reports = []
+        seen_report_keys = set()
+        for report in candidates:
+            key = (report.reassessment_id, report.periode_id)
+            if key in seen_report_keys:
+                continue
+            seen_report_keys.add(key)
+            reports.append(report)
+    else:
+        reports = candidates
+
     report_ids = [report.id for report in reports]
     report_items = []
     for report in reports:
         report_items.extend(list(report.items.all()))
 
-    notes = []
+    month_label = (
+        reports[0].periode.nama_periode
+        if reports and reports[0].periode_id
+        else f"Bulan {selected_month}"
+    )
+    if month is None:
+        period_note = f"Snapshot KPMR TW{quarter}: posisi akhir {month_label}."
+    else:
+        period_note = f"KPMR bulanan: {month_label} {year}."
+    notes = [
+        period_note + " Perhitungan tidak merata-ratakan laporan bulan lain dalam triwulan."
+    ]
     item_count = len(report_items)
     comparable = [
         item
@@ -477,6 +526,22 @@ def calculate_kpmr_for_unit(year: int, quarter: int, unit: Group) -> KPMRCalcula
         rating=rating_for_score(score_total),
         indicators=indicators,
         notes=notes,
+        month=selected_month,
+    )
+
+
+def calculate_kpmr_for_report(report: MonthlyRiskReport) -> KPMRCalculation:
+    """Hitung KPMR bulanan persis dari Monthly Risk Report yang sedang dibuka."""
+    if not report.periode_id or not report.reassessment_id or not report.reassessment.unit_bisnis_id:
+        raise ValueError("Monthly Risk Report belum memiliki periode/reassessment/unit yang lengkap.")
+    month = report.periode.tanggal_mulai.month
+    quarter = month_to_quarter(month)
+    return calculate_kpmr_for_unit(
+        report.reassessment.tahun,
+        quarter,
+        report.reassessment.unit_bisnis,
+        month=month,
+        report_ids=[report.id],
     )
 
 
@@ -522,11 +587,31 @@ def save_kpmr_calculation(calculation: KPMRCalculation) -> KPMRPeriode:
     return periode
 
 
-def calculate_kpmr_for_period(year: int, quarter: int):
+def calculate_kpmr_for_month(year: int, month: int):
+    """Hitung monitoring KPMR untuk setiap unit pada satu bulan."""
+    quarter = month_to_quarter(month)
     unit_ids = (
         MonthlyRiskReport.objects.filter(
             reassessment__tahun=year,
-            periode__tanggal_mulai__month__in=quarter_months(quarter),
+            periode__tanggal_mulai__month=month,
+        )
+        .values_list("reassessment__unit_bisnis_id", flat=True)
+        .distinct()
+    )
+    units = Group.objects.filter(id__in=unit_ids).order_by("name")
+    return [
+        calculate_kpmr_for_unit(year, quarter, unit, month=month)
+        for unit in units
+    ]
+
+
+def calculate_kpmr_for_period(year: int, quarter: int):
+    """Hitung KPMR formal triwulan dari snapshot bulan terakhir triwulan."""
+    snapshot_month = quarter_months(quarter)[-1]
+    unit_ids = (
+        MonthlyRiskReport.objects.filter(
+            reassessment__tahun=year,
+            periode__tanggal_mulai__month=snapshot_month,
         )
         .values_list("reassessment__unit_bisnis_id", flat=True)
         .distinct()
@@ -538,9 +623,8 @@ def calculate_kpmr_for_period(year: int, quarter: int):
 def kpmr_dashboard_rows(year: int | None, month: int | None):
     if not year:
         return []
-    quarter = month_to_quarter(month) if month else None
-    if quarter:
-        calculations = calculate_kpmr_for_period(year, quarter)
+    if month:
+        calculations = calculate_kpmr_for_month(year, month)
     else:
         calculations = []
         for q in range(1, 5):
@@ -550,6 +634,7 @@ def kpmr_dashboard_rows(year: int | None, month: int | None):
             "unit": calculation.unit.name,
             "tahun": calculation.year,
             "triwulan": f"TW{calculation.quarter}",
+            "bulan": calculation.month,
             "report_count": calculation.report_count,
             "item_count": calculation.item_count,
             "skor_total": calculation.score_total,

@@ -348,9 +348,9 @@ class MonthlyRiskReportItem(TimeStampedModel):
                     "Nilai probabilitas harus berada di antara 0 sampai 100."
                 )
         if self.persentase_serapan_biaya is not None:
-            if self.persentase_serapan_biaya < 0 or self.persentase_serapan_biaya > 100:
+            if self.persentase_serapan_biaya < 0:
                 errors["persentase_serapan_biaya"] = (
-                    "Persentase serapan biaya harus berada di antara 0 sampai 100."
+                    "Persentase serapan biaya tidak boleh negatif."
                 )
         if self.progress_pelaksanaan_percent is not None:
             if self.progress_pelaksanaan_percent < 0 or self.progress_pelaksanaan_percent > 100:
@@ -379,6 +379,14 @@ class MonthlyRiskReportItem(TimeStampedModel):
             ).quantize(Decimal("0.01"))
         else:
             self.realisasi_eksposur = None
+
+        self.persentase_serapan_biaya = None
+        if self.realisasi_biaya_perlakuan is not None and self.risk_event_id:
+            anggaran = self.risk_event.biaya_perlakuan_risiko
+            if anggaran not in (None, 0, Decimal("0")):
+                self.persentase_serapan_biaya = (
+                    self.realisasi_biaya_perlakuan / anggaran * Decimal("100")
+                ).quantize(Decimal("0.01"))
 
         self.realisasi_skor_risiko = None
         self.realisasi_level_risiko = None

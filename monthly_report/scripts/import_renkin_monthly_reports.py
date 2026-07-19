@@ -276,8 +276,11 @@ def import_sheet_iiib(workbook, report, by_name, by_risk_number, month, skipped)
         )
         item.realisasi_rencana_perlakuan = row[10] if len(row) > 10 else None
         item.realisasi_output_perlakuan = row[11] if len(row) > 11 else None
+        budget = decimal_or_none(row[9] if len(row) > 9 else None)
+        if budget is not None:
+            risk_event.biaya_perlakuan_risiko = budget
+            risk_event.save(update_fields=["biaya_perlakuan_risiko"])
         item.realisasi_biaya_perlakuan = decimal_or_none(row[12] if len(row) > 12 else None)
-        item.persentase_serapan_biaya = percent_or_none(row[13] if len(row) > 13 else None)
         item.realisasi_pic = row[14] if len(row) > 14 else None
         item.status_rencana_perlakuan = treatment_status(row[27] if len(row) > 27 else None)
         item.penjelasan_status_rencana = row[28] if len(row) > 28 else None

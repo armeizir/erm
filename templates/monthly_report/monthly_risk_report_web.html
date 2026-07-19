@@ -321,7 +321,7 @@
             <th class="note-head">Notes</th>
             <th class="note" colspan="2">Nomor risiko harus konsisten pada saat pelaporan</th>
             <th class="note" colspan="3">Setiap penyebab kejadian diberikan unique ID</th>
-            <th class="note" colspan="22">Rencana perlakuan dan realisasi diisi per penyebab risiko</th>
+            <th class="note" colspan="23">Rencana perlakuan dan realisasi diisi per penyebab risiko</th>
           </tr>
           <tr>
             <th rowspan="2" class="small">No. Risiko</th>
@@ -337,8 +337,9 @@
             <th rowspan="2" class="wide">Realisasi Output</th>
             <th rowspan="2" class="small">Serapan Biaya</th>
             <th rowspan="2" class="wide">PIC</th>
-            <th rowspan="2" class="small">Status</th>
-            <th rowspan="2" class="small">Progress</th>
+            <th rowspan="2" class="wide">Status Rencana Perlakuan Risiko</th>
+            <th rowspan="2" class="xwide">Penjelasan Status Rencana Perlakuan</th>
+            <th rowspan="2" class="wide">Progress Pelaksanaan Rencana Perlakuan (Q{{ quarter }})</th>
             <th rowspan="2" class="wide">Realisasi Threshold KRI</th>
             <th colspan="12" class="group-head">Timeline RKAP</th>
           </tr>
@@ -364,6 +365,7 @@
               <td class="center nowrap">{{ row.absorbed_cost }}</td>
               <td>{{ row.pic }}</td>
               <td class="center">{{ row.status }}</td>
+              <td>{{ row.status_explanation }}</td>
               <td class="center {{ row.progress_class }}">{{ row.progress }}</td>
               <td>{{ row.kri }}</td>
               {% for month in row.timeline %}
@@ -371,7 +373,7 @@
               {% endfor %}
             </tr>
           {% empty %}
-            <tr><td colspan="28">Belum ada data pelaksanaan perlakuan risiko.</td></tr>
+            <tr><td colspan="29">Belum ada data pelaksanaan perlakuan risiko.</td></tr>
           {% endfor %}
         </tbody>
       </table>

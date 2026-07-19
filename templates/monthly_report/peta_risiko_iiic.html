@@ -313,11 +313,16 @@
 
   {% if kpmr_calculation %}
     <section class="kpmr-panel">
-      <h2>KPMR Otomatis</h2>
+      <h2>KPMR Otomatis Bulanan</h2>
       <p class="kpmr-meta">
-        Dihitung otomatis dari laporan risiko bulanan
-        {{ report.reassessment.unit_bisnis.name }} tahun {{ report.reassessment.tahun }}
-        Triwulan {{ kpmr_quarter }}.
+        Dihitung otomatis dari <strong>Monthly Risk Report {{ report.periode.nama_periode }}</strong>
+        untuk {{ report.reassessment.unit_bisnis.name }} tahun {{ report.reassessment.tahun }}.
+        Perhitungan hanya memakai snapshot laporan bulan ini, <strong>bukan rata-rata bulan lain dalam TW{{ kpmr_quarter }}</strong>.
+        {% if kpmr_is_quarter_snapshot %}
+          Bulan ini merupakan <strong>snapshot formal akhir TW{{ kpmr_quarter }}</strong>.
+        {% else %}
+          Nilai ini merupakan <strong>monitoring KPMR bulanan</strong>; nilai formal TW{{ kpmr_quarter }} memakai snapshot bulan terakhir triwulan.
+        {% endif %}
       </p>
       <div class="kpmr-summary">
         <div class="kpmr-card">
@@ -329,7 +334,7 @@
           <strong>{{ kpmr_calculation.rating }}</strong>
         </div>
         <div class="kpmr-card">
-          <span>Jumlah Laporan Bulanan</span>
+          <span>Laporan Sumber Bulan Ini</span>
           <strong>{{ kpmr_calculation.report_count }}</strong>
         </div>
         <div class="kpmr-card">
