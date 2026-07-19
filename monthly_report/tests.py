@@ -328,6 +328,47 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response.context_data["kpmr_calculation"].unit, report_infra.reassessment.unit_bisnis)
         self.assertEqual(response.context_data["kpmr_calculation"].report_count, 1)
 
+    def test_peta_risiko_iiic_exposes_previous_and_next_month_for_same_profile(self):
+        report_infra = self._report("INFRA")
+        january = PeriodeLaporan.objects.create(
+            tahun_buku=self.tahun_buku,
+            kode_periode="2026-01",
+            nama_periode="Januari 2026",
+            jenis_periode="bulanan",
+            tanggal_mulai=date(2026, 1, 1),
+            tanggal_selesai=date(2026, 1, 31),
+        )
+        march = PeriodeLaporan.objects.create(
+            tahun_buku=self.tahun_buku,
+            kode_periode="2026-03",
+            nama_periode="Maret 2026",
+            jenis_periode="bulanan",
+            tanggal_mulai=date(2026, 3, 1),
+            tanggal_selesai=date(2026, 3, 31),
+        )
+        previous_report = MonthlyRiskReport.objects.create(
+            tahun_buku=self.tahun_buku,
+            periode=january,
+            reassessment=report_infra.reassessment,
+            prepared_by=self.prepared_by,
+        )
+        next_report = MonthlyRiskReport.objects.create(
+            tahun_buku=self.tahun_buku,
+            periode=march,
+            reassessment=report_infra.reassessment,
+            prepared_by=self.prepared_by,
+        )
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/peta-risiko-iiic/"
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        response = report_admin.peta_risiko_iiic_view(request, str(report_infra.pk))
+
+        self.assertEqual(response.context_data["previous_report"], previous_report)
+        self.assertEqual(response.context_data["next_report"], next_report)
+
     def test_peta_risiko_iiic_calculates_kpmr_from_monthly_data_even_when_saved_result_exists(self):
         report_infra = self._report("INFRA")
         period = KPMRPeriode.objects.create(

@@ -738,6 +738,39 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         report = self.get_object(request, object_id)
         if report is None:
             raise Http404("Monthly risk report tidak ditemukan.")
+
+        previous_report = None
+        next_report = None
+        if report.periode_id and report.reassessment_id:
+            current_date = report.periode.tanggal_mulai
+
+            def shifted_month(delta):
+                month_index = current_date.year * 12 + current_date.month - 1 + delta
+                year, zero_based_month = divmod(month_index, 12)
+                return year, zero_based_month + 1
+
+            adjacent_reports = self.get_queryset(request).filter(
+                reassessment_id=report.reassessment_id
+            )
+            previous_year, previous_month = shifted_month(-1)
+            next_year, next_month = shifted_month(1)
+            previous_report = (
+                adjacent_reports.filter(
+                    periode__tanggal_mulai__year=previous_year,
+                    periode__tanggal_mulai__month=previous_month,
+                )
+                .order_by("-versi", "-pk")
+                .first()
+            )
+            next_report = (
+                adjacent_reports.filter(
+                    periode__tanggal_mulai__year=next_year,
+                    periode__tanggal_mulai__month=next_month,
+                )
+                .order_by("-versi", "-pk")
+                .first()
+            )
+
         matrix = (
             report.reassessment.risk_matrix
             if report and report.reassessment_id and report.reassessment.risk_matrix_id
@@ -813,6 +846,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "kpmr_month": kpmr_month,
             "kpmr_quarter": kpmr_quarter,
             "kpmr_is_quarter_snapshot": kpmr_month in {3, 6, 9, 12} if kpmr_month else False,
+            "previous_report": previous_report,
+            "next_report": next_report,
             "title": "III.C - Peta Risiko Residual",
         }
         return TemplateResponse(request, "monthly_report/peta_risiko_iiic.html", context)

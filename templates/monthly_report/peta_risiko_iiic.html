@@ -7,9 +7,38 @@
   }
 
   .iiic-toolbar {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin: 0 0 16px;
+  }
+
+  .iiic-period-nav {
+    align-items: center;
     display: flex;
     gap: 8px;
-    margin: 0 0 16px;
+    margin-left: auto;
+  }
+
+  .iiic-period-current {
+    background: #f3f4f6;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    color: #374151;
+    font-weight: 600;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+
+  .iiic-period-disabled {
+    background: #eef0f2;
+    border-radius: 4px;
+    color: #9ca3af;
+    cursor: not-allowed;
+    display: inline-block;
+    padding: 8px 12px;
+    white-space: nowrap;
   }
 
   .iiic-meta {
@@ -244,6 +273,16 @@
   }
 
   @media (max-width: 900px) {
+    .iiic-toolbar {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .iiic-period-nav {
+      flex-wrap: wrap;
+      margin-left: 0;
+    }
+
     .kpmr-summary {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -253,6 +292,30 @@
 <div class="iiic-page">
   <div class="iiic-toolbar">
     <a class="button" href="../">Kembali ke Laporan</a>
+
+    <div class="iiic-period-nav" aria-label="Navigasi bulan laporan">
+      {% if previous_report %}
+        <a
+          class="button"
+          href="{% url 'risk_admin:monthly_report_monthlyriskreport_peta_risiko_iiic' previous_report.pk %}"
+          title="Buka Peta Risiko III.C {{ previous_report.periode.nama_periode }}"
+        >&#8592; {{ previous_report.periode.nama_periode }}</a>
+      {% else %}
+        <span class="iiic-period-disabled" title="Laporan bulan sebelumnya belum tersedia">&#8592; Sebelumnya</span>
+      {% endif %}
+
+      <span class="iiic-period-current">{{ report.periode.nama_periode }}</span>
+
+      {% if next_report %}
+        <a
+          class="button"
+          href="{% url 'risk_admin:monthly_report_monthlyriskreport_peta_risiko_iiic' next_report.pk %}"
+          title="Buka Peta Risiko III.C {{ next_report.periode.nama_periode }}"
+        >{{ next_report.periode.nama_periode }} &#8594;</a>
+      {% else %}
+        <span class="iiic-period-disabled" title="Laporan bulan selanjutnya belum tersedia">Selanjutnya &#8594;</span>
+      {% endif %}
+    </div>
   </div>
 
   <h1>{{ title }}</h1>
