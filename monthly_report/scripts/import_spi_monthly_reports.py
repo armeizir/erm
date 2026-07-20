@@ -14,6 +14,7 @@ from monthly_report.models import (
     MonthlyRiskReportItem,
     MonthlyRiskReportLossEvent,
 )
+from monthly_report.services import refresh_monthly_report_summary
 from risk.models import (
     MasterSkalaDampak,
     MasterSkalaProbabilitas,
@@ -423,17 +424,7 @@ def run():
             iiid_count = import_sheet_iiid(workbook, report)
             iiie_count = import_sheet_iiie(workbook, report, by_name, skipped)
 
-            report.total_risiko = report.items.count()
-            report.total_high = report.items.filter(
-                realisasi_level_risiko__icontains="tinggi",
-            ).count()
-            report.total_mitigasi_terlambat = report.items.filter(
-                mitigation_status="delayed",
-            ).count()
-            report.total_selesai = report.items.filter(
-                status_rencana_perlakuan="discontinue",
-            ).count()
-            report.save()
+            refresh_monthly_report_summary(report)
 
             summary.append(
                 {
