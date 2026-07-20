@@ -297,21 +297,27 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIn(b"LAPORAN REALISASI MANAJEMEN RISIKO", response.content)
         self.assertIn(b"III.A. FORMAT TABEL REALISASI RISIKO RESIDUAL BULANAN", response.content)
 
-    def test_refresh_summary_counts_manual_items_and_realization_high_level(self):
+    def test_refresh_summary_counts_only_high_scores_from_20(self):
         report_infra = self._report("INFRA")
-        high_item = self._risk_item(report_infra, no_item=1, no_risiko=1)
-        moderate_item = self._risk_item(report_infra, no_item=2, no_risiko=2)
+        moderate_event = self._risk_item(report_infra, no_item=1, no_risiko=1)
+        high_event = self._risk_item(report_infra, no_item=2, no_risiko=2)
+        moderate_report_item = MonthlyRiskReportItem.objects.create(
+            report=report_infra,
+            risk_event=moderate_event,
+        )
         high_report_item = MonthlyRiskReportItem.objects.create(
             report=report_infra,
-            risk_event=high_item,
+            risk_event=high_event,
         )
-        MonthlyRiskReportItem.objects.create(
-            report=report_infra,
-            risk_event=moderate_item,
+        MonthlyRiskReportItem.objects.filter(pk=moderate_report_item.pk).update(
+            realisasi_skor_risiko=19,
+            realisasi_level_risiko="Moderate to High",
         )
-        MonthlyRiskReportItem.objects.filter(pk=high_report_item.pk).update(realisasi_skor_risiko=15)
+        MonthlyRiskReportItem.objects.filter(pk=high_report_item.pk).update(
+            realisasi_skor_risiko=20,
+            realisasi_level_risiko="High",
+        )
 
-        self.assertEqual(report_infra.items.filter(realisasi_skor_risiko__gte=15).count(), 1)
         refresh_monthly_report_summary(report_infra)
         report_infra.refresh_from_db()
 

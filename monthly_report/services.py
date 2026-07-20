@@ -37,9 +37,16 @@ def refresh_monthly_report_summary(report: MonthlyRiskReport):
     report.total_risiko = items.count()
     report.total_high = (
         items.filter(
-            Q(realisasi_level_risiko__icontains="tinggi")
-            | Q(realisasi_skor_risiko__gte=15)
-            | Q(residual_level__gte=15)
+            Q(realisasi_skor_risiko__gte=20)
+            | (
+                Q(realisasi_skor_risiko__isnull=True)
+                & (
+                    Q(realisasi_level_risiko__iexact="High")
+                    | Q(realisasi_level_risiko__iexact="Tinggi")
+                    | Q(realisasi_level_risiko__iexact="Sangat Tinggi")
+                    | Q(residual_level__gte=20)
+                )
+            )
         )
         .distinct()
         .count()

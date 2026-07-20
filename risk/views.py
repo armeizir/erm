@@ -500,7 +500,7 @@ def _unit_profile_rows(year, month):
         report = reports.first()
         total_profile_items = summary.item.count()
         reported_items = report.items.count() if report else 0
-        high_items = report.items.filter(realisasi_level_risiko__icontains="tinggi").count() if report else 0
+        high_items = report.total_high if report else 0
         rows.append(
             {
                 "id": summary.id,
