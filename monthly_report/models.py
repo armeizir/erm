@@ -269,7 +269,7 @@ class MonthlyRiskReportItem(TimeStampedModel):
         verbose_name="Realisasi Biaya Perlakuan Risiko",
     )
     persentase_serapan_biaya = models.DecimalField(
-        max_digits=5,
+        max_digits=18,
         decimal_places=2,
         null=True,
         blank=True,

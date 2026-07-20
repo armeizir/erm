@@ -164,6 +164,46 @@ def _score_budget_absorption(absorption):
     return Decimal("40"), "b. Realisasi biaya lebih tinggi dari anggaran"
 
 
+
+def _aggregate_budget_absorption(report_items):
+    """Hitung serapan biaya agregat: total realisasi / total anggaran.
+
+    Hanya item dengan baseline anggaran positif yang masuk denominator.
+    Realisasi pada item tanpa anggaran dipisahkan sebagai kondisi over-budget.
+    """
+    total_budget = Decimal("0")
+    total_actual = Decimal("0")
+    unbudgeted_actual = Decimal("0")
+    comparable_count = 0
+
+    for item in report_items:
+        risk_event = getattr(item, "risk_event", None)
+        budget = getattr(risk_event, "biaya_perlakuan_risiko", None)
+        actual = getattr(item, "realisasi_biaya_perlakuan", None)
+
+        budget = Decimal(budget) if budget not in (None, "") else Decimal("0")
+        actual = Decimal(actual) if actual not in (None, "") else Decimal("0")
+
+        if budget > 0:
+            total_budget += budget
+            total_actual += actual
+            comparable_count += 1
+        elif actual > 0:
+            unbudgeted_actual += actual
+
+    if total_budget <= 0:
+        return None
+
+    ratio = total_actual / total_budget * Decimal("100")
+    return {
+        "total_budget": total_budget,
+        "total_actual": total_actual,
+        "ratio": ratio,
+        "comparable_count": comparable_count,
+        "unbudgeted_actual": unbudgeted_actual,
+        "is_over_budget": total_actual > total_budget or unbudgeted_actual > 0,
+    }
+
 def _weighted_score(raw_score, weight):
     if raw_score is None:
         return Decimal("0.00")
@@ -412,33 +452,37 @@ def calculate_kpmr_for_unit(
             f"Penilaian per parameter: {i2_raw} x bobot 20% = {_weighted_score(i2_raw, 20)}."
         )
 
-    absorption_values = [
-        item.persentase_serapan_biaya
-        for item in report_items
-        if item.persentase_serapan_biaya is not None
-    ]
-    avg_absorption = (
-        sum(absorption_values, Decimal("0")) / Decimal(len(absorption_values))
-        if absorption_values
-        else None
-    )
-    i3_raw, i3_note = _score_budget_absorption(avg_absorption)
-    i3_option = i3_note[:1] if i3_raw is not None else ""
-    if i3_raw is None:
+    budget_summary = _aggregate_budget_absorption(report_items)
+    if budget_summary is None:
+        i3_raw = None
+        i3_option = ""
+        i3_note = "Belum ada anggaran perlakuan risiko yang dapat dibandingkan dengan realisasi biaya."
         notes.append(i3_note)
     else:
-        absorption_details, absorption_total, absorption_count = _sum_detail_by_report(
-            reports,
-            "persentase_serapan_biaya",
+        total_budget = budget_summary["total_budget"]
+        total_actual = budget_summary["total_actual"]
+        aggregate_absorption = budget_summary["ratio"]
+        unbudgeted_actual = budget_summary["unbudgeted_actual"]
+        comparable_budget_count = budget_summary["comparable_count"]
+        is_over_budget = budget_summary["is_over_budget"]
+
+        i3_raw = Decimal("40") if is_over_budget else Decimal("80")
+        i3_option = "b" if is_over_budget else "a"
+        i3_note = (
+            f"Total realisasi biaya {_fmt(total_actual)} dibanding total anggaran {_fmt(total_budget)} "
+            f"({quantize_score(aggregate_absorption)}%)."
         )
-        i3_note = f"Rata-rata serapan biaya perlakuan risiko {quantize_score(avg_absorption)}% dari {len(absorption_values)} item."
         notes.append(
             "I3 Realisasi biaya perlakuan risiko:\n"
-            "Sumber: III.B kolom Persentase Serapan Biaya.\n"
-            f"Rincian sumber: {_format_report_sum_details(absorption_details)}.\n"
-            f"Total serapan: {quantize_score(absorption_total)} = jumlah seluruh nilai serapan biaya dari {absorption_count} item.\n"
-            f"Rumus rata-rata: {quantize_score(absorption_total)} / {absorption_count} = {quantize_score(avg_absorption)}%.\n"
-            "Aturan jawaban: a jika rata-rata realisasi <= 100%, b jika >100%.\n"
+            "Sumber anggaran: Profil Risiko - Biaya Perlakuan Risiko.\n"
+            "Sumber realisasi: III.B - Realisasi Biaya Perlakuan Risiko pada snapshot bulan laporan.\n"
+            f"Item dengan anggaran positif: {comparable_budget_count} dari {item_count} item.\n"
+            f"Total anggaran: {_fmt(total_budget)}.\n"
+            f"Total realisasi pada item beranggaran: {_fmt(total_actual)}.\n"
+            f"Serapan agregat: {_fmt(total_actual)} / {_fmt(total_budget)} x 100 = {quantize_score(aggregate_absorption)}%.\n"
+            f"Realisasi pada item tanpa anggaran: {_fmt(unbudgeted_actual)}.\n"
+            "Aturan jawaban: a jika total realisasi <= total anggaran dan tidak ada realisasi tanpa anggaran; "
+            "b jika total realisasi > total anggaran atau terdapat realisasi tanpa anggaran.\n"
             f"Jawaban: {i3_option} -> Hasil Penilaian {i3_raw}.\n"
             f"Penilaian per parameter: {i3_raw} x bobot 20% = {_weighted_score(i3_raw, 20)}."
         )
