@@ -276,6 +276,26 @@ def calculate_kpmr_for_unit(
     for report in reports:
         report_items.extend(list(report.items.all()))
 
+    # A formally imported KPMR working paper is the reviewed source of truth.
+    # Show that assessment consistently on monthly monitoring pages instead of
+    # replacing it with an inference from incomplete monthly detail fields.
+    official_period = (
+        KPMRPeriode.objects.filter(
+            tahun=year,
+            triwulan=quarter,
+            unit_bisnis=unit,
+            catatan__startswith="Diimpor dari",
+        )
+        .prefetch_related("indikator_resmi__subindikator")
+        .first()
+    )
+    if official_period and official_period.indikator_resmi.count() == 4:
+        return _calculation_from_saved_period(
+            official_period,
+            report_count=len(reports),
+            item_count=len(report_items),
+        )
+
     # An assessment recorded in the official KPMR working paper is an explicit
     # reviewer decision.  Honour the "all a" I4 decision instead of replacing
     # it with an inference from monthly residual values when recalculating the
@@ -292,7 +312,7 @@ def calculate_kpmr_for_unit(
     )
     saved_i4_answers = [
         answer.strip().lower()
-        for answer in (saved_i4.jawaban if saved_i4 else "").split(",")
+        for answer in ((saved_i4.jawaban or "") if saved_i4 else "").split(",")
         if answer.strip()
     ]
     force_i4_all_a = saved_i4_answers == ["a", "a", "a", "a"]
