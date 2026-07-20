@@ -6,7 +6,7 @@ from django.contrib import admin
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
 from django.http import HttpResponseRedirect
 from django.http import JsonResponse
@@ -690,6 +690,24 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         ]
         return custom_urls + urls
 
+    def get_fields(self, request, obj=None):
+        fields = list(super().get_fields(request, obj))
+        if not request.user.is_superuser:
+            fields = [field for field in fields if field != "notification_button"]
+        return fields
+
+    def get_list_display(self, request):
+        list_display = list(super().get_list_display(request))
+        if not request.user.is_superuser:
+            list_display = [field for field in list_display if field != "notification_button"]
+        return list_display
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not request.user.is_superuser:
+            actions.pop("send_next_notification_action", None)
+        return actions
+
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
         if obj and "status" not in readonly_fields:
@@ -1099,6 +1117,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         )
 
     def send_notification_view(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Hanya Super Admin yang dapat mengirim notifikasi laporan risiko.")
         report = self.get_object(request, object_id)
         if report is None:
             raise Http404("Monthly risk report tidak ditemukan.")
