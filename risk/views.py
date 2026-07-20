@@ -38,11 +38,11 @@ from .models import (
 
 
 LEVEL_FALLBACKS = [
-    {"name": "Low", "codes": ["LOW"], "default_color": "#5b8f3a"},
-    {"name": "Low to Moderate", "codes": ["LOW_TO_MODERATE", "LOW-MODERATE", "LTM"], "default_color": "#b8d4a2"},
-    {"name": "Moderate", "codes": ["MODERATE", "MEDIUM"], "default_color": "#f3ef19"},
-    {"name": "Moderate to High", "codes": ["MODERATE_TO_HIGH", "MODERATE-HIGH", "MTH"], "default_color": "#f2b01e"},
-    {"name": "High", "codes": ["HIGH"], "default_color": "#d50f0f"},
+    {"name": "Low", "codes": ["LOW"], "default_color": "#00b050"},
+    {"name": "Low to Moderate", "codes": ["LOW_TO_MODERATE", "LOW-MODERATE", "LTM"], "default_color": "#92d050"},
+    {"name": "Moderate", "codes": ["MODERATE", "MEDIUM"], "default_color": "#ffff00"},
+    {"name": "Moderate to High", "codes": ["MODERATE_TO_HIGH", "MODERATE-HIGH", "MTH"], "default_color": "#ffc000"},
+    {"name": "High", "codes": ["HIGH"], "default_color": "#ff0000"},
 ]
 
 MODE_CHOICES = [
@@ -94,16 +94,29 @@ def _resolve_level_bucket(level_name):
 
 
 def _fallback_level_from_score(score):
-    if score >= 15:
-        return "High", "#d00000"  # merah
-    elif score >= 12:
-        return "Moderate to High", "#f4a300"  # orange
-    elif score >= 8:
-        return "Moderate", "#fff200"  # kuning
-    elif score >= 5:
-        return "Low to Moderate", "#a9c98f"  # hijau muda
-    else:
-        return "Low", "#5a8f3a"  # hijau tua
+    if score >= 20:
+        return "High", "#ff0000"
+    if score >= 16:
+        return "Moderate to High", "#ffc000"
+    if score >= 12:
+        return "Moderate", "#ffff00"
+    if score >= 6:
+        return "Low to Moderate", "#92d050"
+    return "Low", "#00b050"
+
+
+MATRIX_5X5_SCORES = {
+    1: (1, 5, 10, 15, 20),
+    2: (2, 6, 11, 16, 21),
+    3: (3, 8, 13, 18, 23),
+    4: (4, 9, 14, 19, 24),
+    5: (7, 12, 17, 22, 25),
+}
+
+
+def _fallback_matrix_score(impact, likelihood):
+    row = MATRIX_5X5_SCORES.get(likelihood)
+    return row[impact - 1] if row and 1 <= impact <= len(row) else impact * likelihood
     
 
 def _default_matrix():
@@ -181,7 +194,9 @@ def _build_risk_entry(item, mode, matrix_lookup):
         score = None
         matrix_source = "not_mapped"
     elif not level_name:
-        level_name, fallback_color = _fallback_level_from_score(score or (impact * likelihood))
+        level_name, fallback_color = _fallback_level_from_score(
+            score or _fallback_matrix_score(impact, likelihood)
+        )
         color = color or fallback_color
         matrix_source = "fallback"
 
@@ -202,7 +217,7 @@ def _build_risk_entry(item, mode, matrix_lookup):
         "kemungkinan": likelihood,
         "level": level_name,
         "level_bucket": _resolve_level_bucket(level_name),
-        "score": score or (impact * likelihood if is_mappable else None),
+        "score": score or (_fallback_matrix_score(impact, likelihood) if is_mappable else None),
         "color": color or "#d9d9d9",
         "mode": mode,
         "matrix_source": matrix_source,
@@ -278,8 +293,14 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
                 cell_items.get((impact, likelihood), []),
                 key=lambda risk: (risk["no_risiko"] or 0, risk["peristiwa_risiko"]),
             )
-            score = impact * likelihood
-            level_name, color = _fallback_level_from_score(score)
+            fallback_score = _fallback_matrix_score(impact, likelihood)
+            score = cell_meta["score"] if cell_meta else fallback_score
+            level_name = cell_meta["level"] if cell_meta else None
+            color = cell_meta["color"] if cell_meta else None
+            if not level_name or not color:
+                fallback_level, fallback_color = _fallback_level_from_score(score)
+                level_name = level_name or fallback_level
+                color = color or fallback_color
 
             row["cells"].append(
                 {
@@ -321,11 +342,11 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
     mapped_risks = len([item for item in drilldown_items if item["is_mappable"]])
     defaults = {bucket["name"]: bucket["default_color"] for bucket in LEVEL_FALLBACKS}
     legend = [
-        {"name": "Low", "color": "#5a8f3a"},
-        {"name": "Low to Moderate", "color": "#a9c98f"},
-        {"name": "Moderate", "color": "#fff200"},
-        {"name": "Moderate to High", "color": "#f4a300"},
-        {"name": "High", "color": "#d00000"},
+        {"name": "Low", "color": "#00b050"},
+        {"name": "Low to Moderate", "color": "#92d050"},
+        {"name": "Moderate", "color": "#ffff00"},
+        {"name": "Moderate to High", "color": "#ffc000"},
+        {"name": "High", "color": "#ff0000"},
     ]
 
     return {

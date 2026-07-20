@@ -25,11 +25,11 @@ class Command(BaseCommand):
         overwrite = options["overwrite"]
 
         level_definitions = [
-            ("LOW", "Low", "#5B8F3A", 1),
-            ("LOW_TO_MODERATE", "Low to Moderate", "#B8D4A2", 2),
-            ("MODERATE", "Moderate", "#F3EF19", 3),
-            ("MODERATE_TO_HIGH", "Moderate to High", "#F2B01E", 4),
-            ("HIGH", "High", "#D50F0F", 5),
+            ("LOW", "Low", "#00B050", 1),
+            ("LOW_TO_MODERATE", "Low to Moderate", "#92D050", 2),
+            ("MODERATE", "Moderate", "#FFFF00", 3),
+            ("MODERATE_TO_HIGH", "Moderate to High", "#FFC000", 4),
+            ("HIGH", "High", "#FF0000", 5),
         ]
 
         level_map = {}
@@ -81,16 +81,44 @@ class Command(BaseCommand):
             )
             return
 
+        impact_names = ("Sangat Rendah", "Rendah", "Menengah", "Tinggi", "Sangat Tinggi")
+        likelihood_names = (
+            "Hampir Tidak Pernah Terjadi",
+            "Jarang Terjadi",
+            "Mungkin Terjadi",
+            "Sering Terjadi",
+            "Hampir Selalu Terjadi",
+        )
+        for order, (scale, name) in enumerate(zip(dampak_list, impact_names), start=1):
+            scale.nama = name
+            scale.urutan = order
+            scale.aktif = True
+            scale.save(update_fields=["nama", "urutan", "aktif"])
+        for order, (scale, name) in enumerate(zip(probabilitas_list, likelihood_names), start=1):
+            scale.nama = name
+            scale.urutan = order
+            scale.aktif = True
+            scale.save(update_fields=["nama", "urutan", "aktif"])
+
         def get_level(score):
-            if 1 <= score <= 4:
+            if score <= 5:
                 return level_map["LOW"]
-            elif 5 <= score <= 9:
+            elif score <= 11:
                 return level_map["LOW_TO_MODERATE"]
-            elif 10 <= score <= 15:
+            elif score <= 15:
                 return level_map["MODERATE"]
-            elif 16 <= score <= 19:
+            elif score <= 19:
                 return level_map["MODERATE_TO_HIGH"]
             return level_map["HIGH"]
+
+        # Skor matriks mengikuti tabel acuan, bukan hasil perkalian kedua skala.
+        score_rows = {
+            1: (1, 5, 10, 15, 20),
+            2: (2, 6, 11, 16, 21),
+            3: (3, 8, 13, 18, 23),
+            4: (4, 9, 14, 19, 24),
+            5: (7, 12, 17, 22, 25),
+        }
 
         if overwrite:
             RiskMatrixCell.objects.filter(matrix=matrix).delete()
@@ -100,7 +128,7 @@ class Command(BaseCommand):
 
         for p_index, probabilitas in enumerate(probabilitas_list, start=1):
             for d_index, dampak in enumerate(dampak_list, start=1):
-                skor = d_index * p_index
+                skor = score_rows[p_index][d_index - 1]
                 level = get_level(skor)
 
                 obj, was_created = RiskMatrixCell.objects.update_or_create(

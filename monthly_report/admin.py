@@ -255,7 +255,7 @@ class MonthlyRiskReportAdminForm(forms.ModelForm):
 
     class Meta:
         model = MonthlyRiskReport
-        exclude = ("tahun_buku", "periode", "unit", "kontrak_manajemen")
+        exclude = ("tahun_buku", "periode", "unit", "kontrak_manajemen", "prepared_by")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -264,15 +264,16 @@ class MonthlyRiskReportAdminForm(forms.ModelForm):
 
         unit = self._selected_unit_bisnis()
         if unit:
-            self.fields["prepared_by"].queryset = _users_for_unit_role(
-                unit,
-                PenugasanUnitBisnis.ROLE_RISK_OFFICER,
-            )
-            self.fields["reviewed_by"].queryset = _users_for_unit_role(
-                unit,
-                PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
-            )
-            self.fields["approved_by"].queryset = _users_for_unit_group(unit)
+            reviewed_by_field = self.fields.get("reviewed_by")
+            if reviewed_by_field:
+                reviewed_by_field.queryset = _users_for_unit_role(
+                    unit,
+                    PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
+                )
+
+            approved_by_field = self.fields.get("approved_by")
+            if approved_by_field:
+                approved_by_field.queryset = _users_for_unit_group(unit)
 
     def _selected_unit_bisnis(self):
         if self.instance and self.instance.reassessment_id:
@@ -288,6 +289,25 @@ class MonthlyRiskReportAdminForm(forms.ModelForm):
             .values_list("unit_bisnis", flat=True)
             .first()
         )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        reassessment = cleaned_data.get("reassessment") or getattr(self.instance, "reassessment", None)
+        if reassessment and reassessment.unit_bisnis_id:
+            first_officer = _users_for_unit_role(
+                reassessment.unit_bisnis,
+                PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            ).first()
+            if not first_officer:
+                self.add_error(
+                    "reassessment",
+                    "Belum ada Risk Officer aktif pada BID/Unit Bisnis yang dipilih.",
+                )
+            elif not self.instance.prepared_by_id:
+                # Kolom lama dipertahankan sebagai referensi kompatibilitas;
+                # tampilan dan notifikasi memakai seluruh Risk Officer unit.
+                self.instance.prepared_by = first_officer
+        return cleaned_data
 
 
 def _get_selected_reassessment_id(request):
@@ -606,7 +626,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "status",
         "flow_action_button",
         "notification_button",
-        "prepared_by",
+        "prepared_by_display",
         "reviewed_by",
         "approved_by",
     ]
@@ -615,6 +635,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "peta_risiko_iiic_link",
         "flow_action_button",
         "notification_button",
+        "prepared_by_display",
     ]
     autocomplete_fields = (
         "reassessment",
@@ -674,6 +695,25 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         if obj and "status" not in readonly_fields:
             readonly_fields.append("status")
         return readonly_fields
+
+    @admin.display(description="Prepared by")
+    def prepared_by_display(self, obj):
+        if not obj or not obj.reassessment_id or not obj.reassessment.unit_bisnis_id:
+            return "Otomatis mengikuti Risk Officer BID/Unit Bisnis setelah laporan disimpan."
+        officers = _users_for_unit_role(
+            obj.reassessment.unit_bisnis,
+            PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+        names = [officer.get_full_name().strip() or officer.get_username() for officer in officers]
+        return ", ".join(names) if names else "Belum ada Risk Officer aktif pada BID/Unit Bisnis ini."
+
+    def save_model(self, request, obj, form, change):
+        if not obj.prepared_by_id and obj.reassessment_id:
+            obj.prepared_by = _users_for_unit_role(
+                obj.reassessment.unit_bisnis,
+                PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            ).first()
+        super().save_model(request, obj, form, change)
 
     @admin.display(description="III.C - Peta Risiko Residual")
     def peta_risiko_iiic_link(self, obj):
@@ -822,11 +862,22 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                         "score": cell.skor if cell else "",
                         "level": cell.level_risiko.nama if cell and cell.level_risiko_id else "",
                         "color": cell.warna_hex if cell and cell.warna_hex else "#f5f5f5",
+                        "text_color": (
+                            "#ffffff"
+                            if cell and cell.level_risiko_id and cell.level_risiko.kode == "HIGH"
+                            else "#000000"
+                        ),
                         "inherent_points": inherent_points.get(key, []),
                         "residual_points": residual_points.get(key, []),
                     }
                 )
-            rows.append({"probabilitas": prob, "cells": row})
+            rows.append(
+                {
+                    "probabilitas": prob,
+                    "probabilitas_kode": chr(64 + prob.urutan) if 1 <= prob.urutan <= 5 else "",
+                    "cells": row,
+                }
+            )
 
         kpmr_calculation = None
         kpmr_month = report.periode.tanggal_mulai.month if report.periode_id else None
@@ -981,8 +1032,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         update_fields = ["status", "updated_at"]
         note = ""
         if flow_action == "submit":
-            if not report.prepared_by_id:
-                raise ValidationError("Prepared by/Risk Office belum diisi.")
+            if not _users_for_unit_role(
+                report.reassessment.unit_bisnis,
+                PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            ).exists():
+                raise ValidationError("Belum ada Risk Officer aktif pada BID/Unit Bisnis laporan.")
             report.status = "submitted"
             report.submitted_at = timezone.now()
             update_fields.append("submitted_at")

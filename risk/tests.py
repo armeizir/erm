@@ -23,6 +23,42 @@ from risk.models import (
     RKMSummary,
     KPMRSummary,
 )
+from risk.views import _fallback_level_from_score, _fallback_matrix_score
+
+
+class RiskMatrixReferenceTests(SimpleTestCase):
+    def test_scores_follow_reference_matrix(self):
+        expected_rows = {
+            1: [1, 5, 10, 15, 20],
+            2: [2, 6, 11, 16, 21],
+            3: [3, 8, 13, 18, 23],
+            4: [4, 9, 14, 19, 24],
+            5: [7, 12, 17, 22, 25],
+        }
+
+        for likelihood, expected in expected_rows.items():
+            self.assertEqual(
+                [_fallback_matrix_score(impact, likelihood) for impact in range(1, 6)],
+                expected,
+            )
+
+    def test_levels_follow_reference_score_ranges(self):
+        expected = {
+            1: "Low",
+            4: "Low",
+            5: "Low",
+            6: "Low to Moderate",
+            11: "Low to Moderate",
+            12: "Moderate",
+            15: "Moderate",
+            16: "Moderate to High",
+            19: "Moderate to High",
+            20: "High",
+            25: "High",
+        }
+
+        for score, level in expected.items():
+            self.assertEqual(_fallback_level_from_score(score)[0], level)
 
 
 class CorporateRiskItemLabelTests(SimpleTestCase):

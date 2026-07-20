@@ -68,11 +68,27 @@ def _pairing_officer_for_report(report):
     return assignment.user if assignment else None
 
 
+def _risk_officers_for_report(report):
+    if not report.reassessment_id or not report.reassessment.unit_bisnis_id:
+        return []
+    return [
+        assignment.user
+        for assignment in PenugasanUnitBisnis.objects.filter(
+            unit_bisnis=report.reassessment.unit_bisnis,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            aktif=True,
+            user__is_active=True,
+        )
+        .select_related("user")
+        .order_by("user__first_name", "user__last_name", "user__username", "id")
+    ]
+
+
 def monthly_report_notification_stage(report):
     if report.status in {"draft", "revision"}:
         return {
             "stage": STAGE_PREPARE,
-            "recipient": report.prepared_by,
+            "recipients": _risk_officers_for_report(report),
             "recipient_role": "Risk Office",
             "cc_recipient": _pairing_officer_for_report(report),
             "cc_recipient_role": "Pairing Officer",
@@ -121,19 +137,31 @@ def send_monthly_report_notification(report, request=None, base_url=None):
         raise ValidationError("Status laporan tidak memerlukan notifikasi tahap berikutnya.")
 
     app_setting = AppSetting.get_solo()
-    recipient = stage["recipient"]
+    recipient_users = stage.get("recipients")
+    recipient = stage.get("recipient")
     cc_recipient = stage.get("cc_recipient")
     test_email = "" if stage.get("ignore_test_email") else app_setting.monthly_report_notification_test_email
     cc_recipients = []
     if test_email:
         recipients = [test_email]
     else:
-        if not recipient:
+        if recipient_users is not None:
+            if not recipient_users:
+                raise ValidationError("Belum ada Risk Officer aktif pada BID/Unit Bisnis laporan.")
+            users_without_email = [user.get_username() for user in recipient_users if not user.email]
+            if users_without_email:
+                raise ValidationError(
+                    "Email Risk Officer belum diisi: " + ", ".join(users_without_email)
+                )
+            recipients = list(dict.fromkeys(user.email for user in recipient_users))
+            recipient = recipient_users[0]
+        elif not recipient:
             role = stage.get("recipient_role") or f"tahap {stage['title']}"
             raise ValidationError(f"Penerima {role} untuk laporan ini belum diisi.")
-        if not recipient.email:
-            raise ValidationError(f"Email user {recipient.get_username()} belum diisi.")
-        recipients = [recipient.email]
+        else:
+            if not recipient.email:
+                raise ValidationError(f"Email user {recipient.get_username()} belum diisi.")
+            recipients = [recipient.email]
         if "cc_recipient" in stage:
             if not cc_recipient:
                 role = stage.get("cc_recipient_role") or "CC"

@@ -339,16 +339,16 @@
       <tr>
         <th style="width: 150px;">Tingkat Kemungkinan</th>
         {% for dampak in dampak_scales %}
-          <th>{{ dampak }}</th>
+          <th>{{ dampak.urutan }}<br>{{ dampak.nama }}</th>
         {% endfor %}
       </tr>
     </thead>
     <tbody>
       {% for row in rows %}
         <tr>
-          <th>{{ row.probabilitas }}</th>
+          <th>{{ row.probabilitas_kode }}<br>{{ row.probabilitas.nama }}</th>
           {% for cell in row.cells %}
-            <td class="iiic-cell" style="background: {{ cell.color }};">
+            <td class="iiic-cell" style="background: {{ cell.color }}; color: {{ cell.text_color }};">
               <div class="iiic-level">{{ cell.level|default:"-" }}</div>
               <div class="iiic-score">{{ cell.score }}</div>
               <div class="iiic-points">
@@ -368,7 +368,7 @@
       <tr>
         <th>Tingkat Dampak</th>
         {% for dampak in dampak_scales %}
-          <th>{{ dampak }}</th>
+          <th>{{ dampak.urutan }}<br>{{ dampak.nama }}</th>
         {% endfor %}
       </tr>
     </tfoot>

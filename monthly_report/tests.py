@@ -155,7 +155,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIn("web_button", MonthlyRiskReportAdmin.list_display)
         self.assertNotIn("pdf_button", MonthlyRiskReportAdmin.list_display)
 
-    def test_monthly_report_signer_fields_are_limited_by_report_unit_and_role(self):
+    def test_monthly_report_preparer_is_automatic_for_report_unit(self):
         User = get_user_model()
         report_infra = self._report("UB INFRA")
         report_bes = self._report("UB BES")
@@ -189,10 +189,29 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
 
         form = MonthlyRiskReportAdminForm(instance=report_infra)
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
 
-        self.assertEqual(list(form.fields["prepared_by"].queryset), [infra_ro])
+        self.assertNotIn("prepared_by", form.fields)
+        self.assertEqual(report_admin.prepared_by_display(report_infra), "infra_ro")
         self.assertEqual(list(form.fields["reviewed_by"].queryset), [infra_rc])
         self.assertEqual(list(form.fields["approved_by"].queryset), [infra_member])
+
+    def test_monthly_report_form_handles_signer_fields_excluded_by_admin(self):
+        report_infra = self._report("UB INFRA")
+
+        class ReadonlySignerForm(MonthlyRiskReportAdminForm):
+            class Meta(MonthlyRiskReportAdminForm.Meta):
+                exclude = MonthlyRiskReportAdminForm.Meta.exclude + (
+                    "prepared_by",
+                    "reviewed_by",
+                    "approved_by",
+                )
+
+        form = ReadonlySignerForm(instance=report_infra)
+
+        self.assertNotIn("prepared_by", form.fields)
+        self.assertNotIn("reviewed_by", form.fields)
+        self.assertNotIn("approved_by", form.fields)
 
     def test_monthly_report_status_is_readonly_after_saved(self):
         report_infra = self._report("INFRA")
@@ -214,6 +233,11 @@ class MonthlyRiskReportAdminTests(TestCase):
         report_infra.reviewed_by = reviewer
         report_infra.approved_by = approver
         report_infra.save(update_fields=["reviewed_by", "approved_by"])
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report_infra.reassessment.unit_bisnis,
+            user=self.prepared_by,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
 
         report_admin._apply_flow_action(report_infra, "submit", self.admin_user)
@@ -402,15 +426,25 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
 
     def test_monthly_report_notification_sends_prepare_stage_to_risk_office_and_cc_pairing(self):
-        self.prepared_by.email = "risk.office@example.com"
-        self.prepared_by.save(update_fields=["email"])
         report_infra = self._report("INFRA")
+        User = get_user_model()
+        first_officer = User.objects.create_user(username="risk.office.1", email="risk.office.1@example.com")
+        second_officer = User.objects.create_user(username="risk.office.2", email="risk.office.2@example.com")
+        for officer in (first_officer, second_officer):
+            PenugasanUnitBisnis.objects.create(
+                unit_bisnis=report_infra.reassessment.unit_bisnis,
+                user=officer,
+                peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            )
         self._assign_pairing_officer(report_infra)
 
         sent = send_monthly_report_notification(report_infra, base_url="https://erm.plnbatam.com")
 
         self.assertEqual(sent, 1)
-        self.assertEqual(mail.outbox[0].to, ["risk.office@example.com"])
+        self.assertEqual(
+            mail.outbox[0].to,
+            ["risk.office.1@example.com", "risk.office.2@example.com"],
+        )
         self.assertEqual(mail.outbox[0].cc, ["pairing@example.com"])
         self.assertNotIn("[MODE UJI COBA]", mail.outbox[0].body)
         self.assertIn("Pairing Officer", mail.outbox[0].body)
