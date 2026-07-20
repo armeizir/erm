@@ -276,6 +276,27 @@ def calculate_kpmr_for_unit(
     for report in reports:
         report_items.extend(list(report.items.all()))
 
+    # An assessment recorded in the official KPMR working paper is an explicit
+    # reviewer decision.  Honour the "all a" I4 decision instead of replacing
+    # it with an inference from monthly residual values when recalculating the
+    # monthly monitoring page.
+    saved_i4 = (
+        KPMRIndikatorResmi.objects.filter(
+            periode__tahun=year,
+            periode__triwulan=quarter,
+            periode__unit_bisnis=unit,
+            kode="I4",
+        )
+        .order_by("-pk")
+        .first()
+    )
+    saved_i4_answers = [
+        answer.strip().lower()
+        for answer in (saved_i4.jawaban if saved_i4 else "").split(",")
+        if answer.strip()
+    ]
+    force_i4_all_a = saved_i4_answers == ["a", "a", "a", "a"]
+
     month_label = (
         reports[0].periode.nama_periode
         if reports and reports[0].periode_id
@@ -433,7 +454,12 @@ def calculate_kpmr_for_unit(
         if item_count
         else None
     )
-    quant_raw = Decimal("90") if quantification_ratio is not None and quantification_ratio >= Decimal("95") else Decimal("50")
+    quant_raw = (
+        Decimal("90")
+        if force_i4_all_a
+        or (quantification_ratio is not None and quantification_ratio >= Decimal("95"))
+        else Decimal("50")
+    )
     quant_note = (
         f"Kelengkapan skor realisasi dan target residual {quantize_score(quantification_ratio)}%; "
         "berlaku untuk risiko kuantitatif maupun kualitatif."
@@ -454,7 +480,11 @@ def calculate_kpmr_for_unit(
             f"Penilaian subindikator: {quant_raw} x bobot subindikator 25% = {_weighted_score(quant_raw, 25)}."
         )
 
-    plan_raw = Decimal("90") if comparable and not above_target else Decimal("50")
+    plan_raw = (
+        Decimal("90")
+        if force_i4_all_a or (comparable and not above_target)
+        else Decimal("50")
+    )
     plan_note = (
         "Rencana perlakuan menurunkan risiko sampai target residual pada item yang bisa dihitung."
         if plan_raw == Decimal("90")
@@ -480,6 +510,15 @@ def calculate_kpmr_for_unit(
         f"Jawaban: a -> Hasil Penilaian {priority_raw}.\n"
         f"Penilaian subindikator: {priority_raw} x bobot subindikator 25% = {_weighted_score(priority_raw, 25)}."
     )
+
+    if force_i4_all_a:
+        official_note = (
+            "Jawaban I4 mengikuti penilaian resmi Kertas Kerja KPMR: "
+            "seluruh empat subindikator ditetapkan a = 90."
+        )
+        quant_note = official_note
+        plan_detail = official_note
+        notes.append(f"I4 Penilaian resmi:\n{official_note}")
 
     sub_scores = [
         ("IDENTIFIKASI", ident_raw, ident_detail),

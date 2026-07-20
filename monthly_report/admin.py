@@ -829,17 +829,30 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
         inherent_points = {}
         residual_points = {}
+        report_quarter = (
+            ((report.periode.tanggal_mulai.month - 1) // 3) + 1
+            if report.periode_id
+            else 1
+        )
+        inherent_dampak_field = f"skala_dampak_q{report_quarter}"
+        inherent_probabilitas_field = f"skala_probabilitas_q{report_quarter}"
         for item in report.items.select_related(
             "risk_event",
-            "risk_event__skala_dampak_q1",
-            "risk_event__skala_probabilitas_q1",
+            f"risk_event__{inherent_dampak_field}",
+            f"risk_event__{inherent_probabilitas_field}",
             "realisasi_skala_dampak",
             "realisasi_skala_probabilitas",
         ):
             risk_number = str(item.risk_event.no_risiko)
-            if item.risk_event.skala_dampak_q1_id and item.risk_event.skala_probabilitas_q1_id:
+            inherent_dampak_id = getattr(
+                item.risk_event, f"{inherent_dampak_field}_id"
+            )
+            inherent_probabilitas_id = getattr(
+                item.risk_event, f"{inherent_probabilitas_field}_id"
+            )
+            if inherent_dampak_id and inherent_probabilitas_id:
                 inherent_points.setdefault(
-                    (item.risk_event.skala_dampak_q1_id, item.risk_event.skala_probabilitas_q1_id),
+                    (inherent_dampak_id, inherent_probabilitas_id),
                     [],
                 ).append(risk_number)
             if item.realisasi_skala_dampak_id and item.realisasi_skala_probabilitas_id:
