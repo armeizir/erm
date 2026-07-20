@@ -33,6 +33,13 @@ DEBUG = env_bool("DEBUG", default=False)
 SECRET_KEY = os.environ.get("SECRET_KEY") or get_random_secret_key()
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", default=[])
 
+# ReAssessmentSummary menggunakan inline formset yang dapat melampaui batas
+# bawaan Django (1.000 field) saat satu profil memuat banyak item risiko.
+# Batas tetap dibuat eksplisit dan terbatas agar proteksi TooManyFieldsSent aktif.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = int(
+    os.environ.get("DATA_UPLOAD_MAX_NUMBER_FIELDS", "5000")
+)
+
 
 INSTALLED_APPS = [
     "django.contrib.admin",
