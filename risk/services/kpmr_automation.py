@@ -387,6 +387,138 @@ def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_
     )
 
 
+OFFICIAL_ANSWER_RAW_SCORES = {
+    "I1": {"a": Decimal("90"), "b": Decimal("60"), "c": Decimal("40")},
+    "I2": {
+        "a": Decimal("100"), "b": Decimal("80"), "c": Decimal("70"),
+        "d": Decimal("60"), "e": Decimal("40"),
+    },
+    "I3": {"a": Decimal("80"), "b": Decimal("40")},
+}
+
+OFFICIAL_I4_SUB_RAW_SCORES = {
+    "a": Decimal("90"),
+    "b": Decimal("50"),
+}
+
+
+def _normalized_official_answer(value):
+    return str(value or "").strip().lower()
+
+
+def _apply_official_assessment_precedence(
+    *,
+    year,
+    quarter,
+    unit,
+    indicators,
+    notes,
+):
+    # Jawaban resmi menjadi source of truth bila tersedia.
+    official_indicators = {}
+    for obj in (
+        KPMRIndikatorResmi.objects.filter(
+            periode__tahun=year,
+            periode__triwulan=quarter,
+            periode__unit_bisnis=unit,
+        )
+        .order_by("kode", "-pk")
+    ):
+        if obj.kode and obj.kode not in official_indicators:
+            official_indicators[obj.kode] = obj
+
+    applied = []
+
+    for indicator in indicators:
+        code = indicator.get("kode")
+        official = official_indicators.get(code)
+
+        if code in OFFICIAL_ANSWER_RAW_SCORES and official is not None:
+            answer = _normalized_official_answer(official.jawaban)
+            raw = OFFICIAL_ANSWER_RAW_SCORES[code].get(answer)
+            if raw is not None:
+                indicator["hasil"] = quantize_score(raw)
+                indicator["skor"] = _weighted_score(
+                    raw,
+                    INDICATOR_DEFINITIONS[code]["bobot"],
+                )
+                indicator["jawaban"] = answer
+                indicator["keterangan"] = (
+                    f"Jawaban resmi KPMR digunakan sebagai source of truth: "
+                    f"{code}={answer}. Perhitungan otomatis tetap menjadi fallback "
+                    "bila asesmen resmi tidak tersedia."
+                )
+                applied.append(f"{code}={answer}")
+
+        if code != "I4" or official is None:
+            continue
+
+        official_subs = {}
+        for obj in (
+            KPMRSubIndikatorResmi.objects.filter(indikator=official)
+            .order_by("kode", "-pk")
+        ):
+            if obj.kode and obj.kode not in official_subs:
+                official_subs[obj.kode] = obj
+
+        changed = []
+        for sub in indicator.get("subindikator") or []:
+            sub_code = sub.get("kode")
+            official_sub = official_subs.get(sub_code)
+            if official_sub is None:
+                continue
+
+            answer = _normalized_official_answer(official_sub.jawaban)
+            raw = OFFICIAL_I4_SUB_RAW_SCORES.get(answer)
+            if raw is None:
+                continue
+
+            sub["hasil"] = quantize_score(raw)
+            sub["skor"] = _weighted_score(raw, Decimal("25"))
+            sub["jawaban"] = answer
+
+            if sub_code == "RENCANA" and answer == "a":
+                sub["keterangan"] = (
+                    "Jawaban resmi KPMR digunakan sebagai source of truth: "
+                    "I4.3/RENCANA=a. Untuk asesmen BIS TW II 2026, perubahan profil "
+                    "masih diakomodasi sampai dengan Juni 2026. Periode berikutnya "
+                    "mengikuti asesmen resmi baru atau perhitungan data aktual."
+                )
+            else:
+                sub["keterangan"] = (
+                    f"Jawaban resmi KPMR digunakan sebagai source of truth: "
+                    f"{sub_code}={answer}."
+                )
+            changed.append((sub_code, raw, answer))
+
+        if changed and len(changed) == len(indicator.get("subindikator") or []):
+            i4_raw = sum((raw for _, raw, _ in changed), Decimal("0")) / Decimal(len(changed))
+            indicator["hasil"] = quantize_score(i4_raw)
+            indicator["skor"] = _weighted_score(
+                i4_raw,
+                INDICATOR_DEFINITIONS["I4"]["bobot"],
+            )
+            indicator["jawaban"] = ",".join(answer for _, _, answer in changed)
+            indicator["keterangan"] = (
+                "I4 mengikuti jawaban resmi KPMR pada empat subindikator. "
+                f"Nilai rata-rata resmi = {quantize_score(i4_raw)}."
+            )
+            applied.append(
+                "I4=" + ",".join(answer for _, _, answer in changed)
+            )
+
+    if applied:
+        notes.append(
+            "ASESMEN RESMI KPMR:\n"
+            "Jawaban resmi memiliki precedence atas kalkulasi otomatis untuk "
+            "unit/periode yang sama. Diterapkan: "
+            + ", ".join(applied)
+            + "."
+        )
+
+    return indicators
+
+
 def calculate_kpmr_for_unit(
     year: int,
     quarter: int,
@@ -802,6 +934,15 @@ def calculate_kpmr_for_unit(
         }
         for code, score, note in sub_scores
     ]
+
+
+    indicators = _apply_official_assessment_precedence(
+        year=year,
+        quarter=quarter,
+        unit=unit,
+        indicators=indicators,
+        notes=notes,
+    )
 
     score_total = quantize_score(sum(indicator["skor"] for indicator in indicators))
     return KPMRCalculation(

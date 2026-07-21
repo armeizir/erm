@@ -87,3 +87,15 @@ class KPMRExposureAggregationTest(SimpleTestCase):
             2,
         )
         self.assertEqual(len(result["conflicts"]), 1)
+
+class KPMROfficialAssessmentPrecedenceMappingTest(SimpleTestCase):
+    def test_official_answer_score_mappings_are_explicit(self):
+        from risk.services.kpmr_automation import (
+            OFFICIAL_ANSWER_RAW_SCORES,
+            OFFICIAL_I4_SUB_RAW_SCORES,
+        )
+
+        self.assertEqual(OFFICIAL_ANSWER_RAW_SCORES["I1"]["b"], Decimal("60"))
+        self.assertEqual(OFFICIAL_ANSWER_RAW_SCORES["I2"]["a"], Decimal("100"))
+        self.assertEqual(OFFICIAL_ANSWER_RAW_SCORES["I3"]["a"], Decimal("80"))
+        self.assertEqual(OFFICIAL_I4_SUB_RAW_SCORES["a"], Decimal("90"))
