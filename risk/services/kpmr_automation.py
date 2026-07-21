@@ -935,6 +935,12 @@ def calculate_kpmr_for_unit(
         for code, score, note in sub_scores
     ]
 
+    # I4.jawaban harus selalu merefleksikan empat jawaban subindikator
+    # dalam urutan resmi: IDENTIFIKASI, KUANTIFIKASI, RENCANA, PRIORITISASI.
+    indicators[-1]["jawaban"] = ",".join(
+        subindicator["jawaban"]
+        for subindicator in indicators[-1]["subindikator"]
+    )
 
     indicators = _apply_official_assessment_precedence(
         year=year,

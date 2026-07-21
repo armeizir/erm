@@ -37,7 +37,7 @@ EXPECTED = {
     "I1": (Decimal("90.00"), Decimal("27.00"), "a"),
     "I2": (Decimal("100.00"), Decimal("20.00"), "a"),
     "I3": (Decimal("80.00"), Decimal("16.00"), "a"),
-    "I4": (Decimal("90.00"), Decimal("27.00"), ""),
+    "I4": (Decimal("90.00"), Decimal("27.00"), "a,a,a,a"),
 }
 
 
@@ -116,7 +116,7 @@ def main():
             errors.append(f"{code} hasil {actual_raw} != {expected_raw}")
         if actual_score != expected_score:
             errors.append(f"{code} skor {actual_score} != {expected_score}")
-        if code != "I4" and actual_answer != expected_answer:
+        if actual_answer != expected_answer:
             errors.append(f"{code} jawaban {actual_answer!r} != {expected_answer!r}")
 
     i4 = by.get("I4") or {}
