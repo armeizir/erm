@@ -140,6 +140,111 @@ def rating_for_score(score: Decimal) -> str:
     return "UNSATISFACTORY"
 
 
+
+def _format_report_scope(reports):
+    """Return a readable, stable label for reports included in a KPMR calculation."""
+    if reports is None:
+        return "-"
+
+    try:
+        report_list = list(reports)
+    except TypeError:
+        report_list = [reports]
+
+    if not report_list:
+        return "-"
+
+    labels = []
+    for report in report_list:
+        report_id = getattr(report, "pk", None) or getattr(report, "id", None)
+        label = str(report)
+        if report_id is not None:
+            labels.append(f"#{report_id} {label}")
+        else:
+            labels.append(label)
+
+    return "; ".join(labels)
+
+
+def _aggregate_exposure_for_i1(report_items, quarter):
+    """Agregasi eksposur KPMR I1 per top-risk/no_item, bukan per treatment row.
+
+    Satu top risk dapat mempunyai banyak penyebab/perlakuan. Nilai eksposur target
+    dan residual harus dihitung satu kali per ``risk_event.no_item`` agar tidak
+    terduplikasi oleh banyaknya treatment rows.
+    """
+    groups = {}
+    conflicts = []
+
+    for item in report_items:
+        risk_event = getattr(item, "risk_event", None)
+        if risk_event is None:
+            continue
+
+        group_key = getattr(risk_event, "no_item", None)
+        if group_key in (None, ""):
+            group_key = getattr(risk_event, "pk", None)
+        if group_key is None:
+            continue
+
+        entry = groups.setdefault(
+            group_key,
+            {
+                "target": None,
+                "residual": None,
+                "risk_event_ids": set(),
+            },
+        )
+        risk_event_id = getattr(risk_event, "pk", None)
+        if risk_event_id is not None:
+            entry["risk_event_ids"].add(risk_event_id)
+
+        raw_target = getattr(risk_event, f"eksposur_risiko_q{quarter}", None)
+        raw_residual = getattr(item, "realisasi_eksposur", None)
+
+        for field_name, raw_value in (
+            ("target", raw_target),
+            ("residual", raw_residual),
+        ):
+            if raw_value in (None, ""):
+                continue
+            value = Decimal(raw_value)
+            current = entry[field_name]
+            if current is None:
+                entry[field_name] = value
+            elif current != value:
+                conflicts.append(
+                    {
+                        "group": group_key,
+                        "field": field_name,
+                        "first": current,
+                        "other": value,
+                    }
+                )
+
+    if not groups:
+        return None
+
+    complete = [
+        entry
+        for entry in groups.values()
+        if entry["target"] is not None and entry["residual"] is not None
+    ]
+    incomplete_count = len(groups) - len(complete)
+
+    total_target = sum((entry["target"] for entry in complete), Decimal("0"))
+    total_residual = sum((entry["residual"] for entry in complete), Decimal("0"))
+
+    return {
+        "total_target": total_target,
+        "total_residual": total_residual,
+        "group_count": len(groups),
+        "comparable_group_count": len(complete),
+        "incomplete_group_count": incomplete_count,
+        "conflicts": conflicts,
+    }
+
+
 def _score_output_progress(progress):
     if progress is None:
         return None, "Belum ada data progress pelaksanaan perlakuan risiko."
@@ -408,37 +513,98 @@ def calculate_kpmr_for_unit(
         else:
             below_target += 1
 
-    if not comparable:
-        i1_raw = None
-        i1_option = ""
-        i1_note = "Belum ada item dengan realisasi risiko dan target residual yang lengkap."
-        notes.append(i1_note)
-    elif above_target:
-        i1_raw = Decimal("40")
-        i1_option = "c"
+    exposure_summary = _aggregate_exposure_for_i1(report_items, quarter)
+    exposure_ready = (
+        exposure_summary is not None
+        and exposure_summary["comparable_group_count"] > 0
+        and exposure_summary["incomplete_group_count"] == 0
+        and not exposure_summary["conflicts"]
+    )
+
+    if exposure_ready:
+        total_exposure_target = exposure_summary["total_target"]
+        total_exposure_residual = exposure_summary["total_residual"]
+        exposure_group_count = exposure_summary["comparable_group_count"]
+
+        if total_exposure_residual < total_exposure_target:
+            i1_raw = Decimal("90")
+            i1_option = "a"
+            comparison_text = "lebih rendah dari"
+        elif total_exposure_residual == total_exposure_target:
+            i1_raw = Decimal("60")
+            i1_option = "b"
+            comparison_text = "sama dengan"
+        else:
+            i1_raw = Decimal("40")
+            i1_option = "c"
+            comparison_text = "lebih tinggi dari"
+
         i1_note = (
-            f"{above_target} risiko di atas target residual, {same_target} sama target, "
-            f"{below_target} lebih rendah dari target."
+            f"Total Exposure Residual {_fmt(total_exposure_residual)} {comparison_text} "
+            f"Total Exposure Target {_fmt(total_exposure_target)}."
         )
-    elif same_target:
-        i1_raw = Decimal("60")
-        i1_option = "b"
-        i1_note = f"{same_target} risiko sama dengan target residual, {below_target} lebih rendah dari target."
+        i1_detail = (
+            "[SUMBER DATA]\n"
+            f"Unit: {unit.name}; Tahun: {year}; Triwulan: Q{quarter}.\n"
+            f"Laporan yang masuk perhitungan: {_format_report_scope(reports)}.\n"
+            "Metode mengikuti Kertas Kerja KPMR user: membandingkan TOTAL Nilai Eksposur "
+            "Risiko Residual dengan TOTAL Target Risiko Residual.\n\n"
+            "[DATA YANG DIHITUNG]\n"
+            f"Top-risk/group lengkap: {exposure_group_count}.\n"
+            f"Total Exposure Target = {_fmt(total_exposure_target)}.\n"
+            f"Total Exposure Residual = {_fmt(total_exposure_residual)}.\n\n"
+            "[LOGIKA KPMR SESUAI ASESMEN USER]\n"
+            "a = Total Exposure Residual < Total Exposure Target (nilai 90); "
+            "b = sama (nilai 60); c = Total Exposure Residual > Total Exposure Target (nilai 40).\n"
+            f"Jawaban '{i1_option}' -> Hasil Penilaian {i1_raw}.\n"
+            f"Skor berbobot = {i1_raw} x 30% = {_weighted_score(i1_raw, 30)}.\n\n"
+            "[CATATAN]\n"
+            "Perhitungan dilakukan satu kali per top-risk/no_item, sehingga nilai eksposur "
+            "tidak terduplikasi meskipun satu risiko memiliki beberapa penyebab/perlakuan."
+        )
     else:
-        i1_raw = Decimal("90")
-        i1_option = "a"
-        i1_note = f"Seluruh {below_target} risiko yang bisa dihitung berada di bawah target residual."
-    i1_detail = (
-        "Sumber: III.A/III.C realisasi residual dibanding target residual TW berjalan.\n"
-        f"Data lengkap: {len(comparable)} dari {item_count} item risiko.\n"
-        f"Rincian: {below_target} di bawah target, {same_target} sama target, {above_target} di atas target.\n"
-        "Aturan jawaban: a=semua di bawah target; b=ada yang sama target dan tidak ada di atas target; c=ada yang di atas target.\n"
-        f"Jawaban: {i1_option or '-'} -> Hasil Penilaian {_fmt(i1_raw)}.\n"
-        f"Penilaian per parameter: {_fmt(i1_raw)} x bobot 30% = {_weighted_score(i1_raw, 30)}."
-    )
-    notes.append(
-        f"I1 Pencapaian eksposur risiko:\n{i1_detail}"
-    )
+        # Fallback untuk unit yang belum memiliki data eksposur target/residual lengkap.
+        if not comparable:
+            i1_raw = None
+            i1_option = ""
+            i1_note = "Belum ada data eksposur lengkap maupun pasangan skor residual-target yang dapat dihitung."
+            notes.append(i1_note)
+        elif above_target:
+            i1_raw = Decimal("40")
+            i1_option = "c"
+            i1_note = (
+                f"Fallback skor: {above_target} risiko di atas target residual, "
+                f"{same_target} sama target, {below_target} lebih rendah dari target."
+            )
+        elif same_target:
+            i1_raw = Decimal("60")
+            i1_option = "b"
+            i1_note = (
+                f"Fallback skor: {same_target} risiko sama dengan target residual, "
+                f"{below_target} lebih rendah dari target."
+            )
+        else:
+            i1_raw = Decimal("90")
+            i1_option = "a"
+            i1_note = f"Fallback skor: seluruh {below_target} risiko berada di bawah target residual."
+
+        exposure_reason = "Data eksposur belum lengkap."
+        if exposure_summary is not None:
+            exposure_reason = (
+                f"Group eksposur lengkap {exposure_summary['comparable_group_count']} dari "
+                f"{exposure_summary['group_count']}; konflik={len(exposure_summary['conflicts'])}."
+            )
+
+        i1_detail = (
+            "[FALLBACK]\n"
+            f"{exposure_reason}\n"
+            "ERM sementara memakai perbandingan skor residual-target per item.\n"
+            f"Rincian skor: {below_target} di bawah; {same_target} sama; {above_target} di atas.\n"
+            f"Jawaban fallback '{i1_option or '-'}' -> Hasil Penilaian {_fmt(i1_raw)}.\n"
+            f"Skor berbobot = {_fmt(i1_raw)} x 30% = {_weighted_score(i1_raw, 30)}."
+        )
+
+    notes.append(f"I1 Pencapaian eksposur risiko:\n{i1_detail}")
 
     progress_values = [
         item.progress_pelaksanaan_percent

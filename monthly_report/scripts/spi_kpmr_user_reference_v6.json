@@ -1,0 +1,114 @@
+{
+  "metadata": {
+    "version": "V6-user-assessment",
+    "source": "KPMR Profil Risiko SPI PLN Batam 2026.xlsx",
+    "unit": "KSPI",
+    "year": 2026,
+    "quarter": 2,
+    "month": 6,
+    "method": "I1 compares aggregate Total Exposure Residual vs Total Exposure Target",
+    "expected_total_exposure_target": 4423810890,
+    "expected_total_exposure_residual": 3756065850,
+    "expected_i1": {
+      "answer": "a",
+      "raw": 90,
+      "weighted": 27
+    },
+    "expected_kpmr": {
+      "I1": 27,
+      "I2": 20,
+      "I3": 16,
+      "I4": 27,
+      "total": 90,
+      "rating": "SATISFACTORY"
+    },
+    "note": "Penilaian user: residual aggregate < target aggregate => a=90. KPMR sebelumnya 81/FAIR memakai perbandingan skor per item dan dikoreksi."
+  },
+  "risk_groups": [
+    {
+      "group": 1,
+      "reassessment_item_ids": [
+        183,
+        184,
+        185
+      ],
+      "exposure_target_q2": 183629886,
+      "exposure_residual_june": 517502406
+    },
+    {
+      "group": 2,
+      "reassessment_item_ids": [
+        187,
+        188
+      ],
+      "exposure_target_q2": 317178894,
+      "exposure_residual_june": 0
+    },
+    {
+      "group": 3,
+      "reassessment_item_ids": [
+        190
+      ],
+      "exposure_target_q2": 467421528,
+      "exposure_residual_june": 183629886
+    },
+    {
+      "group": 4,
+      "reassessment_item_ids": [
+        192
+      ],
+      "exposure_target_q2": 1018311186,
+      "exposure_residual_june": 417340650
+    },
+    {
+      "group": 5,
+      "reassessment_item_ids": [
+        194,
+        195
+      ],
+      "exposure_target_q2": 333872520,
+      "exposure_residual_june": 333872520
+    },
+    {
+      "group": 6,
+      "reassessment_item_ids": [
+        198,
+        199,
+        202,
+        203,
+        204,
+        208,
+        209
+      ],
+      "exposure_target_q2": 300485268,
+      "exposure_residual_june": 333872520
+    },
+    {
+      "group": 7,
+      "reassessment_item_ids": [
+        211,
+        212
+      ],
+      "exposure_target_q2": 250404390,
+      "exposure_residual_june": 300485268
+    },
+    {
+      "group": 8,
+      "reassessment_item_ids": [
+        214,
+        215
+      ],
+      "exposure_target_q2": 217017138,
+      "exposure_residual_june": 0
+    },
+    {
+      "group": 9,
+      "reassessment_item_ids": [
+        217,
+        218
+      ],
+      "exposure_target_q2": 1335490080,
+      "exposure_residual_june": 1669362600
+    }
+  ]
+}

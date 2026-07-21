@@ -48,3 +48,42 @@ class KPMRZeroCostBudgetAggregationV2Test(KPMRBudgetAggregationTest):
         self.assertIsNotNone(result)
         self.assertTrue(result["is_zero_cost"])
         self.assertTrue(result["is_over_budget"])
+
+from risk.services.kpmr_automation import _aggregate_exposure_for_i1
+
+
+class KPMRExposureAggregationTest(SimpleTestCase):
+    def _item(self, no_item, target, residual, pk):
+        return SimpleNamespace(
+            risk_event=SimpleNamespace(
+                no_item=no_item,
+                pk=pk,
+                eksposur_risiko_q2=target,
+            ),
+            realisasi_eksposur=residual,
+        )
+
+    def test_deduplicates_multiple_treatments_in_same_top_risk(self):
+        result = _aggregate_exposure_for_i1(
+            [
+                self._item(1, Decimal("100"), Decimal("80"), 1),
+                self._item(1, Decimal("100"), Decimal("80"), 2),
+                self._item(2, Decimal("200"), Decimal("180"), 3),
+            ],
+            2,
+        )
+        self.assertEqual(result["group_count"], 2)
+        self.assertEqual(result["total_target"], Decimal("300"))
+        self.assertEqual(result["total_residual"], Decimal("260"))
+        self.assertEqual(result["incomplete_group_count"], 0)
+        self.assertEqual(result["conflicts"], [])
+
+    def test_detects_conflicting_exposure_inside_same_top_risk(self):
+        result = _aggregate_exposure_for_i1(
+            [
+                self._item(1, Decimal("100"), Decimal("80"), 1),
+                self._item(1, Decimal("110"), Decimal("80"), 2),
+            ],
+            2,
+        )
+        self.assertEqual(len(result["conflicts"]), 1)
