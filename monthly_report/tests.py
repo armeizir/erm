@@ -436,6 +436,12 @@ class MonthlyRiskReportAdminTests(TestCase):
         User = get_user_model()
         first_officer = User.objects.create_user(username="risk.office.1", email="risk.office.1@example.com")
         second_officer = User.objects.create_user(username="risk.office.2", email="risk.office.2@example.com")
+        first_officer.first_name = "Risk"
+        first_officer.last_name = "Officer Satu"
+        first_officer.save(update_fields=["first_name", "last_name"])
+        second_officer.first_name = "Risk"
+        second_officer.last_name = "Officer Dua"
+        second_officer.save(update_fields=["first_name", "last_name"])
         for officer in (first_officer, second_officer):
             PenugasanUnitBisnis.objects.create(
                 unit_bisnis=report_infra.reassessment.unit_bisnis,
@@ -447,12 +453,17 @@ class MonthlyRiskReportAdminTests(TestCase):
         sent = send_monthly_report_notification(report_infra, base_url="https://erm.plnbatam.com")
 
         self.assertEqual(sent, 1)
-        self.assertEqual(
+        self.assertCountEqual(
             mail.outbox[0].to,
             ["risk.office.1@example.com", "risk.office.2@example.com"],
         )
         self.assertEqual(mail.outbox[0].cc, ["pairing@example.com"])
         self.assertNotIn("[MODE UJI COBA]", mail.outbox[0].body)
+        self.assertIn("Yth. Risk Officer Dua; Risk Officer Satu,", mail.outbox[0].body)
+        self.assertIn(
+            "Yth. Risk Officer Dua; Risk Officer Satu,",
+            mail.outbox[0].alternatives[0].content,
+        )
         self.assertIn("Pairing Officer", mail.outbox[0].body)
         self.assertIn("Input Laporan Risiko Bulanan", mail.outbox[0].subject)
         self.assertIn("Februari 2026", mail.outbox[0].body)

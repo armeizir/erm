@@ -140,6 +140,7 @@ def send_monthly_report_notification(report, request=None, base_url=None):
     recipient_users = stage.get("recipients")
     recipient = stage.get("recipient")
     cc_recipient = stage.get("cc_recipient")
+    recipient_names = []
     test_email = "" if stage.get("ignore_test_email") else app_setting.monthly_report_notification_test_email
     cc_recipients = []
     if test_email:
@@ -155,6 +156,10 @@ def send_monthly_report_notification(report, request=None, base_url=None):
                 )
             recipients = list(dict.fromkeys(user.email for user in recipient_users))
             recipient = recipient_users[0]
+            recipient_names = [
+                user.get_full_name().strip() or user.get_username()
+                for user in recipient_users
+            ]
         elif not recipient:
             role = stage.get("recipient_role") or f"tahap {stage['title']}"
             raise ValidationError(f"Penerima {role} untuk laporan ini belum diisi.")
@@ -162,6 +167,9 @@ def send_monthly_report_notification(report, request=None, base_url=None):
             if not recipient.email:
                 raise ValidationError(f"Email user {recipient.get_username()} belum diisi.")
             recipients = [recipient.email]
+            recipient_names = [
+                recipient.get_full_name().strip() or recipient.get_username()
+            ]
         if "cc_recipient" in stage:
             if not cc_recipient:
                 role = stage.get("cc_recipient_role") or "CC"
@@ -174,6 +182,7 @@ def send_monthly_report_notification(report, request=None, base_url=None):
         "report": report,
         "stage": stage,
         "recipient": recipient,
+        "recipient_names": recipient_names,
         "test_email": test_email,
         "deadline": monthly_report_deadline(report),
         "deadline_text": format_indonesian_date(monthly_report_deadline(report)),

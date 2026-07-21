@@ -13,7 +13,7 @@
           </tr>
           <tr>
             <td style="padding:34px 42px;font-size:16px;line-height:1.65;">
-              <p style="margin:0 0 18px 0;"><strong>Yth. {{ recipient.get_full_name|default:recipient.get_username }},</strong></p>
+              <p style="margin:0 0 18px 0;"><strong>Yth. {% if recipient_names %}{{ recipient_names|join:"; " }}{% else %}{{ recipient.get_full_name|default:recipient.get_username }}{% endif %},</strong></p>
               {% if test_email %}
               <p style="margin:0 0 18px 0;background:#fff7ed;border-left:4px solid #f59e0b;padding:12px 14px;color:#7c2d12;">
                 <strong>Mode uji coba:</strong> email ini dialihkan ke {{ test_email }} dan belum dikirim ke penerima asli.
