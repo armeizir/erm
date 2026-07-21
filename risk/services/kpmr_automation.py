@@ -166,23 +166,29 @@ def _score_budget_absorption(absorption):
 
 
 def _aggregate_budget_absorption(report_items):
-    """Hitung serapan biaya agregat: total realisasi / total anggaran.
+    """Hitung serapan biaya agregat termasuk perlakuan no-cost.
 
-    Hanya item dengan baseline anggaran positif yang masuk denominator.
-    Realisasi pada item tanpa anggaran dipisahkan sebagai kondisi over-budget.
+    - Anggaran positif: dihitung total actual / total budget.
+    - Anggaran eksplisit 0 dan actual 0: valid sebagai no-cost, tidak over-budget.
+    - Actual > 0 tanpa anggaran positif: over-budget/unbudgeted.
+    - Semua budget None/kosong: dianggap belum ada data dan mengembalikan None.
     """
     total_budget = Decimal("0")
     total_actual = Decimal("0")
     unbudgeted_actual = Decimal("0")
     comparable_count = 0
+    declared_budget_count = 0
 
     for item in report_items:
         risk_event = getattr(item, "risk_event", None)
-        budget = getattr(risk_event, "biaya_perlakuan_risiko", None)
-        actual = getattr(item, "realisasi_biaya_perlakuan", None)
+        raw_budget = getattr(risk_event, "biaya_perlakuan_risiko", None)
+        raw_actual = getattr(item, "realisasi_biaya_perlakuan", None)
 
-        budget = Decimal(budget) if budget not in (None, "") else Decimal("0")
-        actual = Decimal(actual) if actual not in (None, "") else Decimal("0")
+        if raw_budget not in (None, ""):
+            declared_budget_count += 1
+
+        budget = Decimal(raw_budget) if raw_budget not in (None, "") else Decimal("0")
+        actual = Decimal(raw_actual) if raw_actual not in (None, "") else Decimal("0")
 
         if budget > 0:
             total_budget += budget
@@ -192,7 +198,18 @@ def _aggregate_budget_absorption(report_items):
             unbudgeted_actual += actual
 
     if total_budget <= 0:
-        return None
+        if declared_budget_count <= 0:
+            return None
+        return {
+            "total_budget": Decimal("0"),
+            "total_actual": Decimal("0"),
+            "ratio": Decimal("0"),
+            "comparable_count": declared_budget_count,
+            "declared_budget_count": declared_budget_count,
+            "unbudgeted_actual": unbudgeted_actual,
+            "is_over_budget": unbudgeted_actual > 0,
+            "is_zero_cost": True,
+        }
 
     ratio = total_actual / total_budget * Decimal("100")
     return {
@@ -200,8 +217,10 @@ def _aggregate_budget_absorption(report_items):
         "total_actual": total_actual,
         "ratio": ratio,
         "comparable_count": comparable_count,
+        "declared_budget_count": declared_budget_count,
         "unbudgeted_actual": unbudgeted_actual,
         "is_over_budget": total_actual > total_budget or unbudgeted_actual > 0,
+        "is_zero_cost": False,
     }
 
 def _weighted_score(raw_score, weight):

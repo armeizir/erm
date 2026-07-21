@@ -30,3 +30,21 @@ class KPMRBudgetAggregationTest(SimpleTestCase):
         ])
         self.assertEqual(result["unbudgeted_actual"], Decimal("1"))
         self.assertTrue(result["is_over_budget"])
+class KPMRZeroCostBudgetAggregationV2Test(KPMRBudgetAggregationTest):
+    def test_zero_cost_declared_budget_is_valid_and_within_budget(self):
+        result = _aggregate_budget_absorption([
+            self._item(Decimal("0"), Decimal("0")),
+            self._item(Decimal("0"), Decimal("0")),
+        ])
+        self.assertIsNotNone(result)
+        self.assertTrue(result["is_zero_cost"])
+        self.assertEqual(result["ratio"], Decimal("0"))
+        self.assertFalse(result["is_over_budget"])
+
+    def test_zero_cost_with_actual_spend_is_over_budget(self):
+        result = _aggregate_budget_absorption([
+            self._item(Decimal("0"), Decimal("1")),
+        ])
+        self.assertIsNotNone(result)
+        self.assertTrue(result["is_zero_cost"])
+        self.assertTrue(result["is_over_budget"])
