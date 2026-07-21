@@ -31,6 +31,9 @@ staticfiles/
 *.backup
 *.bak
 *_backup*
+*.backup_before_*
+backups/
+db_*.tar.gz
 prod_exports/
 prod_exports*.tar.gz
 exports/
