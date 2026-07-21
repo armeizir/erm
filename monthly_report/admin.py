@@ -1063,11 +1063,14 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         update_fields = ["status", "updated_at"]
         note = ""
         if flow_action == "submit":
-            if not _users_for_unit_role(
+            risk_officers = _users_for_unit_role(
                 report.reassessment.unit_bisnis,
                 PenugasanUnitBisnis.ROLE_RISK_OFFICER,
-            ).exists():
+            )
+            if not risk_officers.exists():
                 raise ValidationError("Belum ada Risk Officer aktif pada BID/Unit Bisnis laporan.")
+            if not user.is_superuser and not risk_officers.filter(pk=user.pk).exists():
+                raise ValidationError("Hanya Prepared by/Risk Officer unit yang dapat submit laporan.")
             report.status = "submitted"
             report.submitted_at = timezone.now()
             update_fields.append("submitted_at")
@@ -1075,11 +1078,15 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         elif flow_action == "review":
             if not report.reviewed_by_id:
                 raise ValidationError("Reviewed by belum diisi.")
+            if not user.is_superuser and user.pk != report.reviewed_by_id:
+                raise ValidationError("Hanya user Reviewed by yang dapat melakukan review dan paraf.")
             report.status = "under_review"
             note = "Review dan paraf oleh Reviewed by."
         elif flow_action == "approve":
             if not report.approved_by_id:
                 raise ValidationError("Approved by belum diisi.")
+            if not user.is_superuser and user.pk != report.approved_by_id:
+                raise ValidationError("Hanya user Approved by yang dapat menyetujui laporan.")
             report.status = "approved"
             report.approved_at = timezone.now()
             update_fields.append("approved_at")
@@ -1109,6 +1116,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 f"Flow laporan berhasil diproses. Status sekarang: {report.get_status_display()}.",
                 level=messages.SUCCESS,
             )
+            self._send_next_notification(request, report)
         return HttpResponseRedirect(
             reverse(
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",

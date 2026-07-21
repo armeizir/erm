@@ -496,6 +496,51 @@ class MonthlyRiskReportAdminTests(TestCase):
             mail.outbox[0].body,
         )
 
+    def test_monthly_report_workflow_notifications_include_pairing_kpmr_and_mrk(self):
+        User = get_user_model()
+        app_setting = AppSetting.get_solo()
+        app_setting.monthly_report_notification_test_email = ""
+        app_setting.save(update_fields=["monthly_report_notification_test_email"])
+        report = self._report("INFRA WORKFLOW")
+        reviewer = User.objects.create_user(
+            username="workflow.reviewer", email="reviewer@example.com"
+        )
+        approver = User.objects.create_user(
+            username="workflow.approver", email="approver@example.com"
+        )
+        pairing = self._assign_pairing_officer(
+            report, username="workflow.pairing", email="pairing.workflow@example.com"
+        )
+        mrk_group = Group.objects.create(name="BID MRK")
+        mrk_user = User.objects.create_user(
+            username="workflow.mrk", email="mrk@example.com"
+        )
+        mrk_user.groups.add(mrk_group)
+        report.reviewed_by = reviewer
+        report.approved_by = approver
+
+        report.status = "submitted"
+        report.save(update_fields=["status", "reviewed_by", "approved_by"])
+        send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
+        self.assertEqual(mail.outbox[-1].to, [reviewer.email])
+        self.assertEqual(mail.outbox[-1].cc, [pairing.email])
+        self.assertIn("Total KPMR", mail.outbox[-1].body)
+
+        report.status = "under_review"
+        report.save(update_fields=["status"])
+        send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
+        self.assertEqual(mail.outbox[-1].to, [approver.email])
+        self.assertEqual(mail.outbox[-1].cc, [pairing.email])
+        self.assertIn("Total KPMR", mail.outbox[-1].body)
+
+        report.status = "approved"
+        report.save(update_fields=["status"])
+        send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
+        self.assertEqual(mail.outbox[-1].to, [mrk_user.email])
+        self.assertEqual(mail.outbox[-1].cc, [])
+        self.assertIn("Total KPMR", mail.outbox[-1].body)
+        self.assertIn("telah disetujui", mail.outbox[-1].body)
+
     def test_risk_item_autocomplete_is_limited_by_selected_reassessment(self):
         report_infra = self._report("INFRA")
         report_bes = self._report("BES")

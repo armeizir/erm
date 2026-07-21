@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
@@ -8,6 +9,7 @@ from django.urls import reverse
 
 from risk.models import AppSetting
 from risk.models import PenugasanUnitBisnis
+from risk.services.kpmr_automation import calculate_kpmr_for_report
 
 
 STAGE_PREPARE = "prepare"
@@ -84,6 +86,16 @@ def _risk_officers_for_report(report):
     ]
 
 
+def _mrk_users():
+    """Active members of the MRK organization group receiving final reports."""
+    return list(
+        get_user_model()
+        .objects.filter(is_active=True, groups__name__iexact="BID MRK")
+        .distinct()
+        .order_by("first_name", "last_name", "username", "id")
+    )
+
+
 def monthly_report_notification_stage(report):
     if report.status in {"draft", "revision"}:
         return {
@@ -104,6 +116,9 @@ def monthly_report_notification_stage(report):
         return {
             "stage": STAGE_REVIEW,
             "recipient": report.reviewed_by,
+            "recipient_role": "Reviewed by",
+            "cc_recipient": _pairing_officer_for_report(report),
+            "cc_recipient_role": "Pairing Officer",
             "title": "Paraf / Review Laporan Risiko Bulanan",
             "instruction": "Mohon Reviewer melakukan paraf/review atas laporan risiko bulanan.",
         }
@@ -111,8 +126,22 @@ def monthly_report_notification_stage(report):
         return {
             "stage": STAGE_APPROVE,
             "recipient": report.approved_by,
+            "recipient_role": "Approved by",
+            "cc_recipient": _pairing_officer_for_report(report),
+            "cc_recipient_role": "Pairing Officer",
             "title": "Tanda Tangan Digital Laporan Risiko Bulanan",
             "instruction": "Mohon Approver melakukan tanda tangan digital atas laporan risiko bulanan.",
+        }
+    if report.status == "approved":
+        return {
+            "stage": "completed",
+            "recipients": _mrk_users(),
+            "recipient_role": "Group BID MRK",
+            "title": "Laporan Risiko Bulanan Telah Disetujui",
+            "instruction": (
+                "Laporan risiko bulanan telah disetujui. Mohon Group BID MRK "
+                "melakukan pemantauan dan tindak lanjut sesuai kewenangan."
+            ),
         }
     return None
 
@@ -188,6 +217,7 @@ def send_monthly_report_notification(report, request=None, base_url=None):
         "deadline_text": format_indonesian_date(monthly_report_deadline(report)),
         "report_url": monthly_report_admin_url(report, request=request, base_url=base_url),
         "app_setting": app_setting,
+        "kpmr": calculate_kpmr_for_report(report),
     }
     subject = f"{stage['title']} - {report.reassessment} {report.periode.nama_periode}"
     text_body = render_to_string("monthly_report/email/notification.txt", context)

@@ -9,6 +9,11 @@ Periode: {{ report.periode.nama_periode }}
 Status: {{ report.get_status_display }}
 {% if deadline_text %}Batas waktu: {{ deadline_text }}{% endif %}
 
+{% if kpmr %}KPMR {{ kpmr.year }} TW{{ kpmr.quarter }}
+{% for indicator in kpmr.indicators %}{{ indicator.kode }} - {{ indicator.nama }}: hasil {{ indicator.hasil|default:"-" }}, skor {{ indicator.skor }}
+{% endfor %}Total KPMR: {{ kpmr.score_total }} ({{ kpmr.rating }})
+{% endif %}
+
 Buka laporan:
 {{ report_url }}
 
