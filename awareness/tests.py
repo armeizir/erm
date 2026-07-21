@@ -24,7 +24,7 @@ from .models import (
 )
 from .admin import AwarenessAttemptAdmin, AwarenessAttemptGroupFilter
 from .notifications import send_awareness_notification
-from risk.models import AppSetting
+from risk.models import AppSetting, PenugasanUnitBisnis
 
 
 class DummySMTPBackend(LocMemEmailBackend):
@@ -611,6 +611,11 @@ class AwarenessFlowTests(TestCase):
     def test_awareness_email_uses_manual_unit_employee_targets(self):
         unit = Group.objects.create(name="Unit Bisnis Infrastruktur Teknologi Informasi")
         self.user.groups.add(unit)
+        PenugasanUnitBisnis.objects.create(
+            user=self.other,
+            unit_bisnis=unit,
+            peran=PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
+        )
         AwarenessUnitTarget.objects.create(
             campaign=self.campaign,
             unit_name="Unit Bisnis Infrastruktur Teknologi Informasi",
@@ -619,6 +624,17 @@ class AwarenessFlowTests(TestCase):
         )
         AwarenessAttempt.objects.create(
             user=self.user,
+            campaign=self.campaign,
+            attempt_number=1,
+            total_questions=2,
+            correct_count=2,
+            wrong_count=0,
+            score=100,
+            status=AwarenessAttempt.STATUS_PASSED,
+            submitted_at=timezone.now(),
+        )
+        AwarenessAttempt.objects.create(
+            user=self.other,
             campaign=self.campaign,
             attempt_number=1,
             total_questions=2,

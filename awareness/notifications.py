@@ -119,14 +119,11 @@ def awareness_progress_rows(campaign):
                     groups__name__iexact=target.unit_name,
                 ).values_list("id", flat=True)
             )
-            assigned_ids = set(
-                PenugasanUnitBisnis.objects.filter(
-                    unit_bisnis__name__iexact=target.unit_name,
-                    aktif=True,
-                    user__is_active=True,
-                ).values_list("user_id", flat=True)
-            )
-            respondent_count = len((member_ids | assigned_ids) & responded_ids)
+            # Target manual merepresentasikan jumlah pegawai dalam unit
+            # organisasi. Penugasan lintas unit (misalnya pairing officer MRK)
+            # tidak mengubah unit asal pegawai dan tidak boleh menambah jumlah
+            # responden unit pada email awareness.
+            respondent_count = len(member_ids & responded_ids)
             employee_count = target.employee_count
             pending_count = max(employee_count - respondent_count, 0)
             percent = min(round((respondent_count / employee_count) * 100), 100) if employee_count else 0
