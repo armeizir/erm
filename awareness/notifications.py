@@ -6,7 +6,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 
-from risk.models import AppSetting, PenugasanUnitBisnis
+from risk.models import AppSetting
 
 from .models import AwarenessAttempt, AwarenessCampaign
 
@@ -161,11 +161,10 @@ def awareness_progress_rows(campaign):
         member_ids = set(
             User.objects.filter(is_active=True, groups=group).values_list("id", flat=True)
         )
-        assigned_ids = set(
-            PenugasanUnitBisnis.objects.filter(unit_bisnis=group, aktif=True, user__is_active=True)
-            .values_list("user_id", flat=True)
-        )
-        user_ids = member_ids | assigned_ids
+        # Unit organisasi Awareness mengikuti group pengguna. Penugasan lintas
+        # unit hanya menentukan peran pada workflow risiko dan tidak memindahkan
+        # pegawai ke unit tempat ia ditugaskan.
+        user_ids = member_ids
         if not user_ids:
             continue
 

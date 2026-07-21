@@ -560,8 +560,28 @@ class AwarenessFlowTests(TestCase):
         unit = Group.objects.create(name="Bidang Manajemen Risiko dan Kepatuhan")
         self.user.groups.add(unit)
         self.other.groups.add(unit)
+        pairing_user = get_user_model().objects.create_user(
+            username="pairing.outside.unit",
+            email="pairing@example.com",
+        )
+        PenugasanUnitBisnis.objects.create(
+            user=pairing_user,
+            unit_bisnis=unit,
+            peran=PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
+        )
         AwarenessAttempt.objects.create(
             user=self.user,
+            campaign=self.campaign,
+            attempt_number=1,
+            total_questions=2,
+            correct_count=2,
+            wrong_count=0,
+            score=100,
+            status=AwarenessAttempt.STATUS_PASSED,
+            submitted_at=timezone.now(),
+        )
+        AwarenessAttempt.objects.create(
+            user=pairing_user,
             campaign=self.campaign,
             attempt_number=1,
             total_questions=2,
