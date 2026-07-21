@@ -102,8 +102,8 @@ def monthly_report_notification_stage(report):
             "stage": STAGE_PREPARE,
             "recipients": _risk_officers_for_report(report),
             "recipient_role": "Risk Office",
-            "cc_recipient": _pairing_officer_for_report(report),
-            "cc_recipient_role": "Pairing Officer",
+            "bcc_recipient": _pairing_officer_for_report(report),
+            "bcc_recipient_role": "Pairing Officer",
             "ignore_test_email": True,
             "title": "Input Laporan Risiko Bulanan",
             "instruction": (
@@ -117,8 +117,8 @@ def monthly_report_notification_stage(report):
             "stage": STAGE_REVIEW,
             "recipient": report.reviewed_by,
             "recipient_role": "Reviewed by",
-            "cc_recipient": _pairing_officer_for_report(report),
-            "cc_recipient_role": "Pairing Officer",
+            "bcc_recipient": _pairing_officer_for_report(report),
+            "bcc_recipient_role": "Pairing Officer",
             "title": "Paraf / Review Laporan Risiko Bulanan",
             "instruction": "Mohon Reviewer melakukan paraf/review atas laporan risiko bulanan.",
         }
@@ -127,8 +127,8 @@ def monthly_report_notification_stage(report):
             "stage": STAGE_APPROVE,
             "recipient": report.approved_by,
             "recipient_role": "Approved by",
-            "cc_recipient": _pairing_officer_for_report(report),
-            "cc_recipient_role": "Pairing Officer",
+            "bcc_recipient": _pairing_officer_for_report(report),
+            "bcc_recipient_role": "Pairing Officer",
             "title": "Tanda Tangan Digital Laporan Risiko Bulanan",
             "instruction": "Mohon Approver melakukan tanda tangan digital atas laporan risiko bulanan.",
         }
@@ -168,10 +168,10 @@ def send_monthly_report_notification(report, request=None, base_url=None):
     app_setting = AppSetting.get_solo()
     recipient_users = stage.get("recipients")
     recipient = stage.get("recipient")
-    cc_recipient = stage.get("cc_recipient")
+    bcc_recipient = stage.get("bcc_recipient")
     recipient_names = []
     test_email = "" if stage.get("ignore_test_email") else app_setting.monthly_report_notification_test_email
-    cc_recipients = []
+    bcc_recipients = []
     if test_email:
         recipients = [test_email]
     else:
@@ -199,13 +199,13 @@ def send_monthly_report_notification(report, request=None, base_url=None):
             recipient_names = [
                 recipient.get_full_name().strip() or recipient.get_username()
             ]
-        if "cc_recipient" in stage:
-            if not cc_recipient:
-                role = stage.get("cc_recipient_role") or "CC"
-                raise ValidationError(f"Penerima CC {role} untuk laporan ini belum diisi.")
-            if not cc_recipient.email:
-                raise ValidationError(f"Email user {cc_recipient.get_username()} belum diisi.")
-            cc_recipients = [cc_recipient.email]
+        if "bcc_recipient" in stage:
+            if not bcc_recipient:
+                role = stage.get("bcc_recipient_role") or "BCC"
+                raise ValidationError(f"Penerima BCC {role} untuk laporan ini belum diisi.")
+            if not bcc_recipient.email:
+                raise ValidationError(f"Email user {bcc_recipient.get_username()} belum diisi.")
+            bcc_recipients = [bcc_recipient.email]
 
     context = {
         "report": report,
@@ -229,7 +229,7 @@ def send_monthly_report_notification(report, request=None, base_url=None):
         text_body,
         from_email,
         recipients,
-        cc=cc_recipients,
+        bcc=bcc_recipients,
         connection=_mail_connection(app_setting),
     )
     message.attach_alternative(html_body, "text/html")

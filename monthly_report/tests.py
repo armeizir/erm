@@ -457,7 +457,8 @@ class MonthlyRiskReportAdminTests(TestCase):
             mail.outbox[0].to,
             ["risk.office.1@example.com", "risk.office.2@example.com"],
         )
-        self.assertEqual(mail.outbox[0].cc, ["pairing@example.com"])
+        self.assertEqual(mail.outbox[0].cc, [])
+        self.assertEqual(mail.outbox[0].bcc, ["pairing@example.com"])
         self.assertNotIn("[MODE UJI COBA]", mail.outbox[0].body)
         self.assertIn("Yth. Risk Officer Dua; Risk Officer Satu,", mail.outbox[0].body)
         self.assertIn(
@@ -523,14 +524,16 @@ class MonthlyRiskReportAdminTests(TestCase):
         report.save(update_fields=["status", "reviewed_by", "approved_by"])
         send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
         self.assertEqual(mail.outbox[-1].to, [reviewer.email])
-        self.assertEqual(mail.outbox[-1].cc, [pairing.email])
+        self.assertEqual(mail.outbox[-1].cc, [])
+        self.assertEqual(mail.outbox[-1].bcc, [pairing.email])
         self.assertIn("Total KPMR", mail.outbox[-1].body)
 
         report.status = "under_review"
         report.save(update_fields=["status"])
         send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
         self.assertEqual(mail.outbox[-1].to, [approver.email])
-        self.assertEqual(mail.outbox[-1].cc, [pairing.email])
+        self.assertEqual(mail.outbox[-1].cc, [])
+        self.assertEqual(mail.outbox[-1].bcc, [pairing.email])
         self.assertIn("Total KPMR", mail.outbox[-1].body)
 
         report.status = "approved"
@@ -538,6 +541,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
         self.assertEqual(mail.outbox[-1].to, [mrk_user.email])
         self.assertEqual(mail.outbox[-1].cc, [])
+        self.assertEqual(mail.outbox[-1].bcc, [])
         self.assertIn("Total KPMR", mail.outbox[-1].body)
         self.assertIn("telah disetujui", mail.outbox[-1].body)
 
