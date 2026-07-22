@@ -1,6 +1,10 @@
+import logging
+
 import ldap
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 from django.contrib.auth import get_user_model
 from django.contrib.auth.backends import BaseBackend, ModelBackend
 
@@ -41,6 +45,107 @@ class PLNLDAPBackend(BaseBackend):
                 "email_domain": getattr(settings, "LDAP_EMAIL_DOMAIN", self.LDAP_EMAIL_DOMAIN),
                 "debug": getattr(settings, "LDAP_DEBUG", False),
             }
+
+    def _resolve_local_user(self, User, *, samaccountname, email):
+        """
+        Resolve akun lokal dari identitas LDAP.
+
+        Prioritas identitas:
+        1. Email case-insensitive.
+        2. Username case-insensitive.
+        3. Create user baru hanya bila keduanya belum ada.
+
+        Username existing tidak otomatis diganti ketika format
+        sAMAccountName AD berubah.
+        """
+        normalized_email = (email or "").strip().lower()
+        normalized_username = (samaccountname or "").strip()
+
+        if not normalized_username:
+            raise RuntimeError(
+                "LDAP tidak mengembalikan sAMAccountName yang valid."
+            )
+
+        # Identitas utama: email.
+        if normalized_email:
+            email_matches = User.objects.filter(
+                email__iexact=normalized_email
+            ).order_by("id")
+
+            email_count = email_matches.count()
+
+            if email_count == 1:
+                return email_matches.first(), False
+
+            if email_count > 1:
+                # Bila database sudah terlanjur duplikat, jangan membuat
+                # user ketiga. Username AD hanya digunakan untuk memilih
+                # akun existing bila memang ada kecocokan jelas.
+                username_match = email_matches.filter(
+                    username__iexact=normalized_username
+                ).first()
+
+                if username_match is not None:
+                    logger.warning(
+                        "LDAP duplicate email detected: email=%s "
+                        "count=%s; using matching username user_id=%s",
+                        normalized_email,
+                        email_count,
+                        username_match.pk,
+                    )
+                    return username_match, False
+
+                raise RuntimeError(
+                    "Duplicate user email terdeteksi untuk "
+                    f"{normalized_email!r}: {email_count} akun. "
+                    "Merge akun duplikat sebelum login dilanjutkan."
+                )
+
+        # Fallback: username, tetapi case-insensitive.
+        username_matches = User.objects.filter(
+            username__iexact=normalized_username
+        ).order_by("id")
+
+        username_count = username_matches.count()
+
+        if username_count == 1:
+            username_user = username_matches.first()
+            existing_email = (username_user.email or "").strip().lower()
+
+            # Username boleh menjadi fallback hanya bila:
+            # - akun lokal belum memiliki email; atau
+            # - email existing sama dengan email LDAP.
+            #
+            # Jangan menimpa akun yang username-nya sama tetapi
+            # ternyata memiliki identitas email berbeda.
+            if (
+                normalized_email
+                and existing_email
+                and existing_email != normalized_email
+            ):
+                raise RuntimeError(
+                    "Username LDAP cocok dengan akun lokal tetapi email berbeda: "
+                    f"username={normalized_username!r}, "
+                    f"local_email={existing_email!r}, "
+                    f"ldap_email={normalized_email!r}."
+                )
+
+            return username_user, False
+
+        if username_count > 1:
+            raise RuntimeError(
+                "Duplicate username case-insensitive terdeteksi untuk "
+                f"{normalized_username!r}: {username_count} akun."
+            )
+
+        # Benar-benar user baru.
+        user = User.objects.create_user(
+            username=normalized_username,
+            email=normalized_email,
+            is_staff=True,
+            is_active=True,
+        )
+        return user, True
 
     def authenticate(self, request, username=None, password=None, **kwargs):
         if not username or not password:
@@ -123,14 +228,15 @@ class PLNLDAPBackend(BaseBackend):
 
             User = get_user_model()
 
-            # pakai username hasil AD
-            user, created = User.objects.get_or_create(
-                username=samaccountname,
-                defaults={
-                    "email": email,
-                    "is_staff": True,
-                    "is_active": True,
-                },
+            # Identitas utama user LDAP adalah email.
+            # Perubahan format sAMAccountName tidak boleh membuat akun baru.
+            email = (email or "").strip().lower()
+            samaccountname = (samaccountname or "").strip()
+
+            user, created = self._resolve_local_user(
+                User,
+                samaccountname=samaccountname,
+                email=email,
             )
 
             # update data user lokal

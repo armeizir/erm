@@ -669,3 +669,151 @@ class RKMPDFAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
+
+
+
+class LDAPUserIdentityResolutionTests(TestCase):
+    """Cegah user duplikat akibat perubahan identitas username LDAP."""
+
+    def test_changed_samaccountname_reuses_existing_email_user(self):
+        from django.contrib.auth import get_user_model
+        from risk.backends import PLNLDAPBackend
+
+        User = get_user_model()
+
+        existing = User.objects.create_user(
+            username="Yudhi.Armyndharis",
+            email="yudhi@plnbatam.com",
+            first_name="YUDHI",
+            last_name="ARMYNDHARIS",
+        )
+
+        backend = PLNLDAPBackend()
+
+        resolved, created = backend._resolve_local_user(
+            User,
+            samaccountname="YudhiArmyndharis",
+            email="YUDHI@PLNBATAM.COM",
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(resolved.pk, existing.pk)
+
+        self.assertEqual(
+            User.objects.filter(
+                email__iexact="yudhi@plnbatam.com"
+            ).count(),
+            1,
+        )
+
+    def test_existing_username_with_empty_email_is_reused(self):
+        from django.contrib.auth import get_user_model
+        from risk.backends import PLNLDAPBackend
+
+        User = get_user_model()
+
+        existing = User.objects.create_user(
+            username="Ade.Iusticia",
+            email="",
+        )
+
+        backend = PLNLDAPBackend()
+
+        resolved, created = backend._resolve_local_user(
+            User,
+            samaccountname="ade.iusticia",
+            email="ade.iusticia@plnbatam.com",
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(resolved.pk, existing.pk)
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_same_username_with_different_email_is_rejected(self):
+        from django.contrib.auth import get_user_model
+        from risk.backends import PLNLDAPBackend
+
+        User = get_user_model()
+
+        User.objects.create_user(
+            username="same.username",
+            email="old.identity@plnbatam.com",
+        )
+
+        backend = PLNLDAPBackend()
+
+        before_count = User.objects.count()
+
+        with self.assertRaises(RuntimeError):
+            backend._resolve_local_user(
+                User,
+                samaccountname="same.username",
+                email="different.identity@plnbatam.com",
+            )
+
+        self.assertEqual(
+            User.objects.count(),
+            before_count,
+        )
+
+    def test_duplicate_email_does_not_create_third_user(self):
+        from django.contrib.auth import get_user_model
+        from risk.backends import PLNLDAPBackend
+
+        User = get_user_model()
+
+        User.objects.create_user(
+            username="duplicate.one",
+            email="duplicate@plnbatam.com",
+        )
+
+        User.objects.create_user(
+            username="duplicate.two",
+            email="duplicate@plnbatam.com",
+        )
+
+        backend = PLNLDAPBackend()
+
+        before_count = User.objects.count()
+
+        with self.assertRaises(RuntimeError):
+            backend._resolve_local_user(
+                User,
+                samaccountname="new.ldap.username",
+                email="duplicate@plnbatam.com",
+            )
+
+        self.assertEqual(
+            User.objects.count(),
+            before_count,
+        )
+
+    def test_new_identity_creates_exactly_one_user(self):
+        from django.contrib.auth import get_user_model
+        from risk.backends import PLNLDAPBackend
+
+        User = get_user_model()
+
+        backend = PLNLDAPBackend()
+
+        resolved, created = backend._resolve_local_user(
+            User,
+            samaccountname="new.employee",
+            email="NEW.EMPLOYEE@PLNBATAM.COM",
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(
+            resolved.username,
+            "new.employee",
+        )
+        self.assertEqual(
+            resolved.email,
+            "new.employee@plnbatam.com",
+        )
+        self.assertEqual(
+            User.objects.filter(
+                email__iexact="new.employee@plnbatam.com"
+            ).count(),
+            1,
+        )
