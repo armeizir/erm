@@ -9,11 +9,11 @@ DRAFT / AI PROVISIONAL dan tidak boleh dianggap sebagai asesmen resmi User.
 
 Hasil AI V9:
 - I1 = a / 90 / skor 27 [PROVISIONAL]
-  * 8 dari 10 risiko memiliki data Q2 yang lengkap.
+  * 8 dari 8 risiko aktif SEKPER Juni memiliki data Q2 yang lengkap.
   * Target Q2 8 risiko lengkap      = 118,838,856,648.288
   * Residual Juni 8 risiko lengkap  = 116,755,406,618.720
   * Residual < Target => a.
-  * Risiko 9 dan 10 (K3L) belum lengkap, sehingga I1 belum audit-grade.
+  * Dua risiko K3L telah keluar dari scope SEKPER Juni dan tidak menjadi denominator KPMR Juni.
 - I2 = d / 60 / skor 12
   * Output jatuh tempo s.d. Juni = 24
   * Output terealisasi           = 15
@@ -22,14 +22,14 @@ Hasil AI V9:
   * Anggaran perlakuan = 15,521,000,000
   * Realisasi biaya    = 9,423,869,999
   * Serapan 60.72%, tidak melebihi anggaran => a.
-- I4 = a,b,a,a / hasil 80 / skor 24
+- I4 = a,a,a,a / hasil 90 / skor 27
   * I4.1 Identifikasi = a
-  * I4.2 Kuantifikasi = b (8/10 = 80% lengkap; ambang a >=95%)
+  * I4.2 Kuantifikasi = a (8/8 = 100% lengkap; ambang a >=95%)
   * I4.3 Rencana      = a (akomodasi perubahan profil s.d. Juni 2026)
   * I4.4 Prioritisasi = a
 
-TOTAL = 79.00
-RATING = mengikuti rating_for_score(79) pada aplikasi.
+TOTAL = 82.00
+RATING = mengikuti rating_for_score(82) pada aplikasi.
 
 Dry-run:
     python monthly_report/scripts/finalize_sekper_kpmr_ai_v9.py
@@ -77,10 +77,9 @@ from risk.services import kpmr_automation as kpmr
 YEAR = 2026
 MONTH = 6
 QUARTER = 2
-EXPECTED_RISK_ITEMS = 10
+EXPECTED_RISK_ITEMS = 8
 
 # Data hasil analisis Lampiran 1 + Lampiran 2.
-TARGET_EXPOSURE_ALL_10 = Decimal("122077415048.288")
 TARGET_EXPOSURE_COMPLETE_8 = Decimal("118838856648.288")
 RESIDUAL_EXPOSURE_COMPLETE_8 = Decimal("116755406618.720")
 
@@ -92,19 +91,19 @@ TOTAL_BUDGET = Decimal("15521000000")
 TOTAL_ACTUAL_COST = Decimal("9423869999")
 
 QUANTIFIED_RISKS = Decimal("8")
-TOTAL_RISKS = Decimal("10")
+TOTAL_RISKS = Decimal("8")
 QUANTIFICATION_RATIO = QUANTIFIED_RISKS / TOTAL_RISKS * Decimal("100")
 
-EXPECTED_TOTAL = Decimal("79.00")
+EXPECTED_TOTAL = Decimal("82.00")
 EXPECTED = {
     "I1": (Decimal("90.00"), Decimal("27.00"), "a"),
     "I2": (Decimal("60.00"), Decimal("12.00"), "d"),
     "I3": (Decimal("80.00"), Decimal("16.00"), "a"),
-    "I4": (Decimal("80.00"), Decimal("24.00"), "a,b,a,a"),
+    "I4": (Decimal("90.00"), Decimal("27.00"), "a,a,a,a"),
 }
 EXPECTED_SUBS = {
     "IDENTIFIKASI": ("a", Decimal("90.00"), Decimal("22.50")),
-    "KUANTIFIKASI": ("b", Decimal("50.00"), Decimal("12.50")),
+    "KUANTIFIKASI": ("a", Decimal("90.00"), Decimal("22.50")),
     "RENCANA": ("a", Decimal("90.00"), Decimal("22.50")),
     "PRIORITISASI": ("a", Decimal("90.00"), Decimal("22.50")),
 }
@@ -220,14 +219,13 @@ def build_ai_calculation(report: MonthlyRiskReport):
         skor=Decimal("27"),
         jawaban="a",
         keterangan=(
-            "AI PROVISIONAL. Perbandingan dilakukan hanya pada 8 dari 10 risiko yang "
+            "AI PROVISIONAL. Perbandingan dilakukan pada 8 risiko aktif SEKPER Juni yang "
             "memiliki Target Residual Q2 dan Realisasi Residual Juni lengkap. "
             f"Total Target Q2 8 risiko = {fmt_money(TARGET_EXPOSURE_COMPLETE_8)}; "
             f"Total Residual Juni 8 risiko = {fmt_money(RESIDUAL_EXPOSURE_COMPLETE_8)}; "
             "Residual < Target => a / 90 / skor 27. "
-            "Risiko 9 dan 10 (K3L) belum memiliki kuantifikasi Q2 lengkap, sehingga I1 "
-            "belum audit-grade dan wajib direkonsiliasi ketika data/Kertas Kerja KPMR resmi tersedia. "
-            f"Sebagai referensi, Total Target Q2 seluruh 10 risiko = {fmt_money(TARGET_EXPOSURE_ALL_10)}."
+            "Delapan risiko aktif Juni memiliki pasangan kuantifikasi Q2 yang lengkap. "
+            "Hasil tetap bersifat provisional sampai direkonsiliasi dengan Kertas Kerja KPMR resmi."
         ),
     )
 
@@ -261,12 +259,12 @@ def build_ai_calculation(report: MonthlyRiskReport):
 
     set_indicator(
         by_code["I4"],
-        hasil=Decimal("80"),
-        skor=Decimal("24"),
-        jawaban="a,b,a,a",
+        hasil=Decimal("90"),
+        skor=Decimal("27"),
+        jawaban="a,a,a,a",
         keterangan=(
-            "AI assessment I4: IDENTIFIKASI=a, KUANTIFIKASI=b, RENCANA=a, "
-            "PRIORITISASI=a => (90+50+90+90)/4 = 80; skor 80 x 30% = 24."
+            "AI assessment I4: IDENTIFIKASI=a, KUANTIFIKASI=a, RENCANA=a, "
+            "PRIORITISASI=a => (90+90+90+90)/4 = 90; skor 90 x 30% = 27."
         ),
     )
 
@@ -280,14 +278,14 @@ def build_ai_calculation(report: MonthlyRiskReport):
 
     sub_notes = {
         "IDENTIFIKASI": (
-            "AI assessment: 10 risiko pada profil SETPER/SEKPER telah masuk struktur monitoring "
+            "AI assessment: 8 risiko aktif SEKPER telah masuk struktur monitoring Juni "
             "Juni dan tidak ditemukan indikasi risiko material baru yang belum teridentifikasi "
             "dalam dokumen yang dianalisis => a / 90."
         ),
         "KUANTIFIKASI": (
-            f"AI assessment: kuantifikasi Q2 lengkap pada 8 dari 10 risiko = "
-            f"{q(QUANTIFICATION_RATIO)}%. Ambang a adalah >=95%; karena 80% <95% "
-            "maka KUANTIFIKASI=b / 50."
+            f"AI assessment: kuantifikasi Q2 lengkap pada 8 dari 8 risiko aktif Juni = "
+            f"{q(QUANTIFICATION_RATIO)}%. Ambang a adalah >=95%; "
+            "karena 100% >=95% maka KUANTIFIKASI=a / 90."
         ),
         "RENCANA": (
             "AI assessment TW II 2026: perubahan/reassessment profil sampai dengan Juni "
@@ -320,10 +318,10 @@ def build_ai_calculation(report: MonthlyRiskReport):
             "Risiko Bidang Setper s.d. Juni 2026. Kertas Kerja KPMR resmi SEKPER belum tersedia."
         ),
         (
-            "I1 PROVISIONAL: 8/10 risiko memiliki pasangan Target Residual Q2 dan Realisasi "
+            "I1 PROVISIONAL: 8/8 risiko aktif Juni memiliki pasangan Target Residual Q2 dan Realisasi "
             f"Residual Juni lengkap. Target 8 risiko = {fmt_money(TARGET_EXPOSURE_COMPLETE_8)}; "
             f"Residual 8 risiko = {fmt_money(RESIDUAL_EXPOSURE_COMPLETE_8)}; Residual < Target "
-            "=> a / skor 27. Risiko 9 dan 10 (K3L) belum lengkap."
+            "=> a / skor 27. Dua risiko K3L di luar scope SEKPER Juni tidak dihitung sebagai denominator."
         ),
         (
             f"I2 AI: output jatuh tempo s.d. Juni = {int(DUE_OUTPUT_TARGET)}; "
@@ -336,12 +334,12 @@ def build_ai_calculation(report: MonthlyRiskReport):
             "=> a / skor 16."
         ),
         (
-            "I4 AI: IDENTIFIKASI=a; KUANTIFIKASI=b; RENCANA=a; PRIORITISASI=a "
-            "=> hasil 80 / skor 24. I4.3 RENCANA=a hanya untuk TW II/Juni sesuai kebijakan "
+            "I4 AI: IDENTIFIKASI=a; KUANTIFIKASI=a; RENCANA=a; PRIORITISASI=a "
+            "=> hasil 90 / skor 27. I4.3 RENCANA=a hanya untuk TW II/Juni sesuai kebijakan "
             "akomodasi perubahan profil sampai Juni; tidak otomatis berlaku mulai Juli."
         ),
         (
-            f"Hasil AI sementara: I1=27, I2=12, I3=16, I4=24, TOTAL={total}, "
+            f"Hasil AI sementara: I1=27, I2=12, I3=16, I4=27, TOTAL={total}, "
             f"RATING={rating}. Status DRAFT/AI PROVISIONAL, bukan asesmen resmi User."
         ),
     ]
@@ -377,7 +375,7 @@ def print_result(report: MonthlyRiskReport, calc) -> None:
     print()
     print("DASAR AI ASSESSMENT")
     print(
-        f"I1: 8/10 risiko lengkap | Target={fmt_money(TARGET_EXPOSURE_COMPLETE_8)} | "
+        f"I1: 8/8 risiko aktif Juni lengkap | Target={fmt_money(TARGET_EXPOSURE_COMPLETE_8)} | "
         f"Residual={fmt_money(RESIDUAL_EXPOSURE_COMPLETE_8)} => a / 90 / 27 [PROVISIONAL]"
     )
     print(
@@ -389,13 +387,12 @@ def print_result(report: MonthlyRiskReport, calc) -> None:
         f"=> a / 80 / 16"
     )
     print(
-        f"I4: a,b,a,a => 80 / 24 | Kuantifikasi lengkap "
+        f"I4: a,a,a,a => 90 / 27 | Kuantifikasi lengkap "
         f"{int(QUANTIFIED_RISKS)}/{int(TOTAL_RISKS)} = {q(QUANTIFICATION_RATIO)}%"
     )
     print()
     print(
-        "PERINGATAN: I1 masih PROVISIONAL karena Risiko 9 dan 10 (K3L) belum memiliki "
-        "data kuantifikasi Q2 lengkap."
+        "PERINGATAN: I1 masih PROVISIONAL sampai direkonsiliasi dengan Kertas Kerja KPMR resmi."
     )
 
 
@@ -536,7 +533,7 @@ def main() -> None:
         f"\nVALIDASI BERHASIL: AI KPMR SEKPER = {q(calc.score_total)} / {calc.rating}"
     )
     print("I4.3 RENCANA = a untuk TW II/Juni 2026.")
-    print("I4.2 KUANTIFIKASI = b karena data lengkap hanya 8/10 risiko.")
+    print("I4.2 KUANTIFIKASI = a karena 8/8 risiko aktif Juni memiliki data lengkap.")
 
     if not args.apply:
         print("DRY RUN: tidak ada data KPMR yang diubah.")
@@ -564,8 +561,7 @@ def main() -> None:
             f"{AI_MARKER}. KPMR ini merupakan hasil analisis AI dari Profil Risiko "
             "SETPER-2026 Update 060326 dan Laporan Mitigasi Risiko Bidang Setper s.d. Juni 2026. "
             "Belum menggantikan Kertas Kerja KPMR/asesmen resmi User. "
-            "I1 bersifat provisional karena Risiko 9 dan 10 (K3L) belum memiliki data "
-            "kuantifikasi Q2 lengkap."
+            "I1 bersifat provisional sampai direkonsiliasi dengan Kertas Kerja KPMR resmi."
         )
         if note not in (period.catatan or ""):
             period.catatan = ((period.catatan or "") + "\n\n" + note).strip()
@@ -576,8 +572,8 @@ def main() -> None:
         f"skor={period.skor_total}, rating={period.rating}, status={period.status}"
     )
     print(
-        "PENTING: ketika data Q2 Risiko 9/10 atau Kertas Kerja KPMR SEKPER resmi tersedia, "
-        "rekonsiliasi I1 dan ganti hasil AI provisional dengan asesmen resmi User."
+        "PENTING: ketika Kertas Kerja KPMR SEKPER resmi tersedia, rekonsiliasi hasil AI "
+        "provisional dengan asesmen resmi User."
     )
 
 
