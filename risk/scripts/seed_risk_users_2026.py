@@ -18,6 +18,37 @@ USERNAME_ALIASES = {
 }
 
 
+USER_IDENTITY_OVERRIDES = {
+    (
+        "BID BIS",
+        "Risk Champion",
+        "MAN PENGEMBANGAN BISNIS DAN ENTERPRISE",
+        "ADE JUSTICIA PUTRA",
+    ): {
+        "username": "ade.iusticia",
+        "email": "ade.iusticia@plnbatam.com",
+    },
+    (
+        "BID STRADA",
+        "Risk Officer",
+        "SOF PELAKSANA PENGADAAN",
+        "SUPRIANTO",
+    ): {
+        "username": "suprianto",
+        "email": "suprianto_dist@plnbatam.com",
+    },
+    (
+        "BID BIS",
+        "Risk Officer",
+        "SOF MODEL BISNIS DAN DESAIN BISNIS BARU",
+        "SUPRIANTO",
+    ): {
+        "username": "Suprianto_kit",
+        "email": "suprianto_kit@plnbatam.com",
+    },
+}
+
+
 PAIRING_BY_UNIT = {
     "KSPI": "ARMEIZIR NURGUMALA",
     "SEKPER": "ARMEIZIR NURGUMALA",
@@ -150,47 +181,216 @@ def _apply_seed_password(user, *, created, use_ldap, temporary_password=None, fo
     user.set_password(password)
 
 
+def _get_single_user(queryset, *, identity_label):
+    count = queryset.count()
+
+    if count > 1:
+        raise RuntimeError(
+            f"Identitas ambigu untuk {identity_label}: "
+            f"ditemukan {count} user."
+        )
+
+    return queryset.first()
+
+
 def get_or_create_user(
     name,
     role_label=None,
     jabatan=None,
     *,
+    unit_name=None,
     use_ldap=True,
     temporary_password=None,
     force_reset=False,
 ):
     User = get_user_model()
+
     normalized = normalize_name(name)
+
+    identity_key = (
+        unit_name,
+        role_label,
+        jabatan,
+        normalized,
+    )
+
+    identity = USER_IDENTITY_OVERRIDES.get(identity_key)
+
     user = None
-    alias_username = USERNAME_ALIASES.get(normalized)
-    if alias_username:
-        user = User.objects.filter(username=alias_username).first()
-    for candidate in User.objects.all():
-        if user is None and normalize_name(candidate.get_full_name()) == normalized:
-            user = candidate
-            break
-    if user is None:
-        username = username_from_name(name)
-        original = username
-        counter = 2
-        while User.objects.filter(username=username).exists():
-            username = f"{original}.{counter}"
-            counter += 1
-        first_name, last_name = split_name(name)
-        user = User.objects.create_user(
-            username=username,
-            first_name=first_name,
-            last_name=last_name,
-            email="",
-            is_staff=True,
+    created = False
+
+    # --------------------------------------------------------------
+    # PRIORITAS 1:
+    # Identitas eksplisit/authoritative berdasarkan unit + role +
+    # jabatan + nama.
+    #
+    # Cocokkan EMAIL terlebih dahulu, lalu USERNAME.
+    # Jangan pernah memilih user secara sembarang jika konflik.
+    # --------------------------------------------------------------
+    if identity:
+        explicit_username = str(
+            identity.get("username") or ""
+        ).strip()
+
+        explicit_email = str(
+            identity.get("email") or ""
+        ).strip().lower()
+
+        if not explicit_username or not explicit_email:
+            raise RuntimeError(
+                f"Identity override tidak lengkap untuk "
+                f"{unit_name} / {role_label} / {name}."
+            )
+
+        email_user = _get_single_user(
+            User.objects.filter(
+                email__iexact=explicit_email
+            ).order_by("id"),
+            identity_label=f"email {explicit_email}",
         )
-        created = True
+
+        username_user = _get_single_user(
+            User.objects.filter(
+                username__iexact=explicit_username
+            ).order_by("id"),
+            identity_label=f"username {explicit_username}",
+        )
+
+        if (
+            email_user is not None
+            and username_user is not None
+            and email_user.pk != username_user.pk
+        ):
+            raise RuntimeError(
+                f"Konflik identitas untuk {name}: "
+                f"email {explicit_email!r} dimiliki user "
+                f"ID {email_user.pk}, sedangkan username "
+                f"{explicit_username!r} dimiliki user "
+                f"ID {username_user.pk}."
+            )
+
+        user = email_user or username_user
+
+        if user is None:
+            first_name, last_name = split_name(name)
+
+            user = User.objects.create_user(
+                username=explicit_username,
+                first_name=first_name,
+                last_name=last_name,
+                email=explicit_email,
+                is_staff=True,
+            )
+
+            created = True
+
+        else:
+            existing_email = (
+                user.email or ""
+            ).strip().lower()
+
+            if (
+                existing_email
+                and existing_email != explicit_email
+            ):
+                raise RuntimeError(
+                    f"Konflik email untuk user ID {user.pk} "
+                    f"({user.username!r}): "
+                    f"existing={existing_email!r}, "
+                    f"expected={explicit_email!r}."
+                )
+
+            # Isi/normalisasi email authoritative.
+            user.email = explicit_email
+
+    # --------------------------------------------------------------
+    # PRIORITAS 2:
+    # Alias eksplisit, kemudian exact normalized full-name.
+    #
+    # Full-name hanya boleh dipakai jika tepat SATU user.
+    # --------------------------------------------------------------
     else:
-        created = False
-        if not user.first_name:
-            user.first_name, user.last_name = split_name(name)
-        user.is_staff = True
-        user.is_superuser = False
+        alias_username = USERNAME_ALIASES.get(
+            normalized
+        )
+
+        if alias_username:
+            user = _get_single_user(
+                User.objects.filter(
+                    username__iexact=alias_username
+                ).order_by("id"),
+                identity_label=f"alias username {alias_username}",
+            )
+
+        if user is None:
+            name_matches = [
+                candidate
+                for candidate in User.objects.all().order_by("id")
+                if normalize_name(
+                    candidate.get_full_name()
+                ) == normalized
+            ]
+
+            if len(name_matches) > 1:
+                raise RuntimeError(
+                    f"Nama {name!r} ambigu: ditemukan "
+                    f"{len(name_matches)} user. "
+                    f"Tambahkan USER_IDENTITY_OVERRIDES "
+                    f"berdasarkan unit/role/jabatan."
+                )
+
+            if len(name_matches) == 1:
+                user = name_matches[0]
+
+        # ----------------------------------------------------------
+        # Untuk LDAP:
+        # Jangan membuat user baru tanpa email authoritative.
+        #
+        # Ini menutup akar masalah akun seed email kosong yang
+        # kemudian diduplikasi saat user pertama kali login LDAP.
+        # ----------------------------------------------------------
+        if user is None and use_ldap:
+            raise RuntimeError(
+                f"Menolak membuat LDAP seed user {name!r} "
+                f"tanpa identitas authoritative. "
+                f"Tambahkan USER_IDENTITY_OVERRIDES dengan "
+                f"username dan email resmi."
+            )
+
+        # Legacy/non-LDAP seed masih boleh membuat local user.
+        if user is None:
+            username = username_from_name(name)
+            original = username
+            counter = 2
+
+            while User.objects.filter(
+                username__iexact=username
+            ).exists():
+                username = f"{original}.{counter}"
+                counter += 1
+
+            first_name, last_name = split_name(name)
+
+            user = User.objects.create_user(
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+                email="",
+                is_staff=True,
+            )
+
+            created = True
+
+    # --------------------------------------------------------------
+    # COMMON USER UPDATE
+    # --------------------------------------------------------------
+    if not user.first_name:
+        user.first_name, user.last_name = split_name(
+            name
+        )
+
+    user.is_staff = True
+    user.is_superuser = False
 
     _apply_seed_password(
         user,
@@ -199,13 +399,25 @@ def get_or_create_user(
         temporary_password=temporary_password,
         force_reset=force_reset,
     )
+
     user.save()
 
-    user.user_permissions.set(permissions_for_profile_access())
+    user.user_permissions.set(
+        permissions_for_profile_access()
+    )
 
     if role_label or jabatan:
-        profile = " / ".join(part for part in [role_label, jabatan] if part)
-        user.riwayat_jabatan.get_or_create(jabatan=profile, tanggal_mulai="2026-01-01")
+        profile = " / ".join(
+            part
+            for part in [role_label, jabatan]
+            if part
+        )
+
+        user.riwayat_jabatan.get_or_create(
+            jabatan=profile,
+            tanggal_mulai="2026-01-01",
+        )
+
     return user, created
 
 
@@ -267,6 +479,7 @@ def run(*, use_ldap=True, temporary_password=None, force_reset=False, stdout=Non
                 pairing_name,
                 "Pairing Officer",
                 None,
+                unit_name=unit_name,
                 use_ldap=use_ldap,
                 temporary_password=temporary_password,
                 force_reset=force_reset,
@@ -284,6 +497,7 @@ def run(*, use_ldap=True, temporary_password=None, force_reset=False, stdout=Non
                 name,
                 role_label,
                 jabatan,
+                unit_name=unit_name,
                 use_ldap=use_ldap,
                 temporary_password=temporary_password,
                 force_reset=force_reset,

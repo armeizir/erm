@@ -817,3 +817,211 @@ class LDAPUserIdentityResolutionTests(TestCase):
             ).count(),
             1,
         )
+
+
+
+class SeedRiskUserIdentityResolutionTests(TestCase):
+    """Cegah duplicate/mis-binding user dari seed Risk 2026."""
+
+    def test_ade_override_reuses_existing_email_despite_name_spelling(self):
+        from django.contrib.auth import get_user_model
+        from risk.scripts.seed_risk_users_2026 import get_or_create_user
+
+        User = get_user_model()
+
+        existing = User.objects.create_user(
+            username="legacy.ade",
+            email="ade.iusticia@plnbatam.com",
+            first_name="ADE",
+            last_name="IUSTICIA PUTRA",
+        )
+
+        resolved, created = get_or_create_user(
+            "ADE JUSTICIA PUTRA",
+            "Risk Champion",
+            "MAN PENGEMBANGAN BISNIS DAN ENTERPRISE",
+            unit_name="BID BIS",
+            use_ldap=True,
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(resolved.pk, existing.pk)
+
+        self.assertEqual(
+            User.objects.filter(
+                email__iexact="ade.iusticia@plnbatam.com"
+            ).count(),
+            1,
+        )
+
+    def test_two_suprianto_are_resolved_by_unit_identity(self):
+        from django.contrib.auth import get_user_model
+        from risk.scripts.seed_risk_users_2026 import get_or_create_user
+
+        User = get_user_model()
+
+        strada = User.objects.create_user(
+            username="suprianto",
+            email="suprianto_dist@plnbatam.com",
+            first_name="SUPRIANTO",
+        )
+
+        bis = User.objects.create_user(
+            username="Suprianto_kit",
+            email="suprianto_kit@plnbatam.com",
+            first_name="SUPRIANTO",
+        )
+
+        resolved_strada, created_strada = get_or_create_user(
+            "SUPRIANTO",
+            "Risk Officer",
+            "SOF PELAKSANA PENGADAAN",
+            unit_name="BID STRADA",
+            use_ldap=True,
+        )
+
+        resolved_bis, created_bis = get_or_create_user(
+            "SUPRIANTO",
+            "Risk Officer",
+            "SOF MODEL BISNIS DAN DESAIN BISNIS BARU",
+            unit_name="BID BIS",
+            use_ldap=True,
+        )
+
+        self.assertFalse(created_strada)
+        self.assertFalse(created_bis)
+
+        self.assertEqual(
+            resolved_strada.pk,
+            strada.pk,
+        )
+
+        self.assertEqual(
+            resolved_bis.pk,
+            bis.pk,
+        )
+
+        self.assertNotEqual(
+            resolved_strada.pk,
+            resolved_bis.pk,
+        )
+
+    def test_ambiguous_full_name_without_override_is_rejected(self):
+        from django.contrib.auth import get_user_model
+        from risk.scripts.seed_risk_users_2026 import get_or_create_user
+
+        User = get_user_model()
+
+        User.objects.create_user(
+            username="same.person.one",
+            email="one@plnbatam.com",
+            first_name="SAME",
+            last_name="PERSON",
+        )
+
+        User.objects.create_user(
+            username="same.person.two",
+            email="two@plnbatam.com",
+            first_name="SAME",
+            last_name="PERSON",
+        )
+
+        before_count = User.objects.count()
+
+        with self.assertRaises(RuntimeError):
+            get_or_create_user(
+                "SAME PERSON",
+                "Risk Officer",
+                "TEST POSITION",
+                unit_name="TEST UNIT",
+                use_ldap=True,
+            )
+
+        self.assertEqual(
+            User.objects.count(),
+            before_count,
+        )
+
+    def test_explicit_username_with_conflicting_email_is_rejected(self):
+        from django.contrib.auth import get_user_model
+        from risk.scripts.seed_risk_users_2026 import get_or_create_user
+
+        User = get_user_model()
+
+        User.objects.create_user(
+            username="ade.iusticia",
+            email="wrong.identity@plnbatam.com",
+            first_name="ADE",
+            last_name="IUSTICIA PUTRA",
+        )
+
+        before_count = User.objects.count()
+
+        with self.assertRaises(RuntimeError):
+            get_or_create_user(
+                "ADE JUSTICIA PUTRA",
+                "Risk Champion",
+                "MAN PENGEMBANGAN BISNIS DAN ENTERPRISE",
+                unit_name="BID BIS",
+                use_ldap=True,
+            )
+
+        self.assertEqual(
+            User.objects.count(),
+            before_count,
+        )
+
+    def test_explicit_identity_can_create_one_complete_user(self):
+        from django.contrib.auth import get_user_model
+        from risk.scripts.seed_risk_users_2026 import get_or_create_user
+
+        User = get_user_model()
+
+        resolved, created = get_or_create_user(
+            "ADE JUSTICIA PUTRA",
+            "Risk Champion",
+            "MAN PENGEMBANGAN BISNIS DAN ENTERPRISE",
+            unit_name="BID BIS",
+            use_ldap=True,
+        )
+
+        self.assertTrue(created)
+
+        self.assertEqual(
+            resolved.username,
+            "ade.iusticia",
+        )
+
+        self.assertEqual(
+            resolved.email,
+            "ade.iusticia@plnbatam.com",
+        )
+
+        self.assertEqual(
+            User.objects.filter(
+                email__iexact="ade.iusticia@plnbatam.com"
+            ).count(),
+            1,
+        )
+
+    def test_ldap_seed_refuses_creation_without_authoritative_identity(self):
+        from django.contrib.auth import get_user_model
+        from risk.scripts.seed_risk_users_2026 import get_or_create_user
+
+        User = get_user_model()
+
+        before_count = User.objects.count()
+
+        with self.assertRaises(RuntimeError):
+            get_or_create_user(
+                "NEW UNKNOWN EMPLOYEE",
+                "Risk Officer",
+                "TEST POSITION",
+                unit_name="TEST UNIT",
+                use_ldap=True,
+            )
+
+        self.assertEqual(
+            User.objects.count(),
+            before_count,
+        )
