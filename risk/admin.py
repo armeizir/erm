@@ -2507,9 +2507,9 @@ class ReAssessmentItemInline(admin.TabularInline):
 
             object_id = request.resolver_match.kwargs.get("object_id")
             if not summary_id and object_id:
-                obj = ReAssessmentItem.objects.filter(pk=object_id).first()
-                if obj:
-                    summary_id = obj.summary_id
+                # Inline ini berada pada halaman ReAssessmentSummary, sehingga
+                # object_id adalah ID profil induk, bukan ID ReAssessmentItem.
+                summary_id = object_id
 
             if summary_id:
                 summary = ReAssessmentSummary.objects.filter(pk=summary_id).first()
