@@ -217,6 +217,60 @@ class OrganizationUnit(TimeStampedModel):
         return f"{self.code} - {self.name}"
 
 
+class OrganizationUnitAccessGroup(TimeStampedModel):
+    """Bridge between the organization master and legacy access groups.
+
+    Risk data continues to reference ``auth.Group`` for backwards
+    compatibility, while this mapping makes ``OrganizationUnit`` the master
+    reference for the organizational scope represented by that group.  A
+    group may cover more than one organization unit (for example a combined
+    organizational scope).
+    """
+
+    organization_unit = models.ForeignKey(
+        OrganizationUnit,
+        on_delete=models.PROTECT,
+        related_name="access_group_mappings",
+        verbose_name="Organization Unit",
+    )
+    group = models.ForeignKey(
+        "auth.Group",
+        on_delete=models.PROTECT,
+        related_name="organization_unit_mappings",
+        verbose_name="Bidang / Unit Bisnis",
+    )
+    utama = models.BooleanField(
+        default=True,
+        verbose_name="Cakupan utama",
+        help_text="Tandai jika unit ini merupakan cakupan utama grup.",
+    )
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "md_organization_unit_access_group"
+        verbose_name = "Cakupan Akses Organisasi"
+        verbose_name_plural = "Organization — Cakupan Akses"
+        ordering = ["group__name", "organization_unit__code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization_unit", "group"),
+                name="uniq_org_unit_access_group",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.group_id and self.group.name.startswith("ROLE - "):
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(
+                {"group": "Role permission tidak dapat dijadikan cakupan organisasi."}
+            )
+
+    def __str__(self):
+        return f"{self.group.name} → {self.organization_unit}"
+
+
 class TahunBuku(TimeStampedModel):
     tahun = models.PositiveIntegerField(unique=True)
     aktif = models.BooleanField(default=True)

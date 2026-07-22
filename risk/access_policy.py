@@ -24,6 +24,11 @@ ORG_GROUP_PREFIXES = (
     "UB ",
 )
 
+ORG_GROUP_EXACT_NAMES = (
+    "KSPI",
+    "SETPER",
+)
+
 
 def organizational_groups_for_user(user):
     """
@@ -45,6 +50,9 @@ def organizational_groups_for_user(user):
     for prefix in ORG_GROUP_PREFIXES:
         query |= Q(name__startswith=prefix)
 
+    query |= Q(name__in=ORG_GROUP_EXACT_NAMES)
+    query |= Q(organization_unit_mappings__aktif=True)
+
     return user.groups.filter(query).distinct()
 
 
@@ -65,7 +73,9 @@ def user_has_organizational_scope(user):
 
 def is_organizational_group_name(name):
     name = str(name or "").strip().upper()
-    return any(name.startswith(prefix) for prefix in ORG_GROUP_PREFIXES)
+    return name in ORG_GROUP_EXACT_NAMES or any(
+        name.startswith(prefix) for prefix in ORG_GROUP_PREFIXES
+    )
 
 
 # Hanya model yang termasuk dalam 5 kelompok menu:

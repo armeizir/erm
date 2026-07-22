@@ -65,7 +65,7 @@ class AwarenessAttemptAdminTests(TestCase):
     def test_group_filter_limits_attempts_by_user_group(self):
         User = get_user_model()
         admin_user = User.objects.create_superuser(username="admin", password="secret")
-        group_a = Group.objects.create(name="SEKPER")
+        group_a = Group.objects.create(name="SETPER")
         group_b = Group.objects.create(name="UB BES")
         user_a = User.objects.create_user(username="sekper.user", password="secret")
         user_b = User.objects.create_user(username="ubbes.user", password="secret")

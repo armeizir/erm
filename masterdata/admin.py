@@ -8,6 +8,7 @@ from masterdata.models import (
     Directorate,
     Division,
     OrganizationUnit,
+    OrganizationUnitAccessGroup,
     PeriodeLaporan,
     PersonnelArea,
     PersonnelSubArea,
@@ -55,6 +56,16 @@ class OrganizationUnitInline(admin.TabularInline):
     extra = 0
     fields = ("code", "name", "business_area", "personnel_sub_area", "aktif")
     ordering = ("code",)
+
+
+class OrganizationUnitAccessGroupInline(admin.TabularInline):
+    model = OrganizationUnitAccessGroup
+    fk_name = "organization_unit"
+    extra = 0
+    fields = ("group", "utama", "aktif")
+    autocomplete_fields = ("group",)
+    verbose_name = "Grup Bidang / Unit Bisnis"
+    verbose_name_plural = "Grup Bidang / Unit Bisnis (cakupan akses)"
 
 
 @admin.register(CompanyCode)
@@ -129,6 +140,7 @@ class OrganizationUnitAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
         "business_area",
         "personnel_sub_area",
         "parent",
+        "access_groups",
         "aktif",
     )
     search_fields = (
@@ -149,7 +161,15 @@ class OrganizationUnitAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
         "division",
         "parent",
     )
-    inlines = [OrganizationUnitInline]
+    inlines = [OrganizationUnitAccessGroupInline, OrganizationUnitInline]
+
+    @admin.display(description="Bidang / Unit Bisnis")
+    def access_groups(self, obj):
+        return ", ".join(
+            obj.access_group_mappings.filter(aktif=True)
+            .order_by("group__name")
+            .values_list("group__name", flat=True)
+        ) or "-"
 
 
 @admin.register(TahunBuku)

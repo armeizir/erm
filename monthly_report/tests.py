@@ -124,7 +124,7 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_group_filter_limits_monthly_reports_by_reassessment_group(self):
         report_aga = self._report("BID AGA")
-        self._report("SEKPER")
+        self._report("SETPER")
         request = RequestFactory().get(
             "/admin/monthly_report/monthlyriskreport/",
             {"group": str(report_aga.reassessment.unit_bisnis_id)},

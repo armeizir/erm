@@ -15,7 +15,12 @@ from reportlab.platypus import Image, SimpleDocTemplate, Table, TableStyle, Para
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.styles import ParagraphStyle
-from masterdata.models import MasterBUMN, TahunBuku, PeriodeLaporan
+from masterdata.models import (
+    MasterBUMN,
+    OrganizationUnitAccessGroup,
+    TahunBuku,
+    PeriodeLaporan,
+)
 
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
@@ -149,16 +154,34 @@ class PenugasanUnitBisnisGroupInline(admin.TabularInline):
     ordering = ("peran", "user")
 
 
+class OrganizationUnitAccessGroupInline(admin.TabularInline):
+    model = OrganizationUnitAccessGroup
+    fk_name = "group"
+    extra = 0
+    fields = ("organization_unit", "utama", "aktif")
+    autocomplete_fields = ("organization_unit",)
+    verbose_name = "Master Organisasi"
+    verbose_name_plural = "Master Organisasi (cakupan akses)"
+
+
 @admin.register(Group)
 class CustomGroupAdmin(BaseGroupAdmin):
-    inlines = [PenugasanUnitBisnisGroupInline]
-    list_display = ("name", "jenis_group", "jumlah_permission")
+    inlines = [OrganizationUnitAccessGroupInline, PenugasanUnitBisnisGroupInline]
+    list_display = ("name", "jenis_group", "cakupan_organisasi", "jumlah_permission")
     list_filter = ("permissions__content_type__app_label",)
     search_fields = ("name",)
     ordering = ("name",)
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related("permissions").order_by("name")
+        return (
+            super()
+            .get_queryset(request)
+            .prefetch_related(
+                "permissions",
+                "organization_unit_mappings__organization_unit",
+            )
+            .order_by("name")
+        )
 
     def get_inline_instances(self, request, obj=None):
         if obj and self._is_permission_role(obj):
@@ -175,6 +198,16 @@ class CustomGroupAdmin(BaseGroupAdmin):
     @admin.display(description="Permissions")
     def jumlah_permission(self, obj):
         return obj.permissions.count()
+
+    @admin.display(description="Master Organisasi")
+    def cakupan_organisasi(self, obj):
+        if self._is_permission_role(obj):
+            return "-"
+        return ", ".join(
+            obj.organization_unit_mappings.filter(aktif=True)
+            .order_by("organization_unit__code")
+            .values_list("organization_unit__name", flat=True)
+        ) or "Belum dipetakan"
 
 
 class AppSettingForm(forms.ModelForm):

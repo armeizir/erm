@@ -526,9 +526,9 @@ def resolve_context():
     ReAssessmentSummary = MonthlyRiskReport._meta.get_field("reassessment").related_model
     profile = ReAssessmentSummary.objects.get(id=PROFILE_ID, tahun=YEAR)
 
-    if str(profile.unit_bisnis).upper() != "SEKPER":
+    if str(profile.unit_bisnis).upper() != "SETPER":
         raise RuntimeError(
-            f"Profile ID {PROFILE_ID} bukan unit SEKPER: {profile.unit_bisnis}"
+            f"Profile ID {PROFILE_ID} bukan unit SETPER: {profile.unit_bisnis}"
         )
 
     april = (

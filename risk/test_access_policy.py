@@ -27,11 +27,13 @@ class SimpleAccessPolicyTests(SimpleTestCase):
             )
         )
 
-        self.assertFalse(
+        self.assertTrue(
             is_organizational_group_name(
-                "SEKPER"
+                "SETPER"
             )
         )
+
+        self.assertTrue(is_organizational_group_name("KSPI"))
 
     def test_read_has_only_view_permissions(self):
         specs = permission_specs_for_level(
