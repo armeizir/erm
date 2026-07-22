@@ -1,0 +1,61 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrahead %}{{ block.super }}
+<style>
+  .import-summary {display:flex; gap:12px; margin:12px 0 20px}
+  .import-badge {padding:8px 14px; border-radius:4px; font-weight:700}
+  .green {background:#d9f2df}.yellow {background:#fff1bd}.red {background:#ffdada}
+  .import-table {width:100%; border-collapse:collapse}
+  .import-table th,.import-table td {padding:9px; border-bottom:1px solid #ddd; vertical-align:top}
+  .import-table pre {white-space:pre-wrap; max-width:360px; margin:0; font-size:11px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <h2>{{ report.display_profile_name }} - {{ report.periode.nama_periode }}</h2>
+  <p><strong>File:</strong> {{ batch.original_filename }} &nbsp; <strong>Status:</strong> {{ batch.get_status_display }}</p>
+  {% if batch.error_message %}<p class="errornote">{{ batch.error_message }}</p>{% endif %}
+  <div class="import-summary">
+    <span class="import-badge green">Hijau: {{ counts.green }}</span>
+    <span class="import-badge yellow">Kuning: {{ counts.yellow }}</span>
+    <span class="import-badge red">Merah: {{ counts.red }}</span>
+  </div>
+  <div style="padding:12px;background:#eef5fb;margin-bottom:15px"><strong>Analisis:</strong> {{ batch.ai_summary|default:"-" }}</div>
+
+  <form method="post">
+    {% csrf_token %}
+    <div style="overflow-x:auto">
+      <table class="import-table">
+        <thead><tr><th>Status</th><th>Sumber / kode</th><th>Risiko ERM</th><th>Temuan</th><th>Data yang akan diisi</th><th>Keputusan</th><th>Catatan</th></tr></thead>
+        <tbody>
+        {% for row in rows %}
+          <tr class="{{ row.validation_level }}">
+            <td><strong>{{ row.get_validation_level_display }}</strong><br>{{ row.confidence }}%</td>
+            <td>{{ row.source_reference }}<br><strong>{{ row.risk_code }}</strong><br>{{ row.risk_event_text }}</td>
+            <td>{% if row.matched_report_item_id %}{{ row.matched_report_item.risk_event }}{% else %}-{% endif %}</td>
+            <td>{% for issue in row.issues %}<div>{{ issue }}</div>{% empty %}-{% endfor %}{% if row.ai_analysis %}<hr>{{ row.ai_analysis }}{% endif %}</td>
+            <td><pre>{{ row.proposed_data }}</pre></td>
+            <td>
+              <select name="decision_{{ row.pk }}" {% if batch.status != 'review' %}disabled{% endif %}>
+                <option value="pending" {% if row.user_decision == 'pending' %}selected{% endif %}>Konfirmasi</option>
+                {% if row.validation_level != 'red' %}<option value="import" {% if row.user_decision == 'import' %}selected{% endif %}>Import</option>{% endif %}
+                <option value="skip" {% if row.user_decision == 'skip' %}selected{% endif %}>Lewati</option>
+              </select>
+            </td>
+            <td><input name="note_{{ row.pk }}" value="{{ row.user_note }}" {% if batch.status != 'review' %}disabled{% endif %}></td>
+          </tr>
+        {% empty %}<tr><td colspan="7">Tidak ada baris hasil analisis.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="submit-row">
+      {% if batch.status == 'review' %}
+        <button class="button" name="action" value="save">Simpan Keputusan</button>
+        <button class="default" name="action" value="apply" onclick="return confirm('Import data terpilih ke laporan?');">Konfirmasi dan Import</button>
+      {% endif %}
+      <a href="{{ cancel_url }}" class="button cancel-link">Kembali ke laporan</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

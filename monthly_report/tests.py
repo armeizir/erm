@@ -1,14 +1,18 @@
 from datetime import date
 from decimal import Decimal
 import json
+from io import BytesIO
+import tempfile
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
+from openpyxl import Workbook
 
 from masterdata.models import PeriodeLaporan, TahunBuku
 from risk.admin import ReAssessmentItemAdmin
@@ -21,6 +25,8 @@ from risk.models import (
     KPMRPeriode,
     MasterBagianKM,
     MasterTemplateKM,
+    MasterSkalaDampak,
+    MasterSkalaProbabilitas,
     PenugasanUnitBisnis,
     ReAssessmentItem,
     ReAssessmentSummary,
@@ -32,7 +38,9 @@ from .models import (
     MonthlyRiskReportChange,
     MonthlyRiskReportItem,
     MonthlyRiskReportLossEvent,
+    MonthlyRiskReportImportBatch,
 )
+from .import_services import analyze_import_batch, apply_import_batch
 from .notifications import send_monthly_report_notification
 from .services import duplicate_approved_report_to_next_month, refresh_monthly_report_summary
 
@@ -208,6 +216,100 @@ class MonthlyRiskReportAdminTests(TestCase):
             rencana_perlakuan_risiko="Mitigasi",
             output_perlakuan_risiko="Output",
         )
+
+    def _import_workbook(self, probability=40, progress=75):
+        workbook = Workbook()
+        iiia = workbook.active
+        iiia.title = "III.A"
+        iiib = workbook.create_sheet("III.B")
+        iiia.cell(10, 2, "BID BIS-1-a")
+        iiia.cell(10, 3, "Risiko BID BIS")
+        iiia.cell(10, 12, "Asumsi dampak Februari")
+        iiia.cell(10, 13, 1500000)
+        iiia.cell(10, 17, 3)
+        iiia.cell(10, 25, probability)
+        iiia.cell(10, 29, 2)
+        iiia.cell(10, 57, "Efektif")
+        iiib.cell(10, 6, "BID BIS-1-a")
+        iiib.cell(10, 11, "Realisasi mitigasi")
+        iiib.cell(10, 12, "Output mitigasi")
+        iiib.cell(10, 13, 250000)
+        iiib.cell(10, 15, "PIC BIS")
+        iiib.cell(10, 28, "Continue")
+        iiib.cell(10, 29, "Sesuai jadwal")
+        iiib.cell(10, 30, progress)
+        iiib.cell(10, 41, "<= 10 hari")
+        iiib.cell(10, 42, "Aman")
+        stream = BytesIO()
+        workbook.save(stream)
+        return SimpleUploadedFile(
+            "profil_bis_februari.xlsx",
+            stream.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def test_excel_import_is_staged_then_applied_after_confirmation(self):
+        report = self._report("BID BIS")
+        risk_event = self._risk_item(
+            report,
+            no_item=1,
+            no_risiko=1,
+            no_penyebab_risiko="a",
+            peristiwa_risiko="Risiko BID BIS",
+        )
+        item = MonthlyRiskReportItem.objects.create(report=report, risk_event=risk_event)
+        MasterSkalaDampak.objects.create(nama="Menengah", urutan=3)
+        MasterSkalaProbabilitas.objects.create(nama="Jarang", urutan=2)
+
+        with tempfile.TemporaryDirectory() as media_root, self.settings(MEDIA_ROOT=media_root):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=self._import_workbook(),
+                original_filename="profil_bis_februari.xlsx",
+                file_sha256="a" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            row = batch.rows.get()
+            self.assertEqual(row.validation_level, row.LEVEL_GREEN)
+            self.assertEqual(row.user_decision, row.DECISION_IMPORT)
+            item.refresh_from_db()
+            self.assertIsNone(item.realisasi_nilai_dampak)
+
+            apply_import_batch(batch, self.admin_user)
+            item.refresh_from_db()
+            batch.refresh_from_db()
+
+        self.assertEqual(batch.status, batch.STATUS_IMPORTED)
+        self.assertEqual(item.realisasi_nilai_dampak, Decimal("1500000"))
+        self.assertEqual(item.realisasi_nilai_probabilitas, Decimal("40"))
+        self.assertEqual(item.progress_pelaksanaan_percent, Decimal("75"))
+        self.assertEqual(item.realisasi_rencana_perlakuan, "Realisasi mitigasi")
+        self.assertEqual(report.submission_logs.filter(action="import").count(), 1)
+
+    def test_excel_import_rejects_invalid_value_until_user_skips_row(self):
+        report = self._report("BID BIS INVALID")
+        risk_event = self._risk_item(
+            report, no_item=1, no_risiko=1, no_penyebab_risiko="a",
+            peristiwa_risiko="Risiko BID BIS",
+        )
+        MonthlyRiskReportItem.objects.create(report=report, risk_event=risk_event)
+        with tempfile.TemporaryDirectory() as media_root, self.settings(MEDIA_ROOT=media_root):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=self._import_workbook(probability=140),
+                original_filename="invalid.xlsx",
+                file_sha256="b" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            row = batch.rows.get()
+            self.assertEqual(row.validation_level, row.LEVEL_RED)
+            with self.assertRaisesMessage(ValidationError, "belum dikonfirmasi"):
+                apply_import_batch(batch, self.admin_user)
+            row.user_decision = row.DECISION_SKIP
+            row.save(update_fields=["user_decision"])
+            apply_import_batch(batch, self.admin_user)
 
     def test_group_filter_limits_monthly_reports_by_reassessment_group(self):
         report_aga = self._report("BID AGA")

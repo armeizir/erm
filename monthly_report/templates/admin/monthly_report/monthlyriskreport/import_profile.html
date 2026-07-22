@@ -1,0 +1,40 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div id="content-main">
+  <h2>{{ report.display_profile_name }} - {{ report.periode.nama_periode }}</h2>
+  <div class="module aligned">
+    <div style="padding:16px; background:#fff8e5; border-left:4px solid #e6a700; margin-bottom:18px;">
+      Data belum langsung masuk ke laporan. Sistem akan mencocokkan kode risiko, memvalidasi nilai,
+      dan menampilkan hasil analisis untuk dikonfirmasi terlebih dahulu.
+    </div>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <div class="submit-row">
+        <input type="submit" value="Upload dan Analisis" class="default">
+        <a href="{{ cancel_url }}" class="button cancel-link">Kembali</a>
+      </div>
+    </form>
+  </div>
+
+  {% if batches %}
+  <div class="module">
+    <h2>Riwayat upload</h2>
+    <table style="width:100%">
+      <thead><tr><th>Waktu</th><th>File</th><th>Status</th><th>Pengunggah</th><th></th></tr></thead>
+      <tbody>
+      {% for item in batches %}
+        <tr>
+          <td>{{ item.created_at }}</td><td>{{ item.original_filename }}</td>
+          <td>{{ item.get_status_display }}</td><td>{{ item.uploaded_by|default:"-" }}</td>
+          <td><a href="{% url 'risk_admin:monthly_report_monthlyriskreport_import_profile_review' report.pk item.pk %}">Lihat</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

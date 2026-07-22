@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from decimal import Decimal
 
@@ -679,6 +680,7 @@ class MonthlyRiskReportSubmissionLog(models.Model):
         ("approve", "Approve"),
         ("lock", "Lock"),
         ("duplicate", "Duplicate"),
+        ("import", "Import Excel"),
     ]
 
     report = models.ForeignKey(
@@ -694,3 +696,127 @@ class MonthlyRiskReportSubmissionLog(models.Model):
     class Meta:
         db_table = "mr_submission_log"
         ordering = ["-action_at"]
+
+
+class MonthlyRiskReportImportBatch(TimeStampedModel):
+    STATUS_ANALYZING = "analyzing"
+    STATUS_REVIEW = "review"
+    STATUS_IMPORTED = "imported"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = (
+        (STATUS_ANALYZING, "Sedang dianalisis"),
+        (STATUS_REVIEW, "Menunggu konfirmasi"),
+        (STATUS_IMPORTED, "Sudah diimpor"),
+        (STATUS_FAILED, "Gagal"),
+    )
+
+    report = models.ForeignKey(
+        MonthlyRiskReport,
+        on_delete=models.CASCADE,
+        related_name="import_batches",
+    )
+    source_file = models.FileField(
+        upload_to="monthly_report/imports/%Y/%m/",
+        validators=[FileExtensionValidator(["xlsx"])],
+        verbose_name="File Excel",
+    )
+    original_filename = models.CharField(max_length=255)
+    file_sha256 = models.CharField(max_length=64)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_ANALYZING,
+    )
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="monthly_report_imports_uploaded",
+    )
+    analyzed_at = models.DateTimeField(null=True, blank=True)
+    imported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="monthly_report_imports_applied",
+        null=True,
+        blank=True,
+    )
+    imported_at = models.DateTimeField(null=True, blank=True)
+    ai_used = models.BooleanField(default=False)
+    ai_summary = models.TextField(blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "mr_import_batch"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("report", "file_sha256"),
+                name="uniq_monthly_report_import_file",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.report} - {self.original_filename}"
+
+
+class MonthlyRiskReportImportRow(TimeStampedModel):
+    LEVEL_GREEN = "green"
+    LEVEL_YELLOW = "yellow"
+    LEVEL_RED = "red"
+    LEVEL_CHOICES = (
+        (LEVEL_GREEN, "Siap diimpor"),
+        (LEVEL_YELLOW, "Perlu konfirmasi"),
+        (LEVEL_RED, "Tidak dapat diimpor"),
+    )
+    DECISION_PENDING = "pending"
+    DECISION_IMPORT = "import"
+    DECISION_SKIP = "skip"
+    DECISION_CHOICES = (
+        (DECISION_PENDING, "Belum diputuskan"),
+        (DECISION_IMPORT, "Import"),
+        (DECISION_SKIP, "Abaikan"),
+    )
+
+    batch = models.ForeignKey(
+        MonthlyRiskReportImportBatch,
+        on_delete=models.CASCADE,
+        related_name="rows",
+    )
+    source_reference = models.CharField(max_length=100)
+    risk_code = models.CharField(max_length=100, blank=True, default="")
+    risk_event_text = models.TextField(blank=True, default="")
+    matched_report_item = models.ForeignKey(
+        MonthlyRiskReportItem,
+        on_delete=models.PROTECT,
+        related_name="import_rows",
+        null=True,
+        blank=True,
+    )
+    match_method = models.CharField(max_length=30, blank=True, default="")
+    confidence = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    validation_level = models.CharField(max_length=10, choices=LEVEL_CHOICES)
+    issues = models.JSONField(default=list, blank=True)
+    raw_data = models.JSONField(default=dict, blank=True)
+    proposed_data = models.JSONField(default=dict, blank=True)
+    previous_data = models.JSONField(default=dict, blank=True)
+    applied_data = models.JSONField(default=dict, blank=True)
+    user_decision = models.CharField(
+        max_length=10,
+        choices=DECISION_CHOICES,
+        default=DECISION_PENDING,
+    )
+    user_note = models.TextField(blank=True, default="")
+    ai_analysis = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "mr_import_row"
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("batch", "source_reference"),
+                name="uniq_monthly_report_import_row",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.batch_id} - {self.source_reference}"

@@ -35,6 +35,8 @@ from .models import (
     MonthlyRiskReportKMAlignment,
     MonthlyRiskReportLossEvent,
     MonthlyRiskReportSubmissionLog,
+    MonthlyRiskReportImportBatch,
+    MonthlyRiskReportImportRow,
 )
 
 from masterdata.models import TahunBuku
@@ -51,6 +53,7 @@ from risk.services.kpmr_automation import calculate_kpmr_for_report
 from risk.services.kpmr_automation import month_to_quarter
 from .notifications import send_monthly_report_notification
 from .services import duplicate_approved_report_to_next_month, refresh_monthly_report_summary
+from .import_services import analyze_import_batch, apply_import_batch, file_sha256
 
 
 BULAN_CHOICES = [
@@ -68,6 +71,21 @@ BULAN_CHOICES = [
     (12, "Desember"),
 ]
 BULAN_LABELS = dict(BULAN_CHOICES)
+
+
+class MonthlyRiskReportImportForm(forms.Form):
+    source_file = forms.FileField(
+        label="File laporan profil risiko (.xlsx)",
+        help_text="Gunakan template resmi yang memiliki sheet III.A dan III.B. Maksimum 10 MB.",
+    )
+
+    def clean_source_file(self):
+        source_file = self.cleaned_data["source_file"]
+        if source_file.size > 10 * 1024 * 1024:
+            raise forms.ValidationError("Ukuran file maksimum 10 MB.")
+        if not source_file.name.lower().endswith(".xlsx"):
+            raise forms.ValidationError("File harus berformat .xlsx.")
+        return source_file
 
 
 def _monthly_level_class(value):
@@ -652,6 +670,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "copy_source_display",
         "flow_action_button",
         "notification_button",
+        "import_profile_button",
         "prepared_by_display",
         "reviewed_by",
         "approved_by",
@@ -661,6 +680,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "peta_risiko_iiic_link",
         "flow_action_button",
         "notification_button",
+        "import_profile_button",
         "prepared_by_display",
         "copy_source_display",
     ]
@@ -678,6 +698,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "flow_action_button",
         "notification_button",
         "web_button",
+        "import_profile_button",
         "duplicate_next_month_button",
     ]
     list_filter = [MonthlyRiskReportGroupFilter, "status"]
@@ -716,6 +737,16 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 name="monthly_report_monthlyriskreport_duplicate_next_month",
             ),
             path(
+                "<path:object_id>/import-profile/",
+                self.admin_site.admin_view(self.import_profile_view),
+                name="monthly_report_monthlyriskreport_import_profile",
+            ),
+            path(
+                "<path:object_id>/import-profile/<int:batch_id>/review/",
+                self.admin_site.admin_view(self.import_profile_review_view),
+                name="monthly_report_monthlyriskreport_import_profile_review",
+            ),
+            path(
                 "risk-items/",
                 self.admin_site.admin_view(self.risk_items_for_reassessment),
                 name="monthly_report_monthlyriskreport_risk_items",
@@ -746,6 +777,144 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         if obj and "status" not in readonly_fields:
             readonly_fields.append("status")
         return readonly_fields
+
+    @admin.display(description="Import Excel")
+    def import_profile_button(self, obj):
+        if not obj or not obj.pk or obj.status not in {"draft", "revision"}:
+            return "-"
+        url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_import_profile",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}">Upload & Analisis</a>', url)
+
+    def _import_report(self, request, object_id):
+        report = self.get_object(request, object_id)
+        if report is None:
+            raise Http404("Monthly risk report tidak ditemukan.")
+        if not self.has_change_permission(request, report):
+            raise PermissionDenied("Anda tidak memiliki izin mengubah laporan ini.")
+        if report.status not in {"draft", "revision"}:
+            raise PermissionDenied("Import hanya tersedia untuk laporan Draft atau Revision.")
+        return report
+
+    def import_profile_view(self, request, object_id):
+        report = self._import_report(request, object_id)
+        form = MonthlyRiskReportImportForm(request.POST or None, request.FILES or None)
+        if request.method == "POST" and form.is_valid():
+            source_file = form.cleaned_data["source_file"]
+            digest = file_sha256(source_file)
+            existing = MonthlyRiskReportImportBatch.objects.filter(
+                report=report, file_sha256=digest
+            ).first()
+            if existing:
+                self.message_user(
+                    request,
+                    "File yang sama sudah pernah diunggah. Menampilkan hasil sebelumnya.",
+                    level=messages.WARNING,
+                )
+                return redirect(
+                    reverse(
+                        f"{self.admin_site.name}:monthly_report_monthlyriskreport_import_profile_review",
+                        args=[report.pk, existing.pk],
+                    )
+                )
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=source_file,
+                original_filename=source_file.name,
+                file_sha256=digest,
+                uploaded_by=request.user,
+            )
+            try:
+                analyze_import_batch(batch)
+            except Exception as exc:
+                batch.status = batch.STATUS_FAILED
+                batch.error_message = str(exc)
+                batch.save(update_fields=["status", "error_message", "updated_at"])
+                self.message_user(request, f"Analisis gagal: {exc}", level=messages.ERROR)
+            return redirect(
+                reverse(
+                    f"{self.admin_site.name}:monthly_report_monthlyriskreport_import_profile_review",
+                    args=[report.pk, batch.pk],
+                )
+            )
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Upload Laporan Profil Risiko",
+            "opts": self.model._meta,
+            "report": report,
+            "form": form,
+            "batches": report.import_batches.select_related("uploaded_by").order_by("-created_at")[:10],
+            "cancel_url": reverse(
+                f"{self.admin_site.name}:monthly_report_monthlyriskreport_change", args=[report.pk]
+            ),
+        }
+        return TemplateResponse(
+            request,
+            "admin/monthly_report/monthlyriskreport/import_profile.html",
+            context,
+        )
+
+    def import_profile_review_view(self, request, object_id, batch_id):
+        report = self._import_report(request, object_id)
+        batch = MonthlyRiskReportImportBatch.objects.filter(
+            pk=batch_id, report=report
+        ).first()
+        if batch is None:
+            raise Http404("Batch import tidak ditemukan.")
+        rows = list(batch.rows.select_related("matched_report_item__risk_event").order_by("pk"))
+        if request.method == "POST" and batch.status == batch.STATUS_REVIEW:
+            for row in rows:
+                decision = request.POST.get(f"decision_{row.pk}", row.user_decision)
+                if decision not in {row.DECISION_IMPORT, row.DECISION_SKIP}:
+                    decision = row.DECISION_PENDING
+                if row.validation_level == row.LEVEL_RED and decision == row.DECISION_IMPORT:
+                    decision = row.DECISION_PENDING
+                row.user_decision = decision
+                row.user_note = request.POST.get(f"note_{row.pk}", "").strip()
+                row.save(update_fields=["user_decision", "user_note", "updated_at"])
+            if request.POST.get("action") == "apply":
+                try:
+                    apply_import_batch(batch, request.user)
+                except ValidationError as exc:
+                    self.message_user(request, "; ".join(exc.messages), level=messages.ERROR)
+                else:
+                    self.message_user(
+                        request,
+                        "Data terpilih berhasil diimpor dan ringkasan laporan diperbarui.",
+                        level=messages.SUCCESS,
+                    )
+                    return redirect(
+                        reverse(
+                            f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
+                            args=[report.pk],
+                        )
+                    )
+            else:
+                self.message_user(request, "Keputusan review berhasil disimpan.", level=messages.SUCCESS)
+            return redirect(request.path)
+        counts = {
+            level: sum(row.validation_level == level for row in rows)
+            for level in ("green", "yellow", "red")
+        }
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Review Import Laporan Profil Risiko",
+            "opts": self.model._meta,
+            "report": report,
+            "batch": batch,
+            "rows": rows,
+            "counts": counts,
+            "cancel_url": reverse(
+                f"{self.admin_site.name}:monthly_report_monthlyriskreport_change", args=[report.pk]
+            ),
+        }
+        return TemplateResponse(
+            request,
+            "admin/monthly_report/monthlyriskreport/import_profile_review.html",
+            context,
+        )
 
     @admin.display(description="Prepared by")
     def prepared_by_display(self, obj):
