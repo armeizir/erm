@@ -267,9 +267,18 @@ class MonthlyRiskReportAdminForm(forms.ModelForm):
         if unit:
             reviewed_by_field = self.fields.get("reviewed_by")
             if reviewed_by_field:
-                reviewed_by_field.queryset = _users_for_unit_role(
+                risk_champions = _users_for_unit_role(
                     unit,
                     PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
+                )
+                reviewed_by_field.queryset = risk_champions
+                risk_champion = risk_champions.first()
+                if risk_champion:
+                    reviewed_by_field.initial = risk_champion.pk
+                    self.initial["reviewed_by"] = risk_champion.pk
+                reviewed_by_field.disabled = True
+                reviewed_by_field.help_text = (
+                    "Otomatis mengikuti Risk Champion aktif BID/Unit Bisnis laporan."
                 )
 
             approved_by_field = self.fields.get("approved_by")
@@ -295,6 +304,18 @@ class MonthlyRiskReportAdminForm(forms.ModelForm):
         cleaned_data = super().clean()
         reassessment = cleaned_data.get("reassessment") or getattr(self.instance, "reassessment", None)
         if reassessment and reassessment.unit_bisnis_id:
+            risk_champion = _users_for_unit_role(
+                reassessment.unit_bisnis,
+                PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
+            ).first()
+            if not risk_champion:
+                self.add_error(
+                    "reassessment",
+                    "Belum ada Risk Champion aktif pada BID/Unit Bisnis yang dipilih.",
+                )
+            elif "reviewed_by" in self.fields:
+                cleaned_data["reviewed_by"] = risk_champion
+
             first_officer = _users_for_unit_role(
                 reassessment.unit_bisnis,
                 PenugasanUnitBisnis.ROLE_RISK_OFFICER,
@@ -729,10 +750,15 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         return ", ".join(names) if names else "Belum ada Risk Officer aktif pada BID/Unit Bisnis ini."
 
     def save_model(self, request, obj, form, change):
-        if not obj.prepared_by_id and obj.reassessment_id:
-            obj.prepared_by = _users_for_unit_role(
+        if obj.reassessment_id:
+            if not obj.prepared_by_id:
+                obj.prepared_by = _users_for_unit_role(
+                    obj.reassessment.unit_bisnis,
+                    PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+                ).first()
+            obj.reviewed_by = _users_for_unit_role(
                 obj.reassessment.unit_bisnis,
-                PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+                PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
             ).first()
         super().save_model(request, obj, form, change)
 

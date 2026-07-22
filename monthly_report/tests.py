@@ -194,6 +194,9 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertNotIn("prepared_by", form.fields)
         self.assertEqual(report_admin.prepared_by_display(report_infra), "infra_ro")
         self.assertEqual(list(form.fields["reviewed_by"].queryset), [infra_rc])
+        self.assertEqual(form.fields["reviewed_by"].initial, infra_rc.pk)
+        self.assertEqual(form.initial["reviewed_by"], infra_rc.pk)
+        self.assertTrue(form.fields["reviewed_by"].disabled)
         self.assertEqual(list(form.fields["approved_by"].queryset), [infra_member])
 
     def test_monthly_report_form_handles_signer_fields_excluded_by_admin(self):
