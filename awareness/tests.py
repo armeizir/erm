@@ -235,6 +235,7 @@ class AwarenessFlowTests(TestCase):
         self.user.last_name = "User"
         self.user.save(update_fields=["first_name", "last_name"])
         self.user.groups.add(unit)
+        self.user.groups.add(Group.objects.create(name="ROLE - ACCESS - EDIT"))
         self.other.first_name = "Other"
         self.other.last_name = "User"
         self.other.save(update_fields=["first_name", "last_name"])
@@ -273,6 +274,7 @@ class AwarenessFlowTests(TestCase):
         self.assertContains(response, "BID AGA")
         self.assertContains(response, "Risk User")
         self.assertContains(response, "BID RISIKO")
+        self.assertNotContains(response, "ROLE - ACCESS - EDIT")
         self.assertLess(html.index("BID AGA"), html.index("BID RISIKO"))
         self.assertNotContains(response, "SCORE")
         self.assertNotContains(response, "STATUS")

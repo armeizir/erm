@@ -31,7 +31,11 @@ def _user_display_name(user):
 
 
 def _user_group_label(user):
-    group_names = [group.name for group in user.groups.all()]
+    group_names = [
+        group.name
+        for group in user.groups.all()
+        if not group.name.startswith("ROLE - ")
+    ]
     return ", ".join(group_names) if group_names else "-"
 
 
