@@ -1,6 +1,6 @@
-from django.contrib.auth.models import Group
 from django.db.models import Q
 
+from risk.access_policy import organizational_groups_for_user
 from risk.models import (
     KPMRItem,
     PenugasanUnitBisnis,
@@ -11,7 +11,6 @@ from risk.models import (
 
 
 RISK_ADMIN_GROUPS = {"Risk Admin", "Risk Administrator", "Admin Risiko"}
-RISK_OFFICER_GROUPS = {"Risk Officer", "Officer Risiko"}
 
 
 def _is_authenticated(user) -> bool:
@@ -33,7 +32,9 @@ def is_risk_admin(user) -> bool:
 def is_risk_officer(user) -> bool:
     if not _is_authenticated(user):
         return False
-    return user.is_superuser or _in_groups(user, RISK_OFFICER_GROUPS)
+    if user.is_superuser:
+        return True
+    return _has_assignment_role(user, PenugasanUnitBisnis.ROLE_RISK_OFFICER)
 
 
 def _has_assignment_role(user, role) -> bool:
@@ -55,20 +56,11 @@ def is_risk_champion(user) -> bool:
 
 
 def get_assigned_business_units(user):
-    if not _is_authenticated(user):
-        return Group.objects.none()
-    if user.is_superuser:
-        return Group.objects.all()
-    return Group.objects.filter(
-        penugasan_pengguna__user=user,
-        penugasan_pengguna__aktif=True,
-    ).distinct()
+    return organizational_groups_for_user(user)
 
 
 def _has_global_risk_scope(user) -> bool:
-    return is_risk_admin(user) or (
-        is_risk_officer(user) and user.has_perm("risk.view_reassessmentsummary")
-    )
+    return is_risk_admin(user)
 
 
 def can_view_business_unit(user, unit) -> bool:
@@ -84,15 +76,7 @@ def can_edit_business_unit(user, unit) -> bool:
         return False
     if user.is_superuser or is_risk_admin(user):
         return True
-    return PenugasanUnitBisnis.objects.filter(
-        user=user,
-        unit_bisnis=unit,
-        aktif=True,
-        peran__in=[
-            PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
-            PenugasanUnitBisnis.ROLE_RISK_OFFICER,
-        ],
-    ).exists()
+    return organizational_groups_for_user(user).filter(pk=unit.pk).exists()
 
 
 def can_view_risk_profile(user, profile) -> bool:

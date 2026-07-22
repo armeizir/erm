@@ -290,3 +290,113 @@ class OrganizationalScopeTests(TestCase):
                 self.user
             )
         )
+
+
+class RiskServiceScopeTests(TestCase):
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from django.contrib.auth.models import Group
+
+        User = get_user_model()
+
+        self.bid_bis = Group.objects.create(
+            name="BID BIS"
+        )
+
+        self.bid_ops = Group.objects.create(
+            name="BID OPS"
+        )
+
+        self.user = User.objects.create_user(
+            username="risk.scope.officer",
+            email="risk.scope.officer@plnbatam.com",
+            password="test-password",
+            is_staff=True,
+        )
+
+        self.user.groups.add(
+            self.bid_bis
+        )
+
+    def test_risk_officer_assignment_is_workflow_role_not_global_scope(self):
+        from risk.models import PenugasanUnitBisnis
+        from risk.services.permissions import (
+            can_view_business_unit,
+            is_risk_officer,
+        )
+
+        PenugasanUnitBisnis.objects.create(
+            user=self.user,
+            unit_bisnis=self.bid_bis,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            aktif=True,
+        )
+
+        self.assertTrue(
+            is_risk_officer(
+                self.user
+            )
+        )
+
+        self.assertTrue(
+            can_view_business_unit(
+                self.user,
+                self.bid_bis,
+            )
+        )
+
+        self.assertFalse(
+            can_view_business_unit(
+                self.user,
+                self.bid_ops,
+            )
+        )
+
+    def test_edit_scope_comes_from_organizational_group(self):
+        from risk.models import PenugasanUnitBisnis
+        from risk.services.permissions import (
+            can_edit_business_unit,
+        )
+
+        PenugasanUnitBisnis.objects.create(
+            user=self.user,
+            unit_bisnis=self.bid_bis,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            aktif=True,
+        )
+
+        self.assertTrue(
+            can_edit_business_unit(
+                self.user,
+                self.bid_bis,
+            )
+        )
+
+        self.assertFalse(
+            can_edit_business_unit(
+                self.user,
+                self.bid_ops,
+            )
+        )
+
+    def test_user_without_assignment_still_has_organizational_scope(self):
+        from risk.services.permissions import (
+            get_assigned_business_units,
+        )
+
+        scope = get_assigned_business_units(
+            self.user
+        )
+
+        self.assertTrue(
+            scope.filter(
+                pk=self.bid_bis.pk
+            ).exists()
+        )
+
+        self.assertFalse(
+            scope.filter(
+                pk=self.bid_ops.pk
+            ).exists()
+        )
