@@ -87,6 +87,7 @@ from .models import (
     BagianKontrakManajemen,
 )
 from riskproject.admin_site import risk_admin_site
+from risk.access_policy import organizational_groups_for_user
 
 
 
@@ -100,14 +101,13 @@ admin.site.index_title = "Dashboard Manajemen Risiko"
 # =========================================================
 
 def assigned_unit_businesses_for_user(user):
-    if not user.is_authenticated:
-        return Group.objects.none()
-    if user.is_superuser:
-        return Group.objects.all()
-    return Group.objects.filter(
-        penugasan_pengguna__user=user,
-        penugasan_pengguna__aktif=True,
-    ).distinct()
+    """
+    Scope data berasal dari Group organisasi BID/UB user.
+
+    PenugasanUnitBisnis hanya untuk workflow/peran MR dan tidak lagi
+    menjadi syarat agar user dapat melihat data unit organisasinya.
+    """
+    return organizational_groups_for_user(user)
 
 
 def user_can_access_unit(request, unit_id):

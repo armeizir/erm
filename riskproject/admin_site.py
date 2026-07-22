@@ -26,6 +26,11 @@ from corporate_risk.models import (
     RiskMetric,
 )
 
+from risk.access_policy import (
+    organizational_groups_for_user,
+    user_has_organizational_scope,
+)
+
 from risk.models import (
     AppSetting,
     KnowledgeBaseArticle,
@@ -79,6 +84,61 @@ class RiskAdminSite(AdminSite):
         context["sidebar_sections"] = self._sidebar_sections(request)
         return context
 
+    def _bid_ub_allowed_menu_urls(self):
+        """
+        Whitelist menu untuk user Bidang / Unit Bisnis non-superuser.
+
+        Hanya lima kelompok bisnis:
+        1. KM
+        2. RKM
+        3. Profil Risiko Bidang/Unit Bisnis
+        4. Laporan Risiko Bulanan
+        5. KPMR
+        """
+        return {
+            # 1. Kontrak Manajemen
+            "/admin/risk/kontrakmanajemen/",
+            "/admin/risk/itemkontrakmanajemen/",
+
+            # 2. Rencana Kerja Manajemen
+            "/admin/risk/rkmsummary/",
+            "/admin/risk/rkmitem/",
+
+            # 3. Profil Risiko Bidang / Unit Bisnis
+            "/admin/risk/reassessmentsummary/",
+            "/admin/risk/reassessmentitem/",
+
+            # 4. Laporan Risiko Bulanan
+            reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreport_changelist"
+            ),
+            reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreportitem_changelist"
+            ),
+            reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreportkmalignment_changelist"
+            ),
+            reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreportchange_changelist"
+            ),
+            reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreportlossevent_changelist"
+            ),
+            reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreportsubmissionlog_changelist"
+            ),
+
+            # 5. KPMR
+            "/admin/risk/kpmrsummary/",
+            "/admin/risk/kpmritem/",
+        }
+
     def _allowed_menu_urls(self, request):
         allowed_urls = {
             model["admin_url"]
@@ -86,12 +146,24 @@ class RiskAdminSite(AdminSite):
             for model in app.get("models", [])
             if model.get("admin_url")
         }
+
         if (
             request.user.is_active
             and request.user.is_staff
-            and request.user.has_perm("awareness.view_campaign_report")
+            and request.user.has_perm(
+                "awareness.view_campaign_report"
+            )
         ):
-            allowed_urls.add("/admin/awareness/awarenesscampaign/report/")
+            allowed_urls.add(
+                "/admin/awareness/awarenesscampaign/report/"
+            )
+
+        # Defense-in-depth:
+        # user BID/UB non-superuser tidak boleh melihat menu
+        # di luar lima kelompok yang telah ditetapkan.
+        if user_has_organizational_scope(request.user):
+            allowed_urls &= self._bid_ub_allowed_menu_urls()
+
         return allowed_urls
 
     def _can_access_metric_history_input(self, request):
@@ -118,14 +190,10 @@ class RiskAdminSite(AdminSite):
         return visible_sections
 
     def _assigned_units_for_user(self, user):
-        if not user.is_authenticated:
-            return Group.objects.none()
-        if user.is_superuser:
-            return Group.objects.all()
-        return Group.objects.filter(
-            penugasan_pengguna__user=user,
-            penugasan_pengguna__aktif=True,
-        ).distinct()
+        """
+        Dashboard memakai Group organisasi BID/UB sebagai scope data.
+        """
+        return organizational_groups_for_user(user)
 
     def _unit_limited_count(self, request, model, unit_lookup):
         queryset = model.objects.all()

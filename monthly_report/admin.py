@@ -37,6 +37,7 @@ from .models import (
 )
 
 from masterdata.models import TahunBuku
+from risk.access_policy import organizational_groups_for_user
 from risk.models import (
     MasterSkalaDampak,
     MasterSkalaProbabilitas,
@@ -327,14 +328,16 @@ def _get_selected_reassessment_id(request):
 
 
 def _assigned_unit_businesses_for_user(user):
-    if not user.is_authenticated:
-        return PenugasanUnitBisnis.objects.none().values_list("unit_bisnis_id", flat=True)
-    if user.is_superuser:
-        return Group.objects.all()
-    return PenugasanUnitBisnis.objects.filter(
-        user=user,
-        aktif=True,
-    ).values_list("unit_bisnis_id", flat=True)
+    """
+    Scope laporan mengikuti Group organisasi BID/UB user.
+
+    PenugasanUnitBisnis tetap digunakan untuk workflow,
+    bukan untuk menentukan hak melihat data unit.
+    """
+    return organizational_groups_for_user(user).values_list(
+        "id",
+        flat=True,
+    )
 
 
 def _limit_by_assigned_units(request, queryset, unit_lookup):
