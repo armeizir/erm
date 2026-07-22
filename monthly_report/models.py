@@ -96,6 +96,28 @@ class MonthlyRiskReport(TimeStampedModel):
 
     is_locked = models.BooleanField(default=False)
 
+    copied_from = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="copied_reports",
+        verbose_name="Disalin dari laporan",
+    )
+    copied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="monthly_reports_copied",
+        verbose_name="Disalin oleh",
+    )
+    copied_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Disalin pada",
+    )
+
     class Meta:
         db_table = "mr_monthly_risk_report"
         unique_together = [("tahun_buku", "periode", "unit", "versi")]
@@ -103,6 +125,28 @@ class MonthlyRiskReport(TimeStampedModel):
 
     def __str__(self):
         return f"{self.reassessment} - {self.periode.nama_periode}"
+
+    @property
+    def display_profile_name(self):
+        name = str(self.reassessment)
+        if self.copied_from_id and self.copied_from.periode_id:
+            source_month = self.copied_from.periode.tanggal_mulai.strftime("%B")
+            month_names = {
+                "January": "Januari",
+                "February": "Februari",
+                "March": "Maret",
+                "April": "April",
+                "May": "Mei",
+                "June": "Juni",
+                "July": "Juli",
+                "August": "Agustus",
+                "September": "September",
+                "October": "Oktober",
+                "November": "November",
+                "December": "Desember",
+            }
+            return f"{name} (copy bulan {month_names.get(source_month, source_month)})"
+        return name
 
     def clean(self):
         errors = {}
@@ -634,6 +678,7 @@ class MonthlyRiskReportSubmissionLog(models.Model):
         ("revise", "Revise"),
         ("approve", "Approve"),
         ("lock", "Lock"),
+        ("duplicate", "Duplicate"),
     ]
 
     report = models.ForeignKey(

@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block content %}
+  <div id="content-main">
+    <p>
+      Laporan berikut akan digunakan sebagai baseline untuk laporan bulan berikutnya:
+    </p>
+    <ul>
+      <li><strong>Profil:</strong> {{ source.reassessment }}</li>
+      <li><strong>Periode sumber:</strong> {{ source.periode.nama_periode }}</li>
+      <li><strong>Status:</strong> {{ source.get_status_display }}</li>
+      <li><strong>Jumlah risiko:</strong> {{ source.items.count }}</li>
+    </ul>
+    <p>
+      Seluruh data laporan akan disalin. Laporan baru berstatus <strong>Draft</strong>,
+      workflow approval direset, dan user wajib memperbarui realisasi bulan baru.
+      Laporan sumber tidak akan diubah.
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      <div class="submit-row">
+        <input type="submit" value="Ya, buat laporan bulan berikutnya" class="default">
+        <a href="{{ cancel_url }}" class="button cancel-link">Batal</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

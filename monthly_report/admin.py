@@ -10,6 +10,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
 from django.http import HttpResponseRedirect
 from django.http import JsonResponse
+from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import path
 from django.urls import reverse
@@ -49,7 +50,7 @@ from risk.models import (
 from risk.services.kpmr_automation import calculate_kpmr_for_report
 from risk.services.kpmr_automation import month_to_quarter
 from .notifications import send_monthly_report_notification
-from .services import refresh_monthly_report_summary
+from .services import duplicate_approved_report_to_next_month, refresh_monthly_report_summary
 
 
 BULAN_CHOICES = [
@@ -648,6 +649,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "peta_risiko_iiic_link",
         "versi",
         "status",
+        "copy_source_display",
         "flow_action_button",
         "notification_button",
         "prepared_by_display",
@@ -660,13 +662,14 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "flow_action_button",
         "notification_button",
         "prepared_by_display",
+        "copy_source_display",
     ]
     autocomplete_fields = (
         "reassessment",
     )
 
     list_display = [
-        "reassessment",
+        "profile_display",
         "bulan_laporan_display",
         "status",
         "total_risiko",
@@ -675,6 +678,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "flow_action_button",
         "notification_button",
         "web_button",
+        "duplicate_next_month_button",
     ]
     list_filter = [MonthlyRiskReportGroupFilter, "status"]
     actions = ["send_next_notification_action"]
@@ -705,6 +709,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "<path:object_id>/flow/<str:flow_action>/",
                 self.admin_site.admin_view(self.flow_action_view),
                 name="monthly_report_monthlyriskreport_flow_action",
+            ),
+            path(
+                "<path:object_id>/duplicate-next-month/",
+                self.admin_site.admin_view(self.duplicate_next_month_view),
+                name="monthly_report_monthlyriskreport_duplicate_next_month",
             ),
             path(
                 "risk-items/",
@@ -761,6 +770,94 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
             ).first()
         super().save_model(request, obj, form, change)
+
+    @admin.display(description="Reassessment", ordering="reassessment__judul")
+    def profile_display(self, obj):
+        return obj.display_profile_name
+
+    @admin.display(description="Sumber Salinan")
+    def copy_source_display(self, obj):
+        if not obj or not obj.copied_from_id:
+            return "-"
+        source_url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
+            args=[obj.copied_from_id],
+        )
+        return format_html(
+            '<a href="{}">{} - {}</a><br><span class="help">Disalin oleh {} pada {}</span>',
+            source_url,
+            obj.copied_from.reassessment,
+            obj.copied_from.periode.nama_periode,
+            obj.copied_by.get_full_name().strip() or obj.copied_by.get_username()
+            if obj.copied_by_id
+            else "-",
+            timezone.localtime(obj.copied_at).strftime("%d-%m-%Y %H:%M")
+            if obj.copied_at
+            else "-",
+        )
+
+    @admin.display(description="Bulan Berikutnya")
+    def duplicate_next_month_button(self, obj):
+        if not obj or obj.status != "approved":
+            return "-"
+        if obj.copied_reports.exists():
+            copied = obj.copied_reports.order_by("periode__tanggal_mulai", "pk").first()
+            url = reverse(
+                f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
+                args=[copied.pk],
+            )
+            return format_html('<a href="{}">Sudah dibuat</a>', url)
+        url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_duplicate_next_month",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}">Buat Laporan Bulan Berikutnya</a>', url)
+
+    def duplicate_next_month_view(self, request, object_id):
+        source = self.get_object(request, object_id)
+        if source is None:
+            raise Http404("Monthly risk report tidak ditemukan.")
+        if not self.has_add_permission(request):
+            raise PermissionDenied("Anda tidak memiliki izin membuat laporan bulanan.")
+
+        if request.method == "POST":
+            try:
+                target = duplicate_approved_report_to_next_month(source, request.user)
+            except ValidationError as exc:
+                message = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+                self.message_user(request, message, level=messages.ERROR)
+                return redirect(
+                    reverse(
+                        f"{self.admin_site.name}:monthly_report_monthlyriskreport_changelist"
+                    )
+                )
+            self.message_user(
+                request,
+                f"{target.display_profile_name} - {target.periode.nama_periode} berhasil dibuat sebagai Draft.",
+                level=messages.SUCCESS,
+            )
+            return redirect(
+                reverse(
+                    f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
+                    args=[target.pk],
+                )
+            )
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Buat Laporan Bulan Berikutnya",
+            "opts": self.model._meta,
+            "source": source,
+            "cancel_url": reverse(
+                f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
+                args=[source.pk],
+            ),
+        }
+        return TemplateResponse(
+            request,
+            "admin/monthly_report/monthlyriskreport/confirm_duplicate.html",
+            context,
+        )
 
     @admin.display(description="III.C - Peta Risiko Residual")
     def peta_risiko_iiic_link(self, obj):
@@ -1263,7 +1360,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return _limit_by_assigned_units(
             request,
-            super().get_queryset(request),
+            super().get_queryset(request).select_related(
+                "copied_from__periode",
+                "copied_from__reassessment",
+                "copied_by",
+            ).prefetch_related("copied_reports"),
             "reassessment__unit_bisnis",
         )
 

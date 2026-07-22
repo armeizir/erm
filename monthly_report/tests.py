@@ -6,7 +6,9 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core import mail
+from django.core.exceptions import ValidationError
 from django.test import RequestFactory, TestCase
+from django.utils import timezone
 
 from masterdata.models import PeriodeLaporan, TahunBuku
 from risk.admin import ReAssessmentItemAdmin
@@ -25,9 +27,14 @@ from risk.models import (
 )
 
 from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportAdminForm, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline, _monthly_risk_item_label
-from .models import MonthlyRiskReport, MonthlyRiskReportItem
+from .models import (
+    MonthlyRiskReport,
+    MonthlyRiskReportChange,
+    MonthlyRiskReportItem,
+    MonthlyRiskReportLossEvent,
+)
 from .notifications import send_monthly_report_notification
-from .services import refresh_monthly_report_summary
+from .services import duplicate_approved_report_to_next_month, refresh_monthly_report_summary
 
 
 class MonthlyRiskReportAdminTests(TestCase):
@@ -74,6 +81,86 @@ class MonthlyRiskReportAdminTests(TestCase):
             peran=PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
         )
         return pairing
+
+    def test_duplicate_approved_report_creates_next_month_draft_with_lineage(self):
+        User = get_user_model()
+        source = self._report("BID BIS")
+        source.kode = "MRR-BIS-2026-02"
+        source.status = "approved"
+        source.approved_by = self.admin_user
+        source.approved_at = timezone.now()
+        source.is_locked = True
+        source.save()
+
+        risk_officer = User.objects.create_user(username="bis.ro")
+        risk_champion = User.objects.create_user(username="bis.rc")
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=source.reassessment.unit_bisnis,
+            user=risk_officer,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=source.reassessment.unit_bisnis,
+            user=risk_champion,
+            peran=PenugasanUnitBisnis.ROLE_RISK_CHAMPION,
+        )
+        risk_event = self._risk_item(source, no_item=1, no_risiko=1)
+        source_item = MonthlyRiskReportItem.objects.create(
+            report=source,
+            risk_event=risk_event,
+            realisasi_nilai_dampak=Decimal("1000"),
+            realisasi_nilai_probabilitas=Decimal("50"),
+            realisasi_rencana_perlakuan="Realisasi Februari",
+            next_action="Lanjutkan mitigasi",
+        )
+        MonthlyRiskReportChange.objects.create(
+            report=source,
+            jenis_perubahan=MonthlyRiskReportChange.CHANGE_TYPE_PROFILE,
+            penjelasan="Perubahan Februari",
+        )
+        MonthlyRiskReportLossEvent.objects.create(
+            report=source,
+            nama_kejadian="Kejadian Februari",
+        )
+
+        target = duplicate_approved_report_to_next_month(source, self.admin_user)
+
+        self.assertEqual(target.status, "draft")
+        self.assertEqual(target.periode.kode_periode, "2026-03")
+        self.assertEqual(target.kode, "MRR-BIS-2026-03")
+        self.assertEqual(target.copied_from, source)
+        self.assertEqual(target.copied_by, self.admin_user)
+        self.assertIsNotNone(target.copied_at)
+        self.assertEqual(target.prepared_by, risk_officer)
+        self.assertEqual(target.reviewed_by, risk_champion)
+        self.assertEqual(target.approved_by, self.admin_user)
+        self.assertIsNone(target.submitted_at)
+        self.assertIsNone(target.approved_at)
+        self.assertFalse(target.is_locked)
+        self.assertFalse(target.is_aggregated_to_corporate)
+        self.assertEqual(target.display_profile_name, "Profil Risiko BID BIS (copy bulan Februari)")
+
+        copied_item = target.items.get()
+        self.assertEqual(copied_item.risk_event, source_item.risk_event)
+        self.assertEqual(copied_item.realisasi_nilai_dampak, Decimal("1000"))
+        self.assertEqual(copied_item.realisasi_nilai_probabilitas, Decimal("50"))
+        self.assertEqual(copied_item.realisasi_rencana_perlakuan, "Realisasi Februari")
+        self.assertEqual(copied_item.next_action, "Lanjutkan mitigasi")
+        self.assertEqual(target.changes.count(), 1)
+        self.assertEqual(target.loss_events.count(), 1)
+        self.assertEqual(target.submission_logs.get().action, "duplicate")
+
+        with self.assertRaises(ValidationError):
+            duplicate_approved_report_to_next_month(source, self.admin_user)
+
+    def test_duplicate_rejects_report_that_is_not_approved(self):
+        source = self._report("BID OPS")
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Hanya laporan berstatus Approved yang dapat disalin.",
+        ):
+            duplicate_approved_report_to_next_month(source, self.admin_user)
 
     def _risk_item(
         self,
