@@ -39,6 +39,7 @@ from .models import (
     MonthlyRiskReportItem,
     MonthlyRiskReportLossEvent,
     MonthlyRiskReportImportBatch,
+    MonthlyRiskReportEvidence,
 )
 from .import_services import analyze_import_batch, apply_import_batch
 from .notifications import send_monthly_report_notification
@@ -431,8 +432,17 @@ class MonthlyRiskReportAdminTests(TestCase):
             peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
         )
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
-
-        report_admin._apply_flow_action(report_infra, "submit", self.admin_user)
+        with tempfile.TemporaryDirectory() as evidence_root, self.settings(
+            NAS_EVIDENCE_ROOT=evidence_root,
+            NAS_EVIDENCE_REQUIRE_MOUNT=False,
+        ):
+            MonthlyRiskReportEvidence.objects.create(
+                report=report_infra,
+                title="Eviden pengujian",
+                file=SimpleUploadedFile("eviden.pdf", b"PDF evidence"),
+                uploaded_by=self.admin_user,
+            )
+            report_admin._apply_flow_action(report_infra, "submit", self.admin_user)
         report_infra.refresh_from_db()
         self.assertEqual(report_infra.status, "submitted")
         self.assertIsNotNone(report_infra.submitted_at)
@@ -449,6 +459,18 @@ class MonthlyRiskReportAdminTests(TestCase):
             list(report_infra.submission_logs.order_by("action_at").values_list("action", flat=True)),
             ["submit", "review", "approve"],
         )
+
+    def test_monthly_report_submit_requires_evidence_on_nas(self):
+        report = self._report("BID AGA EVIDENCE")
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report.reassessment.unit_bisnis,
+            user=self.prepared_by,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        with self.assertRaisesMessage(ValidationError, "minimal satu file Eviden"):
+            report_admin._apply_flow_action(report, "submit", self.admin_user)
 
     def test_monthly_report_flow_button_matches_current_status(self):
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())

@@ -1,6 +1,9 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
+from django.utils.text import get_valid_filename
+from pathlib import Path
+from uuid import uuid4
 from django.db import models
 from decimal import Decimal
 
@@ -20,6 +23,23 @@ from risk.models import (
     ReAssessmentSummary,
     RiskMatrix,
 )
+from .storage import nas_evidence_storage
+
+
+def validate_evidence_size(value):
+    if value.size > 25 * 1024 * 1024:
+        raise ValidationError("Ukuran setiap file eviden maksimum 25 MB.")
+
+
+def monthly_report_evidence_path(instance, filename):
+    report = instance.report
+    year = report.periode.tanggal_mulai.year if report.periode_id else "unknown"
+    month = report.periode.tanggal_mulai.month if report.periode_id else 0
+    unit = get_valid_filename(
+        report.reassessment.unit_bisnis.name if report.reassessment_id else "unknown"
+    )
+    clean_name = get_valid_filename(Path(filename).name)
+    return f"laporan-risiko/{year}/{unit}/{month:02d}/report-{report.pk}/{uuid4().hex}_{clean_name}"
 
 
 class MonthlyRiskReport(TimeStampedModel):
@@ -696,6 +716,44 @@ class MonthlyRiskReportSubmissionLog(models.Model):
     class Meta:
         db_table = "mr_submission_log"
         ordering = ["-action_at"]
+
+
+class MonthlyRiskReportEvidence(TimeStampedModel):
+    report = models.ForeignKey(
+        MonthlyRiskReport,
+        on_delete=models.CASCADE,
+        related_name="evidences",
+        verbose_name="Laporan Risiko Bulanan",
+    )
+    title = models.CharField(max_length=255, verbose_name="Judul Eviden")
+    description = models.TextField(blank=True, default="", verbose_name="Keterangan")
+    file = models.FileField(
+        storage=nas_evidence_storage,
+        upload_to=monthly_report_evidence_path,
+        max_length=500,
+        validators=[
+            FileExtensionValidator(
+                ["pdf", "xlsx", "xls", "docx", "doc", "jpg", "jpeg", "png", "zip", "msg", "eml"]
+            ),
+            validate_evidence_size,
+        ],
+        verbose_name="File Eviden (NAS)",
+    )
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="monthly_report_evidences_uploaded",
+        verbose_name="Diunggah oleh",
+    )
+
+    class Meta:
+        db_table = "mr_monthly_report_evidence"
+        ordering = ("created_at", "id")
+        verbose_name = "Eviden Laporan Risiko"
+        verbose_name_plural = "Eviden Laporan Risiko"
+
+    def __str__(self):
+        return f"{self.report} - {self.title}"
 
 
 class MonthlyRiskReportImportBatch(TimeStampedModel):

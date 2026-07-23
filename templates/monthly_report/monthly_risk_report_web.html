@@ -435,5 +435,17 @@
       </tbody>
     </table>
   </section>
+
+  <section class="mrr-section" id="eviden">
+    <h2>EVIDEN PENDUKUNG LAPORAN</h2>
+    <table class="mrr-simple">
+      <thead><tr><th>Judul</th><th>Keterangan</th><th>File</th><th>Diunggah</th></tr></thead>
+      <tbody>
+      {% for evidence in evidences %}
+        <tr><td>{{ evidence.title }}</td><td>{{ evidence.description }}</td><td><a href="{{ evidence.file.url }}">Unduh eviden</a></td><td>{{ evidence.created_at }}</td></tr>
+      {% empty %}<tr><td colspan="4">Belum ada eviden pendukung.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </section>
 </div>
 {% endblock %}

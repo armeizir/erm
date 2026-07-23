@@ -37,6 +37,7 @@ from .models import (
     MonthlyRiskReportSubmissionLog,
     MonthlyRiskReportImportBatch,
     MonthlyRiskReportImportRow,
+    MonthlyRiskReportEvidence,
 )
 
 from masterdata.models import TahunBuku
@@ -618,6 +619,15 @@ class MonthlyRiskReportLossEventInline(admin.StackedInline):
     )
 
 
+class MonthlyRiskReportEvidenceInline(admin.TabularInline):
+    model = MonthlyRiskReportEvidence
+    extra = 1
+    fields = ("title", "description", "file", "uploaded_by", "created_at")
+    readonly_fields = ("uploaded_by", "created_at")
+    verbose_name = "Eviden Pendukung"
+    verbose_name_plural = "Eviden Pendukung — file disimpan di NAS ERM"
+
+
 class MonthlyRiskReportGroupFilter(admin.SimpleListFilter):
     title = "group"
     parameter_name = "group"
@@ -647,6 +657,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         MonthlyRiskReportItemInline,
         MonthlyRiskReportChangeInline,
         MonthlyRiskReportLossEventInline,
+        MonthlyRiskReportEvidenceInline,
     ]
     class Media:
         css = {
@@ -777,6 +788,18 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         if obj and "status" not in readonly_fields:
             readonly_fields.append("status")
         return readonly_fields
+
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if isinstance(instance, MonthlyRiskReportEvidence) and not instance.uploaded_by_id:
+                instance.uploaded_by = request.user
+            instance.save()
+        for instance in formset.deleted_objects:
+            if isinstance(instance, MonthlyRiskReportEvidence) and instance.file:
+                instance.file.delete(save=False)
+            instance.delete()
+        formset.save_m2m()
 
     @admin.display(description="Import Excel")
     def import_profile_button(self, obj):
@@ -1314,6 +1337,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "iiib_rows": iiib_rows,
             "changes": report.changes.all(),
             "loss_events": report.loss_events.all(),
+            "evidences": report.evidences.all(),
         }
         return context
 
@@ -1358,6 +1382,23 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         update_fields = ["status", "updated_at"]
         note = ""
         if flow_action == "submit":
+            evidences = list(report.evidences.all())
+            if not evidences:
+                raise ValidationError(
+                    "Laporan wajib memiliki minimal satu file Eviden Pendukung sebelum disubmit."
+                )
+            try:
+                missing_files = [
+                    evidence.title
+                    for evidence in evidences
+                    if not evidence.file or not evidence.file.storage.exists(evidence.file.name)
+                ]
+            except OSError as exc:
+                raise ValidationError(str(exc))
+            if missing_files:
+                raise ValidationError(
+                    "File eviden tidak ditemukan pada NAS: " + ", ".join(missing_files)
+                )
             risk_officers = _users_for_unit_role(
                 report.reassessment.unit_bisnis,
                 PenugasanUnitBisnis.ROLE_RISK_OFFICER,
