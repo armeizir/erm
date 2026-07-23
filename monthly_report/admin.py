@@ -654,10 +654,10 @@ class MonthlyRiskReportGroupFilter(admin.SimpleListFilter):
 class MonthlyRiskReportAdmin(admin.ModelAdmin):
     form = MonthlyRiskReportAdminForm
     inlines = [
+        MonthlyRiskReportEvidenceInline,
         MonthlyRiskReportItemInline,
         MonthlyRiskReportChangeInline,
         MonthlyRiskReportLossEventInline,
-        MonthlyRiskReportEvidenceInline,
     ]
     class Media:
         css = {
@@ -682,6 +682,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "flow_action_button",
         "notification_button",
         "import_profile_button",
+        "evidence_section_link",
         "prepared_by_display",
         "reviewed_by",
         "approved_by",
@@ -692,6 +693,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "flow_action_button",
         "notification_button",
         "import_profile_button",
+        "evidence_section_link",
         "prepared_by_display",
         "copy_source_display",
     ]
@@ -808,6 +810,17 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             args=[obj.pk],
         )
         return format_html('<a class="button" href="{}">Upload & Analisis</a>', url)
+
+    @admin.display(description="Eviden Pendukung")
+    def evidence_section_link(self, obj):
+        if not obj or not obj.pk:
+            return "Simpan laporan terlebih dahulu untuk menambahkan link eviden."
+        count = obj.evidences.count()
+        return format_html(
+            '<a class="button" href="#evidences-group">Tambah / Lihat Eviden Brightbox</a> '
+            '<span class="help">{} link tercatat</span>',
+            count,
+        )
 
     def _import_report(self, request, object_id):
         report = self.get_object(request, object_id)
@@ -1383,7 +1396,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             evidences = list(report.evidences.all())
             if not evidences:
                 raise ValidationError(
-                    "Laporan wajib memiliki minimal satu file Eviden Pendukung sebelum disubmit."
+                    "Laporan wajib memiliki minimal satu link Eviden Brightbox sebelum disubmit."
                 )
             invalid_evidence = []
             for evidence in evidences:

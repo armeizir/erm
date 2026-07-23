@@ -465,7 +465,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
 
-        with self.assertRaisesMessage(ValidationError, "minimal satu file Eviden"):
+        with self.assertRaisesMessage(ValidationError, "minimal satu link Eviden"):
             report_admin._apply_flow_action(report, "submit", self.admin_user)
 
     def test_monthly_report_evidence_rejects_non_brightbox_link(self):
