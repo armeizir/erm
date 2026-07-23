@@ -147,6 +147,7 @@ def _import_metric_history_excel(metric, uploaded_file):
                 "metric_value": metric_value,
                 "target_value": target_value,
                 "keterangan": keterangan,
+                "status": MonteCarloMetricHistory.STATUS_UPDATED,
             },
         )
         imported += 1
@@ -242,7 +243,11 @@ def bulk_metric_input(request, metric_id):
     queryset = MonteCarloMetricHistory.objects.filter(
         metric=metric
     ).order_by("tanggal_data")
-    statistics = _metric_statistics(queryset.values_list("metric_value", flat=True))
+    statistics = _metric_statistics(
+        queryset.exclude(status=MonteCarloMetricHistory.STATUS_UNUPDATED).values_list(
+            "metric_value", flat=True
+        )
+    )
 
     if request.method == "POST":
         if "upload_excel" in request.POST:
@@ -270,6 +275,7 @@ def bulk_metric_input(request, metric_id):
 
             for obj in instances:
                 obj.metric = metric
+                obj.status = MonteCarloMetricHistory.STATUS_UPDATED
                 obj.save()
 
             for obj in formset.deleted_objects:

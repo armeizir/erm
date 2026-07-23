@@ -117,7 +117,9 @@ def _summarize_warnings(warnings, max_items=2):
 
 
 def _live_history_rows(metric, forecast_periode=None):
-    histories = MonteCarloMetricHistory.objects.filter(metric=metric).select_related("periode")
+    histories = MonteCarloMetricHistory.objects.filter(metric=metric).exclude(
+        status=MonteCarloMetricHistory.STATUS_UNUPDATED
+    ).select_related("periode")
     if forecast_periode and getattr(forecast_periode, "tanggal_selesai", None):
         histories = histories.filter(tanggal_data__lte=forecast_periode.tanggal_selesai)
     rows = []

@@ -843,6 +843,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 metric=metric,
                 tanggal_data__lte=forecast_periode.tanggal_selesai,
             )
+            .exclude(status=MonteCarloMetricHistory.STATUS_UNUPDATED)
             .select_related("periode")
             .order_by("tanggal_data", "id")
         )
@@ -1038,6 +1039,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 histories = list(
                     MonteCarloMetricHistory.objects.filter(metric=metric_obj)
                     .filter(tanggal_data__lte=forecast_periode.tanggal_selesai)
+                    .exclude(status=MonteCarloMetricHistory.STATUS_UNUPDATED)
                     .select_related("periode")
                     .order_by("tanggal_data", "id")
                 )

@@ -1,6 +1,7 @@
 import json
 from django import forms
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -30,6 +31,7 @@ from .services import (
     recommend_monte_carlo_distribution,
 )
 from .pdf_reports import render_multi_metric_pdf
+from .history_services import duplicate_metric_history_to_next_month
 
 
 def risk_item_label_html(item):
@@ -91,7 +93,9 @@ class MultiMetricMonteCarloResultForm(forms.ModelForm):
         errors = []
         forecast_end = getattr(forecast_periode, "tanggal_selesai", None)
         for metric in metrics:
-            histories = MonteCarloMetricHistory.objects.filter(metric=metric)
+            histories = MonteCarloMetricHistory.objects.filter(metric=metric).exclude(
+                status=MonteCarloMetricHistory.STATUS_UNUPDATED
+            )
             if forecast_end:
                 histories = histories.filter(tanggal_data__lte=forecast_end)
             history_count = histories.count()
@@ -105,7 +109,9 @@ class MultiMetricMonteCarloResultForm(forms.ModelForm):
         counts = {}
         metrics = RiskMetric.objects.filter(corporate_risk_item=item, is_active=True)
         for metric in metrics:
-            histories = MonteCarloMetricHistory.objects.filter(metric=metric)
+            histories = MonteCarloMetricHistory.objects.filter(metric=metric).exclude(
+                status=MonteCarloMetricHistory.STATUS_UNUPDATED
+            )
             if forecast_periode and getattr(forecast_periode, "tanggal_selesai", None):
                 histories = histories.filter(tanggal_data__lte=forecast_periode.tanggal_selesai)
             values = list(histories.order_by("tanggal_data", "id").values_list("metric_value", flat=True))
@@ -1063,6 +1069,8 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
         "tanggal_data",
         "metric_value",
         "target_value",
+        "status",
+        "duplicate_next_month_button",
         "created_at",
     )
     list_filter = (
@@ -1081,6 +1089,7 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
         "metric",
         "tanggal_data",
     )
+    readonly_fields = ("copy_source_display",)
 
     fieldsets = (
         ("Relasi", {
@@ -1095,9 +1104,95 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
                 "metric_value",
                 "target_value",
                 "keterangan",
+                "status",
+                "copy_source_display",
             )
         }),
     )
+
+    def get_urls(self):
+        return [
+            path(
+                "<path:object_id>/duplicate-next-month/",
+                self.admin_site.admin_view(self.duplicate_next_month_view),
+                name="corporate_risk_montecarlometrichistory_duplicate_next_month",
+            )
+        ] + super().get_urls()
+
+    @admin.display(description="Sumber Salinan")
+    def copy_source_display(self, obj):
+        if not obj or not obj.copied_from_id:
+            return "-"
+        url = reverse(
+            f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_change",
+            args=[obj.copied_from_id],
+        )
+        copier = obj.copied_by.get_full_name().strip() or obj.copied_by.get_username() if obj.copied_by_id else "-"
+        copied_at = obj.copied_at.strftime("%d-%m-%Y %H:%M") if obj.copied_at else "-"
+        return format_html(
+            '<a href="{}">{}</a><br><span class="help">Disalin oleh {} pada {}</span>',
+            url, obj.copied_from.periode.nama_periode, copier, copied_at,
+        )
+
+    @admin.display(description="Bulan Berikutnya")
+    def duplicate_next_month_button(self, obj):
+        if not obj or obj.status == obj.STATUS_UNUPDATED:
+            return "-"
+        if MonteCarloMetricHistory.objects.filter(copied_from=obj).exists():
+            target = MonteCarloMetricHistory.objects.filter(copied_from=obj).first()
+            url = reverse(
+                f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_change",
+                args=[target.pk],
+            )
+            return format_html('<a href="{}">Sudah dibuat</a>', url)
+        if MonteCarloMetricHistory.objects.filter(
+            metric=obj.metric, tanggal_data__gt=obj.tanggal_data
+        ).exists():
+            return "-"
+        url = reverse(
+            f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_duplicate_next_month",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}">Buat Bulan Berikutnya</a>', url)
+
+    def duplicate_next_month_view(self, request, object_id):
+        source = get_object_or_404(self.get_queryset(request), pk=object_id)
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            try:
+                target = duplicate_metric_history_to_next_month(source, request.user)
+            except ValidationError as exc:
+                self.message_user(request, "; ".join(exc.messages), level=messages.ERROR)
+                return redirect(
+                    reverse(f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_changelist")
+                )
+            self.message_user(
+                request,
+                f"Data {target.periode.nama_periode} berhasil dibuat. Perbarui nilai aktual sebelum digunakan.",
+                level=messages.SUCCESS,
+            )
+            return redirect(
+                reverse(
+                    f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_change",
+                    args=[target.pk],
+                )
+            )
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Buat Data Histori Bulan Berikutnya",
+            "opts": self.model._meta,
+            "source": source,
+            "cancel_url": reverse(
+                f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_change",
+                args=[source.pk],
+            ),
+        }
+        return TemplateResponse(
+            request,
+            "admin/corporate_risk/montecarlometrichistory/confirm_duplicate.html",
+            context,
+        )
 
 
 @admin.register(MultiMetricMonteCarloResult)

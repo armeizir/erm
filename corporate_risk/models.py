@@ -1,6 +1,7 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
+from django.conf import settings
 from core.models import TimeStampedModel
 from masterdata.models import PeriodeLaporan
 from risk.models import ProfilRisikoKorporatItem
@@ -281,6 +282,14 @@ class RiskMetric(models.Model):
     
 
 class MonteCarloMetricHistory(models.Model):
+    STATUS_UNUPDATED = "unupdated"
+    STATUS_UPDATED = "updated"
+    STATUS_VERIFIED = "verified"
+    STATUS_CHOICES = (
+        (STATUS_UNUPDATED, "Belum diperbarui"),
+        (STATUS_UPDATED, "Sudah diperbarui"),
+        (STATUS_VERIFIED, "Terverifikasi"),
+    )
     metric = models.ForeignKey(
         "corporate_risk.RiskMetric",
         on_delete=models.CASCADE,
@@ -312,6 +321,29 @@ class MonteCarloMetricHistory(models.Model):
         default="",
         verbose_name="Keterangan",
     )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_UPDATED,
+        verbose_name="Status Data",
+    )
+    copied_from = models.OneToOneField(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="copied_history",
+        null=True,
+        blank=True,
+        verbose_name="Sumber Salinan",
+    )
+    copied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="metric_histories_copied",
+        null=True,
+        blank=True,
+        verbose_name="Disalin oleh",
+    )
+    copied_at = models.DateTimeField(null=True, blank=True, verbose_name="Disalin pada")
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Dibuat pada",

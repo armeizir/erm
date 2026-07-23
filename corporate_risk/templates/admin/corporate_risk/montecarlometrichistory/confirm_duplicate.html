@@ -1,0 +1,18 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main">
+  <div class="module aligned">
+    <h2>{{ source.metric }}</h2>
+    <p>Data <strong>{{ source.periode.nama_periode }}</strong> akan disalin sebagai data bulan berikutnya.</p>
+    <p class="help">Nilai aktual dan target disalin sebagai nilai awal. Data baru berstatus <strong>Belum diperbarui</strong> dan tidak dianggap final sebelum diperbarui pengguna.</p>
+    <form method="post">
+      {% csrf_token %}
+      <div class="submit-row">
+        <input type="submit" value="Buat Bulan Berikutnya" class="default">
+        <a href="{{ cancel_url }}" class="button cancel-link">Batal</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

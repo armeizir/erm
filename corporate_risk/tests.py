@@ -14,6 +14,7 @@ from corporate_risk.services import (
     _select_descriptive_metric,
     recommend_monte_carlo_distribution,
 )
+from corporate_risk.history_services import duplicate_metric_history_to_next_month
 from masterdata.models import MasterBUMN, PeriodeLaporan, TahunBuku
 from risk.models import ProfilRisikoKorporatItem, ProfilRisikoKorporatSummary
 
@@ -140,6 +141,46 @@ class MultiMetricMonteCarloResultFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("minimal 1,000", form.errors.as_text())
+
+    def test_duplicate_metric_history_creates_unupdated_next_month_with_lineage(self):
+        user = get_user_model().objects.create_user(username="adminerm")
+        source = MonteCarloMetricHistory.objects.create(
+            metric=self.metric,
+            periode=self.forecast_periode,
+            tanggal_data=date(2026, 3, 1),
+            metric_value=70,
+            target_value=75,
+            status=MonteCarloMetricHistory.STATUS_VERIFIED,
+        )
+
+        target = duplicate_metric_history_to_next_month(source, user)
+
+        self.assertEqual(target.periode.kode_periode, "2026-04")
+        self.assertEqual(target.periode.nama_periode, "April 2026")
+        self.assertEqual(target.tanggal_data, date(2026, 4, 1))
+        self.assertEqual(target.metric_value, source.metric_value)
+        self.assertEqual(target.target_value, source.target_value)
+        self.assertEqual(target.status, MonteCarloMetricHistory.STATUS_UNUPDATED)
+        self.assertEqual(target.copied_from, source)
+        self.assertEqual(target.copied_by, user)
+        self.assertIsNotNone(target.copied_at)
+
+        with self.assertRaisesMessage(ValidationError, "sudah pernah dibuat"):
+            duplicate_metric_history_to_next_month(source, user)
+
+    def test_unupdated_copy_cannot_create_following_month(self):
+        user = get_user_model().objects.create_user(username="adminerm")
+        source = MonteCarloMetricHistory.objects.create(
+            metric=self.metric,
+            periode=self.forecast_periode,
+            tanggal_data=date(2026, 3, 1),
+            metric_value=70,
+            status=MonteCarloMetricHistory.STATUS_UPDATED,
+        )
+        april = duplicate_metric_history_to_next_month(source, user)
+
+        with self.assertRaisesMessage(ValidationError, "harus diperbarui"):
+            duplicate_metric_history_to_next_month(april, user)
 
 
 class MultiMetricMonteCarloTrialsDisplayTests(SimpleTestCase):
