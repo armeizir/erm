@@ -88,6 +88,14 @@ class MonthlyRiskReport(TimeStampedModel):
     )
     versi = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="draft")
+    evidence_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        validators=[validate_brightbox_evidence_url],
+        verbose_name="Link Eviden Brightbox",
+        help_text="Tempel link folder atau file tempat eviden laporan diunggah.",
+    )
 
     prepared_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

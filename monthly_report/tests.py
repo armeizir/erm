@@ -39,7 +39,6 @@ from .models import (
     MonthlyRiskReportItem,
     MonthlyRiskReportLossEvent,
     MonthlyRiskReportImportBatch,
-    MonthlyRiskReportEvidence,
 )
 from .import_services import analyze_import_batch, apply_import_batch
 from .notifications import send_monthly_report_notification
@@ -432,12 +431,10 @@ class MonthlyRiskReportAdminTests(TestCase):
             peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
         )
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
-        MonthlyRiskReportEvidence.objects.create(
-            report=report_infra,
-            title="Eviden pengujian",
-            external_url="https://brightbox.plnbatam.com/drive/d/f/test-evidence",
-            uploaded_by=self.admin_user,
+        report_infra.evidence_url = (
+            "https://brightbox.plnbatam.com/drive/d/f/test-evidence"
         )
+        report_infra.save(update_fields=["evidence_url"])
         report_admin._apply_flow_action(report_infra, "submit", self.admin_user)
         report_infra.refresh_from_db()
         self.assertEqual(report_infra.status, "submitted")
@@ -470,15 +467,10 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_monthly_report_evidence_rejects_non_brightbox_link(self):
         report = self._report("BID AGA INVALID EVIDENCE")
-        evidence = MonthlyRiskReportEvidence(
-            report=report,
-            title="Link tidak sah",
-            external_url="https://example.com/evidence.pdf",
-            uploaded_by=self.admin_user,
-        )
+        report.evidence_url = "https://example.com/evidence.pdf"
 
         with self.assertRaisesMessage(ValidationError, "brightbox.plnbatam.com"):
-            evidence.full_clean()
+            report.full_clean()
 
     def test_monthly_report_flow_button_matches_current_status(self):
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())

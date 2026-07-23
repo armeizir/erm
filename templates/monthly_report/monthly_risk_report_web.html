@@ -438,14 +438,11 @@
 
   <section class="mrr-section" id="eviden">
     <h2>EVIDEN PENDUKUNG LAPORAN</h2>
-    <table class="mrr-simple">
-      <thead><tr><th>Judul</th><th>Keterangan</th><th>File</th><th>Diunggah</th></tr></thead>
-      <tbody>
-      {% for evidence in evidences %}
-        <tr><td>{{ evidence.title }}</td><td>{{ evidence.description }}</td><td><a href="{{ evidence.external_url }}" target="_blank" rel="noopener noreferrer">Buka di Brightbox</a></td><td>{{ evidence.created_at }}</td></tr>
-      {% empty %}<tr><td colspan="4">Belum ada eviden pendukung.</td></tr>{% endfor %}
-      </tbody>
-    </table>
+    {% if report.evidence_url %}
+      <p><a href="{{ report.evidence_url }}" target="_blank" rel="noopener noreferrer">Buka Eviden di Brightbox</a></p>
+    {% else %}
+      <p>Belum ada link eviden pendukung.</p>
+    {% endif %}
   </section>
 </div>
 {% endblock %}
