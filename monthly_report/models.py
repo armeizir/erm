@@ -26,12 +26,17 @@ from risk.models import (
 )
 
 
-def validate_brightbox_evidence_url(value):
+def validate_https_evidence_url(value):
     parsed = urlparse(value)
-    if parsed.scheme.lower() != "https" or parsed.hostname != "brightbox.plnbatam.com":
-        raise ValidationError(
-            "Link eviden harus menggunakan HTTPS pada domain brightbox.plnbatam.com."
-        )
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise ValidationError("Link eviden harus menggunakan HTTPS.")
+    if parsed.username or parsed.password:
+        raise ValidationError("Link eviden tidak boleh memuat username atau password.")
+
+
+# Nama lama dipertahankan karena migration 0018/0019 mereferensikannya.
+def validate_brightbox_evidence_url(value):
+    validate_https_evidence_url(value)
 
 
 # Dipertahankan karena migration 0017 mereferensikan callable ini. Model aktif
@@ -92,8 +97,8 @@ class MonthlyRiskReport(TimeStampedModel):
         max_length=500,
         blank=True,
         default="",
-        validators=[validate_brightbox_evidence_url],
-        verbose_name="Link Eviden Brightbox",
+        validators=[validate_https_evidence_url],
+        verbose_name="Link Eviden",
         help_text="Tempel link folder atau file tempat eviden laporan diunggah.",
     )
 
@@ -748,9 +753,9 @@ class MonthlyRiskReportEvidence(TimeStampedModel):
     external_url = models.URLField(
         max_length=500,
         default="",
-        validators=[validate_brightbox_evidence_url],
-        verbose_name="Link Eviden Brightbox",
-        help_text="Gunakan link file atau subfolder khusus laporan pada brightbox.plnbatam.com.",
+        validators=[validate_https_evidence_url],
+        verbose_name="Link Eviden",
+        help_text="Gunakan link HTTPS menuju file atau folder tempat eviden diunggah.",
     )
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

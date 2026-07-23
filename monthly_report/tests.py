@@ -465,11 +465,17 @@ class MonthlyRiskReportAdminTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "minimal satu link Eviden"):
             report_admin._apply_flow_action(report, "submit", self.admin_user)
 
-    def test_monthly_report_evidence_rejects_non_brightbox_link(self):
+    def test_monthly_report_evidence_accepts_any_https_domain(self):
         report = self._report("BID AGA INVALID EVIDENCE")
         report.evidence_url = "https://example.com/evidence.pdf"
 
-        with self.assertRaisesMessage(ValidationError, "brightbox.plnbatam.com"):
+        report.full_clean()
+
+    def test_monthly_report_evidence_rejects_http_link(self):
+        report = self._report("BID AGA HTTP EVIDENCE")
+        report.evidence_url = "http://example.com/evidence.pdf"
+
+        with self.assertRaisesMessage(ValidationError, "menggunakan HTTPS"):
             report.full_clean()
 
     def test_monthly_report_flow_button_matches_current_status(self):

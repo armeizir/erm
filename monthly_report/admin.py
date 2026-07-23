@@ -38,7 +38,7 @@ from .models import (
     MonthlyRiskReportImportBatch,
     MonthlyRiskReportImportRow,
     MonthlyRiskReportEvidence,
-    validate_brightbox_evidence_url,
+    validate_https_evidence_url,
 )
 
 from masterdata.models import TahunBuku
@@ -626,7 +626,7 @@ class MonthlyRiskReportEvidenceInline(admin.TabularInline):
     fields = ("title", "description", "external_url", "uploaded_by", "created_at")
     readonly_fields = ("uploaded_by", "created_at")
     verbose_name = "Eviden Pendukung"
-    verbose_name_plural = "Eviden Pendukung — link Brightbox"
+    verbose_name_plural = "Eviden Pendukung — link eksternal"
 
 
 class MonthlyRiskReportGroupFilter(admin.SimpleListFilter):
@@ -1382,9 +1382,9 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         if flow_action == "submit":
             if not report.evidence_url:
                 raise ValidationError(
-                    "Laporan wajib memiliki minimal satu link Eviden Brightbox sebelum disubmit."
+                    "Laporan wajib memiliki minimal satu Link Eviden sebelum disubmit."
                 )
-            validate_brightbox_evidence_url(report.evidence_url)
+            validate_https_evidence_url(report.evidence_url)
             risk_officers = _users_for_unit_role(
                 report.reassessment.unit_bisnis,
                 PenugasanUnitBisnis.ROLE_RISK_OFFICER,
