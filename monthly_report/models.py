@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
+from urllib.parse import urlparse
 from django.utils.text import get_valid_filename
 from pathlib import Path
 from uuid import uuid4
@@ -23,9 +24,18 @@ from risk.models import (
     ReAssessmentSummary,
     RiskMatrix,
 )
-from .storage import nas_evidence_storage
 
 
+def validate_brightbox_evidence_url(value):
+    parsed = urlparse(value)
+    if parsed.scheme.lower() != "https" or parsed.hostname != "brightbox.plnbatam.com":
+        raise ValidationError(
+            "Link eviden harus menggunakan HTTPS pada domain brightbox.plnbatam.com."
+        )
+
+
+# Dipertahankan karena migration 0017 mereferensikan callable ini. Model aktif
+# tidak lagi menggunakannya setelah evidence dipindahkan menjadi link Brightbox.
 def validate_evidence_size(value):
     if value.size > 25 * 1024 * 1024:
         raise ValidationError("Ukuran setiap file eviden maksimum 25 MB.")
@@ -727,17 +737,12 @@ class MonthlyRiskReportEvidence(TimeStampedModel):
     )
     title = models.CharField(max_length=255, verbose_name="Judul Eviden")
     description = models.TextField(blank=True, default="", verbose_name="Keterangan")
-    file = models.FileField(
-        storage=nas_evidence_storage,
-        upload_to=monthly_report_evidence_path,
+    external_url = models.URLField(
         max_length=500,
-        validators=[
-            FileExtensionValidator(
-                ["pdf", "xlsx", "xls", "docx", "doc", "jpg", "jpeg", "png", "zip", "msg", "eml"]
-            ),
-            validate_evidence_size,
-        ],
-        verbose_name="File Eviden (NAS)",
+        default="",
+        validators=[validate_brightbox_evidence_url],
+        verbose_name="Link Eviden Brightbox",
+        help_text="Gunakan link file atau subfolder khusus laporan pada brightbox.plnbatam.com.",
     )
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

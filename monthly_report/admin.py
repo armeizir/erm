@@ -622,10 +622,10 @@ class MonthlyRiskReportLossEventInline(admin.StackedInline):
 class MonthlyRiskReportEvidenceInline(admin.TabularInline):
     model = MonthlyRiskReportEvidence
     extra = 1
-    fields = ("title", "description", "file", "uploaded_by", "created_at")
+    fields = ("title", "description", "external_url", "uploaded_by", "created_at")
     readonly_fields = ("uploaded_by", "created_at")
     verbose_name = "Eviden Pendukung"
-    verbose_name_plural = "Eviden Pendukung — file disimpan di NAS ERM"
+    verbose_name_plural = "Eviden Pendukung — link Brightbox"
 
 
 class MonthlyRiskReportGroupFilter(admin.SimpleListFilter):
@@ -796,8 +796,6 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 instance.uploaded_by = request.user
             instance.save()
         for instance in formset.deleted_objects:
-            if isinstance(instance, MonthlyRiskReportEvidence) and instance.file:
-                instance.file.delete(save=False)
             instance.delete()
         formset.save_m2m()
 
@@ -1387,17 +1385,15 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 raise ValidationError(
                     "Laporan wajib memiliki minimal satu file Eviden Pendukung sebelum disubmit."
                 )
-            try:
-                missing_files = [
-                    evidence.title
-                    for evidence in evidences
-                    if not evidence.file or not evidence.file.storage.exists(evidence.file.name)
-                ]
-            except OSError as exc:
-                raise ValidationError(str(exc))
-            if missing_files:
+            invalid_evidence = []
+            for evidence in evidences:
+                try:
+                    evidence.full_clean()
+                except ValidationError:
+                    invalid_evidence.append(evidence.title)
+            if invalid_evidence:
                 raise ValidationError(
-                    "File eviden tidak ditemukan pada NAS: " + ", ".join(missing_files)
+                    "Link eviden Brightbox tidak valid: " + ", ".join(invalid_evidence)
                 )
             risk_officers = _users_for_unit_role(
                 report.reassessment.unit_bisnis,

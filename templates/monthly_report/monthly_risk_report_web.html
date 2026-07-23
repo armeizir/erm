@@ -442,7 +442,7 @@
       <thead><tr><th>Judul</th><th>Keterangan</th><th>File</th><th>Diunggah</th></tr></thead>
       <tbody>
       {% for evidence in evidences %}
-        <tr><td>{{ evidence.title }}</td><td>{{ evidence.description }}</td><td><a href="{{ evidence.file.url }}">Unduh eviden</a></td><td>{{ evidence.created_at }}</td></tr>
+        <tr><td>{{ evidence.title }}</td><td>{{ evidence.description }}</td><td><a href="{{ evidence.external_url }}" target="_blank" rel="noopener noreferrer">Buka di Brightbox</a></td><td>{{ evidence.created_at }}</td></tr>
       {% empty %}<tr><td colspan="4">Belum ada eviden pendukung.</td></tr>{% endfor %}
       </tbody>
     </table>

@@ -432,17 +432,13 @@ class MonthlyRiskReportAdminTests(TestCase):
             peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
         )
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
-        with tempfile.TemporaryDirectory() as evidence_root, self.settings(
-            NAS_EVIDENCE_ROOT=evidence_root,
-            NAS_EVIDENCE_REQUIRE_MOUNT=False,
-        ):
-            MonthlyRiskReportEvidence.objects.create(
-                report=report_infra,
-                title="Eviden pengujian",
-                file=SimpleUploadedFile("eviden.pdf", b"PDF evidence"),
-                uploaded_by=self.admin_user,
-            )
-            report_admin._apply_flow_action(report_infra, "submit", self.admin_user)
+        MonthlyRiskReportEvidence.objects.create(
+            report=report_infra,
+            title="Eviden pengujian",
+            external_url="https://brightbox.plnbatam.com/drive/d/f/test-evidence",
+            uploaded_by=self.admin_user,
+        )
+        report_admin._apply_flow_action(report_infra, "submit", self.admin_user)
         report_infra.refresh_from_db()
         self.assertEqual(report_infra.status, "submitted")
         self.assertIsNotNone(report_infra.submitted_at)
@@ -471,6 +467,18 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         with self.assertRaisesMessage(ValidationError, "minimal satu file Eviden"):
             report_admin._apply_flow_action(report, "submit", self.admin_user)
+
+    def test_monthly_report_evidence_rejects_non_brightbox_link(self):
+        report = self._report("BID AGA INVALID EVIDENCE")
+        evidence = MonthlyRiskReportEvidence(
+            report=report,
+            title="Link tidak sah",
+            external_url="https://example.com/evidence.pdf",
+            uploaded_by=self.admin_user,
+        )
+
+        with self.assertRaisesMessage(ValidationError, "brightbox.plnbatam.com"):
+            evidence.full_clean()
 
     def test_monthly_report_flow_button_matches_current_status(self):
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())

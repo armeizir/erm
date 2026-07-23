@@ -113,10 +113,6 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 
 MEDIA_URL = os.environ.get("MEDIA_URL", "/media/")
 MEDIA_ROOT = os.environ.get("MEDIA_ROOT", BASE_DIR / "media")
-NAS_EVIDENCE_ROOT = os.environ.get("NAS_EVIDENCE_ROOT", "/mnt/nas_mrk/ERM")
-NAS_EVIDENCE_URL = "/monthly-report/evidence/"
-NAS_EVIDENCE_MOUNT_ROOT = os.environ.get("NAS_EVIDENCE_MOUNT_ROOT", "/mnt/nas_mrk")
-NAS_EVIDENCE_REQUIRE_MOUNT = env_bool("NAS_EVIDENCE_REQUIRE_MOUNT", default=not DEBUG)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
