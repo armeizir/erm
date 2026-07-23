@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Input Data Histori Risiko</title>
+  <style>
+    body{margin:0;background:#f4f6f8;color:#243040;font:16px Arial,sans-serif}.wrap{max-width:820px;margin:35px auto;padding:0 16px}
+    .card{background:#fff;border-radius:8px;box-shadow:0 2px 10px #0001;overflow:hidden}.head{background:#287c9f;color:#fff;padding:24px}
+    .body{padding:26px}.meta{display:grid;grid-template-columns:170px 1fr;gap:10px;margin-bottom:24px}.field{margin:18px 0}
+    label{display:block;font-weight:bold;margin-bottom:7px}input,textarea{box-sizing:border-box;width:100%;padding:11px;border:1px solid #bac4ce;border-radius:5px;font-size:16px}
+    button{background:#287c9f;color:#fff;border:0;border-radius:5px;padding:12px 22px;font-weight:bold;cursor:pointer}.msg{padding:12px;background:#dff3e5;margin-bottom:15px}
+    .status{display:inline-block;padding:5px 9px;background:#fff1bd;color:#6d5100;border-radius:4px}@media(max-width:600px){.meta{grid-template-columns:1fr}}
+  </style>
+</head>
+<body><div class="wrap"><div class="card">
+  <div class="head"><h1>Input Data Histori Risiko</h1><div>{{ history.periode.nama_periode }}</div></div>
+  <div class="body">
+    {% for message in messages %}<div class="msg">{{ message }}</div>{% endfor %}
+    <div class="meta"><strong>Risiko</strong><span>{{ history.metric.corporate_risk_item }}</span><strong>Metrik</strong><span>{{ history.metric.name }}{% if history.metric.unit %} ({{ history.metric.unit }}){% endif %}</span><strong>Penanggung jawab</strong><span>{{ history.assigned_to.get_full_name|default:history.assigned_to.username }}</span><strong>Status</strong><span><span class="status">{{ history.get_status_display }}</span></span></div>
+    <form method="post">{% csrf_token %}
+      {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+      <div class="field"><label for="{{ form.metric_value.id_for_label }}">Nilai Aktual</label>{{ form.metric_value }}{{ form.metric_value.errors }}</div>
+      <div class="field"><label for="{{ form.target_value.id_for_label }}">Target</label>{{ form.target_value }}{{ form.target_value.errors }}</div>
+      <div class="field"><label for="{{ form.keterangan.id_for_label }}">Keterangan</label>{{ form.keterangan }}{{ form.keterangan.errors }}</div>
+      <button type="submit">Simpan Data</button>
+    </form>
+  </div>
+</div></div></body></html>

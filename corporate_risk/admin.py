@@ -32,6 +32,7 @@ from .services import (
 )
 from .pdf_reports import render_multi_metric_pdf
 from .history_services import duplicate_metric_history_to_next_month
+from .history_notifications import send_metric_history_assignment_notification
 
 
 def risk_item_label_html(item):
@@ -1070,6 +1071,8 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
         "metric_value",
         "target_value",
         "status",
+        "assigned_to",
+        "notification_button",
         "duplicate_next_month_button",
         "created_at",
     )
@@ -1084,12 +1087,16 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
     autocomplete_fields = (
         "metric",
         "periode",
+        "assigned_to",
     )
     ordering = (
         "metric",
         "tanggal_data",
     )
-    readonly_fields = ("copy_source_display",)
+    readonly_fields = (
+        "copy_source_display", "notification_button", "notification_status_display",
+        "completed_status_display",
+    )
 
     fieldsets = (
         ("Relasi", {
@@ -1108,6 +1115,12 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
                 "copy_source_display",
             )
         }),
+        ("Penugasan Pengisian", {
+            "fields": (
+                "assigned_to", "notification_button", "notification_status_display",
+                "completed_status_display",
+            )
+        }),
     )
 
     def get_urls(self):
@@ -1116,7 +1129,12 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
                 "<path:object_id>/duplicate-next-month/",
                 self.admin_site.admin_view(self.duplicate_next_month_view),
                 name="corporate_risk_montecarlometrichistory_duplicate_next_month",
-            )
+            ),
+            path(
+                "<path:object_id>/send-assignment-notification/",
+                self.admin_site.admin_view(self.send_assignment_notification_view),
+                name="corporate_risk_montecarlometrichistory_send_assignment_notification",
+            ),
         ] + super().get_urls()
 
     @admin.display(description="Sumber Salinan")
@@ -1191,6 +1209,71 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
         return TemplateResponse(
             request,
             "admin/corporate_risk/montecarlometrichistory/confirm_duplicate.html",
+            context,
+        )
+
+    @admin.display(description="Notifikasi")
+    def notification_button(self, obj):
+        if not obj or not obj.pk:
+            return "Simpan data terlebih dahulu."
+        if not obj.assigned_to_id:
+            return "Tentukan User Pengisi Data terlebih dahulu."
+        url = reverse(
+            f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_send_assignment_notification",
+            args=[obj.pk],
+        )
+        label = "Kirim Ulang Notifikasi" if obj.notification_sent_at else "Kirim Notifikasi"
+        return format_html('<a class="button" href="{}">{}</a>', url, label)
+
+    @admin.display(description="Riwayat Notifikasi")
+    def notification_status_display(self, obj):
+        if not obj or not obj.notification_sent_at:
+            return "Belum pernah dikirim."
+        return format_html(
+            "Terakhir dikirim {} ({} kali).",
+            obj.notification_sent_at.strftime("%d-%m-%Y %H:%M"),
+            obj.notification_count,
+        )
+
+    @admin.display(description="Riwayat Pengisian")
+    def completed_status_display(self, obj):
+        if not obj or not obj.completed_at:
+            return "Belum diisi melalui tautan penugasan."
+        user = obj.completed_by.get_full_name().strip() or obj.completed_by.get_username()
+        return f"Diisi oleh {user} pada {obj.completed_at.strftime('%d-%m-%Y %H:%M')}."
+
+    def send_assignment_notification_view(self, request, object_id):
+        history = get_object_or_404(self.get_queryset(request), pk=object_id)
+        if not self.has_change_permission(request, history):
+            raise PermissionDenied
+        if request.method == "POST":
+            try:
+                recipient = send_metric_history_assignment_notification(history, request=request)
+            except ValidationError as exc:
+                self.message_user(request, "; ".join(exc.messages), level=messages.ERROR)
+            else:
+                self.message_user(
+                    request, f"Notifikasi berhasil dikirim ke {recipient}.", level=messages.SUCCESS
+                )
+            return redirect(
+                reverse(
+                    f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_change",
+                    args=[history.pk],
+                )
+            )
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Kirim Notifikasi Pengisian Data",
+            "opts": self.model._meta,
+            "history": history,
+            "cancel_url": reverse(
+                f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_change",
+                args=[history.pk],
+            ),
+        }
+        return TemplateResponse(
+            request,
+            "admin/corporate_risk/montecarlometrichistory/confirm_notification.html",
             context,
         )
 

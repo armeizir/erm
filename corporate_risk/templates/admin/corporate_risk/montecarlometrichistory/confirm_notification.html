@@ -1,0 +1,11 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div id="content-main"><div class="module aligned">
+  <h2>{{ history.metric.name }} - {{ history.periode.nama_periode }}</h2>
+  {% if history.assigned_to %}
+    <p>Notifikasi akan dikirim kepada <strong>{{ history.assigned_to.get_full_name|default:history.assigned_to.username }}</strong> melalui <strong>{{ history.assigned_to.email|default:"email belum tersedia" }}</strong>.</p>
+    <p class="help">Email berisi tautan pengisian yang hanya dapat dibuka oleh user tersebut setelah login ke ERM.</p>
+    <form method="post">{% csrf_token %}<div class="submit-row"><input type="submit" class="default" value="Kirim Notifikasi"><a href="{{ cancel_url }}" class="button cancel-link">Batal</a></div></form>
+  {% else %}<p class="errornote">User Pengisi Data belum ditentukan.</p><a href="{{ cancel_url }}" class="button">Kembali</a>{% endif %}
+</div></div>
+{% endblock %}

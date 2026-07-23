@@ -18,6 +18,15 @@ from masterdata.models import PeriodeLaporan
 
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required, permission_required
+from django import forms
+from django.utils import timezone
+
+
+class AssignedMetricHistoryForm(forms.ModelForm):
+    class Meta:
+        model = MonteCarloMetricHistory
+        fields = ("metric_value", "target_value", "keterangan")
+        widgets = {"keterangan": forms.Textarea(attrs={"rows": 5})}
 
 
 def _can_manage_metric_history(user):
@@ -337,3 +346,29 @@ def metric_history_input_menu(request):
         "Input Histori / Upload Excel sekarang tersedia di halaman Profil Risiko Korporat.",
     )
     return redirect("risk_admin:risk_profilrisikokorporatsummary_changelist")
+
+
+@login_required
+def assigned_metric_history_input(request, pk):
+    history = get_object_or_404(
+        MonteCarloMetricHistory.objects.select_related(
+            "assigned_to", "metric__corporate_risk_item", "periode"
+        ),
+        pk=pk,
+    )
+    if request.user != history.assigned_to and not request.user.is_superuser:
+        raise PermissionDenied("Data ini ditugaskan kepada user lain.")
+    form = AssignedMetricHistoryForm(request.POST or None, instance=history)
+    if request.method == "POST" and form.is_valid():
+        history = form.save(commit=False)
+        history.status = MonteCarloMetricHistory.STATUS_UPDATED
+        history.completed_by = request.user
+        history.completed_at = timezone.now()
+        history.save()
+        messages.success(request, "Data histori berhasil disimpan.")
+        return redirect("metric_history_assigned_input", pk=history.pk)
+    return render(
+        request,
+        "corporate_risk/assigned_metric_history_input.html",
+        {"history": history, "form": form},
+    )

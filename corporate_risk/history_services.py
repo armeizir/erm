@@ -65,4 +65,5 @@ def duplicate_metric_history_to_next_month(source, user):
         copied_from=source,
         copied_by=user,
         copied_at=timezone.now(),
+        assigned_to=source.assigned_to,
     )

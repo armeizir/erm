@@ -1,0 +1,7 @@
+<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#243040">
+<table role="presentation" width="100%"><tr><td align="center" style="padding:28px"><table role="presentation" width="640" style="max-width:640px;background:#fff">
+<tr><td style="background:#287c9f;color:#fff;padding:24px"><h1 style="margin:0">INPUT DATA HISTORI RISIKO</h1></td></tr>
+<tr><td style="padding:30px"><p>Yth. <strong>{{ recipient.get_full_name|default:recipient.username }}</strong>,</p><p>Anda ditugaskan untuk mengisi data histori risiko berikut:</p>
+<table role="presentation" width="100%" style="margin:20px 0"><tr><td style="padding:8px;color:#687386">Metrik</td><td><strong>{{ history.metric.name }}</strong></td></tr><tr><td style="padding:8px;color:#687386">Periode</td><td><strong>{{ history.periode.nama_periode }}</strong></td></tr></table>
+<p style="text-align:center;margin:30px"><a href="{{ input_url }}" style="background:#287c9f;color:#fff;padding:13px 24px;text-decoration:none;border-radius:5px">Isi Data Sekarang</a></p><p style="color:#687386;font-size:13px">Login menggunakan akun ERM yang menerima penugasan ini.</p></td></tr>
+</table></td></tr></table></body></html>

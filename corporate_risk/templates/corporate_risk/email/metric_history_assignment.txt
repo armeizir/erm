@@ -1,0 +1,10 @@
+Yth. {{ recipient.get_full_name|default:recipient.username }},
+
+Anda ditugaskan untuk mengisi data histori risiko berikut:
+Metrik: {{ history.metric.name }}
+Periode: {{ history.periode.nama_periode }}
+
+Silakan buka tautan berikut setelah login ke ERM:
+{{ input_url }}
+
+Email ini dikirim otomatis oleh aplikasi ERM PLN Batam.

@@ -344,6 +344,27 @@ class MonteCarloMetricHistory(models.Model):
         verbose_name="Disalin oleh",
     )
     copied_at = models.DateTimeField(null=True, blank=True, verbose_name="Disalin pada")
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="assigned_metric_histories",
+        null=True,
+        blank=True,
+        verbose_name="User Pengisi Data",
+    )
+    notification_sent_at = models.DateTimeField(
+        null=True, blank=True, verbose_name="Notifikasi Terakhir"
+    )
+    notification_count = models.PositiveIntegerField(default=0, verbose_name="Jumlah Notifikasi")
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="completed_metric_histories",
+        null=True,
+        blank=True,
+        verbose_name="Diisi oleh",
+    )
+    completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Diisi pada")
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Dibuat pada",

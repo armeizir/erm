@@ -4,9 +4,15 @@ from .views import (
     monte_carlo_result_chart,
     bulk_metric_input,
     metric_history_input_menu,
+    assigned_metric_history_input,
 )
 
 urlpatterns = [
+    path(
+        "metric-history/<int:pk>/input/",
+        assigned_metric_history_input,
+        name="metric_history_assigned_input",
+    ),
     path(
         "monte-carlo/<int:pk>/chart/",
         monte_carlo_result_chart,

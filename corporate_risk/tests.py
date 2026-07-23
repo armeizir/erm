@@ -4,7 +4,8 @@ from types import SimpleNamespace
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import Client, SimpleTestCase, TestCase
+from django.core import mail
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 
 from corporate_risk.admin import MultiMetricMonteCarloResultAdmin, MultiMetricMonteCarloResultForm
@@ -15,6 +16,7 @@ from corporate_risk.services import (
     recommend_monte_carlo_distribution,
 )
 from corporate_risk.history_services import duplicate_metric_history_to_next_month
+from corporate_risk.history_notifications import send_metric_history_assignment_notification
 from masterdata.models import MasterBUMN, PeriodeLaporan, TahunBuku
 from risk.models import ProfilRisikoKorporatItem, ProfilRisikoKorporatSummary
 
@@ -181,6 +183,59 @@ class MultiMetricMonteCarloResultFormTests(TestCase):
 
         with self.assertRaisesMessage(ValidationError, "harus diperbarui"):
             duplicate_metric_history_to_next_month(april, user)
+
+    def test_assignment_email_contains_restricted_input_link(self):
+        user = get_user_model().objects.create_user(
+            username="data.owner", email="owner@example.com"
+        )
+        history = MonteCarloMetricHistory.objects.create(
+            metric=self.metric,
+            periode=self.forecast_periode,
+            tanggal_data=date(2026, 3, 1),
+            metric_value=70,
+            status=MonteCarloMetricHistory.STATUS_UNUPDATED,
+            assigned_to=user,
+        )
+        request = RequestFactory().get("/")
+
+        recipient = send_metric_history_assignment_notification(history, request=request)
+
+        history.refresh_from_db()
+        self.assertEqual(recipient, "owner@example.com")
+        self.assertEqual(history.notification_count, 1)
+        self.assertIsNotNone(history.notification_sent_at)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(
+            reverse("metric_history_assigned_input", args=[history.pk]),
+            mail.outbox[0].body,
+        )
+
+    def test_only_assigned_user_can_submit_history_data(self):
+        owner = get_user_model().objects.create_user(username="owner", password="secret")
+        other = get_user_model().objects.create_user(username="other", password="secret")
+        history = MonteCarloMetricHistory.objects.create(
+            metric=self.metric,
+            periode=self.forecast_periode,
+            tanggal_data=date(2026, 3, 1),
+            metric_value=70,
+            status=MonteCarloMetricHistory.STATUS_UNUPDATED,
+            assigned_to=owner,
+        )
+        url = reverse("metric_history_assigned_input", args=[history.pk])
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        self.client.force_login(owner)
+        response = self.client.post(
+            url,
+            {"metric_value": "72.5", "target_value": "75", "keterangan": "Realisasi Maret"},
+        )
+        self.assertEqual(response.status_code, 302)
+        history.refresh_from_db()
+        self.assertEqual(history.status, history.STATUS_UPDATED)
+        self.assertEqual(str(history.metric_value), "72.5000")
+        self.assertEqual(history.completed_by, owner)
+        self.assertIsNotNone(history.completed_at)
 
 
 class MultiMetricMonteCarloTrialsDisplayTests(SimpleTestCase):
