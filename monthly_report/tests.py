@@ -14,7 +14,12 @@ from django.test import RequestFactory, TestCase
 from django.utils import timezone
 from openpyxl import Workbook
 
-from masterdata.models import PeriodeLaporan, TahunBuku
+from masterdata.models import (
+    OrganizationUnit,
+    OrganizationUnitUserAssignment,
+    PeriodeLaporan,
+    TahunBuku,
+)
 from risk.admin import ReAssessmentItemAdmin
 from risk.models import (
     AppSetting,
@@ -514,7 +519,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
         report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
 
-        with self.assertRaisesMessage(ValidationError, "minimal satu link Eviden"):
+        with self.assertRaisesMessage(ValidationError, "minimal satu Link Eviden"):
             report_admin._apply_flow_action(report, "submit", self.admin_user)
 
     def test_monthly_report_evidence_accepts_any_https_domain(self):
@@ -699,7 +704,7 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertNotEqual(response.context_data["kpmr_calculation"].score_total, Decimal("81.00"))
         self.assertIn(
-            "Belum ada item dengan realisasi risiko dan target residual yang lengkap.",
+            "Belum ada data eksposur lengkap maupun pasangan skor residual-target yang dapat dihitung.",
             response.context_data["kpmr_calculation"].notes,
         )
 
@@ -820,7 +825,7 @@ class MonthlyRiskReportAdminTests(TestCase):
             mail.outbox[-1].alternatives[0].content,
         )
 
-    def test_monthly_report_workflow_notifications_include_pairing_kpmr_and_mrk(self):
+    def test_monthly_report_workflow_notifications_include_pairing_and_superior_chain(self):
         User = get_user_model()
         app_setting = AppSetting.get_solo()
         app_setting.monthly_report_notification_test_email = ""
@@ -835,11 +840,57 @@ class MonthlyRiskReportAdminTests(TestCase):
         pairing = self._assign_pairing_officer(
             report, username="workflow.pairing", email="pairing.workflow@example.com"
         )
-        mrk_group = Group.objects.create(name="BID MRK")
-        mrk_user = User.objects.create_user(
-            username="workflow.mrk", email="mrk@example.com"
+        directorate = OrganizationUnit.objects.create(
+            code="ORG-DIR",
+            name="DIREKTORAT",
         )
-        mrk_user.groups.add(mrk_group)
+        mrk_unit = OrganizationUnit.objects.create(
+            code="ORG-MRK",
+            name="BID MRK",
+            parent=directorate,
+        )
+        risk_subunit = OrganizationUnit.objects.create(
+            code="ORG-RISK",
+            name="SBID RIS",
+            parent=mrk_unit,
+        )
+        subunit_head = User.objects.create_user(
+            username="workflow.subunit.head",
+            email="subunit.head@example.com",
+        )
+        mrk_head = User.objects.create_user(
+            username="workflow.mrk.head",
+            email="mrk.head@example.com",
+        )
+        director = User.objects.create_user(
+            username="workflow.director",
+            email="director@example.com",
+        )
+        unrelated_mrk_user = User.objects.create_user(
+            username="workflow.unrelated.mrk",
+            email="unrelated.mrk@example.com",
+        )
+        mrk_group = Group.objects.create(name="BID MRK")
+        unrelated_mrk_user.groups.add(mrk_group)
+        OrganizationUnitUserAssignment.objects.create(
+            user=pairing,
+            organization_unit=risk_subunit,
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=subunit_head,
+            organization_unit=risk_subunit,
+            is_unit_head=True,
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=mrk_head,
+            organization_unit=mrk_unit,
+            is_unit_head=True,
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=director,
+            organization_unit=directorate,
+            is_unit_head=True,
+        )
         report.reviewed_by = reviewer
         report.approved_by = approver
 
@@ -862,11 +913,35 @@ class MonthlyRiskReportAdminTests(TestCase):
         report.status = "approved"
         report.save(update_fields=["status"])
         send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
-        self.assertEqual(mail.outbox[-1].to, [mrk_user.email])
-        self.assertEqual(mail.outbox[-1].cc, [])
+        self.assertEqual(mail.outbox[-1].to, [pairing.email])
+        self.assertEqual(
+            mail.outbox[-1].cc,
+            [subunit_head.email, mrk_head.email, director.email],
+        )
         self.assertEqual(mail.outbox[-1].bcc, [])
+        self.assertNotIn(unrelated_mrk_user.email, mail.outbox[-1].to)
+        self.assertNotIn(unrelated_mrk_user.email, mail.outbox[-1].cc)
         self.assertIn("Total KPMR", mail.outbox[-1].body)
         self.assertIn("telah disetujui", mail.outbox[-1].body)
+
+    def test_approved_notification_falls_back_to_pairing_when_org_assignment_missing(self):
+        app_setting = AppSetting.get_solo()
+        app_setting.monthly_report_notification_test_email = ""
+        app_setting.save(update_fields=["monthly_report_notification_test_email"])
+        report = self._report("INFRA APPROVED PAIRING ONLY")
+        pairing = self._assign_pairing_officer(
+            report,
+            username="approved.pairing.only",
+            email="approved.pairing.only@example.com",
+        )
+        report.status = "approved"
+        report.save(update_fields=["status"])
+
+        send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
+
+        self.assertEqual(mail.outbox[-1].to, [pairing.email])
+        self.assertEqual(mail.outbox[-1].cc, [])
+        self.assertEqual(mail.outbox[-1].bcc, [])
 
     def test_risk_item_autocomplete_is_limited_by_selected_reassessment(self):
         report_infra = self._report("INFRA")

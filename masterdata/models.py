@@ -1,5 +1,8 @@
-# masterdata/models.py
+from django.conf import settings
+from django.db.models import Q
 from django.db import models
+from django.utils import timezone
+
 from core.models import TimeStampedModel
 
 
@@ -269,6 +272,81 @@ class OrganizationUnitAccessGroup(TimeStampedModel):
 
     def __str__(self):
         return f"{self.group.name} → {self.organization_unit}"
+
+
+class OrganizationUnitUserAssignment(TimeStampedModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="organization_unit_assignments",
+        verbose_name="User / Pejabat",
+    )
+    organization_unit = models.ForeignKey(
+        OrganizationUnit,
+        on_delete=models.PROTECT,
+        related_name="user_assignments",
+        verbose_name="Organization Unit",
+    )
+    is_unit_head = models.BooleanField(
+        default=False,
+        verbose_name="Kepala Unit",
+        help_text="Tandai untuk pejabat yang menjadi kepala Organization Unit ini.",
+    )
+    utama = models.BooleanField(
+        default=True,
+        verbose_name="Penugasan Utama",
+    )
+    aktif = models.BooleanField(default=True, verbose_name="Aktif")
+    tanggal_mulai = models.DateField(
+        default=timezone.localdate,
+        verbose_name="Tanggal Mulai",
+    )
+    tanggal_selesai = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Tanggal Selesai",
+    )
+
+    class Meta:
+        db_table = "md_organization_unit_user_assignment"
+        verbose_name = "Penugasan User Organisasi"
+        verbose_name_plural = "Organization — Penugasan User"
+        ordering = (
+            "organization_unit__code",
+            "-is_unit_head",
+            "user__first_name",
+            "user__last_name",
+            "user__username",
+        )
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "organization_unit", "tanggal_mulai"),
+                name="uniq_user_organization_unit_start",
+            ),
+            models.UniqueConstraint(
+                fields=("organization_unit",),
+                condition=Q(aktif=True, is_unit_head=True),
+                name="uniq_active_head_per_organization_unit",
+            ),
+            models.UniqueConstraint(
+                fields=("user",),
+                condition=Q(aktif=True, utama=True),
+                name="uniq_active_primary_organization_per_user",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.tanggal_selesai and self.tanggal_selesai < self.tanggal_mulai:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(
+                {"tanggal_selesai": "Tanggal selesai tidak boleh sebelum tanggal mulai."}
+            )
+
+    def __str__(self):
+        role = "Kepala" if self.is_unit_head else "Anggota"
+        return f"{self.user} - {self.organization_unit} ({role})"
 
 
 class TahunBuku(TimeStampedModel):

@@ -1,12 +1,14 @@
 from datetime import timedelta
 
 from django.conf import settings
-from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives, get_connection
+from django.db.models import Q
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 
+from masterdata.models import OrganizationUnitUserAssignment
 from risk.models import AppSetting
 from risk.models import PenugasanUnitBisnis
 from risk.services.kpmr_automation import calculate_kpmr_for_report
@@ -86,14 +88,53 @@ def _risk_officers_for_report(report):
     ]
 
 
-def _mrk_users():
-    """Active members of the MRK organization group receiving final reports."""
-    return list(
-        get_user_model()
-        .objects.filter(is_active=True, groups__name__iexact="BID MRK")
-        .distinct()
-        .order_by("first_name", "last_name", "username", "id")
+def _active_organization_assignment(user):
+    today = timezone.localdate()
+    return (
+        OrganizationUnitUserAssignment.objects.filter(
+            user=user,
+            user__is_active=True,
+            aktif=True,
+            tanggal_mulai__lte=today,
+        )
+        .filter(Q(tanggal_selesai__isnull=True) | Q(tanggal_selesai__gte=today))
+        .select_related("organization_unit", "organization_unit__parent")
+        .order_by("-utama", "organization_unit__code", "id")
+        .first()
     )
+
+
+def _pairing_superiors(pairing):
+    """Return active heads from the Pairing Officer's unit through its ancestors."""
+    assignment = _active_organization_assignment(pairing)
+    if assignment is None:
+        return []
+
+    today = timezone.localdate()
+    organization = assignment.organization_unit
+    users = []
+    seen_user_ids = {pairing.pk}
+    seen_organization_ids = set()
+    while organization and organization.pk not in seen_organization_ids:
+        seen_organization_ids.add(organization.pk)
+        heads = (
+            OrganizationUnitUserAssignment.objects.filter(
+                organization_unit=organization,
+                is_unit_head=True,
+                aktif=True,
+                user__is_active=True,
+                tanggal_mulai__lte=today,
+            )
+            .filter(Q(tanggal_selesai__isnull=True) | Q(tanggal_selesai__gte=today))
+            .select_related("user")
+            .order_by("user__first_name", "user__last_name", "user__username", "id")
+        )
+        for head in heads:
+            if head.user_id not in seen_user_ids:
+                users.append(head.user)
+                seen_user_ids.add(head.user_id)
+        organization = organization.parent
+    return users
 
 
 def monthly_report_notification_stage(report):
@@ -133,14 +174,17 @@ def monthly_report_notification_stage(report):
             "instruction": "Mohon Approver melakukan tanda tangan digital atas laporan risiko bulanan.",
         }
     if report.status == "approved":
+        pairing = _pairing_officer_for_report(report)
         return {
             "stage": "completed",
-            "recipients": _mrk_users(),
-            "recipient_role": "Group BID MRK",
+            "recipient": pairing,
+            "recipient_role": "Pairing Officer",
+            "cc_recipients": _pairing_superiors(pairing) if pairing else [],
             "title": "Laporan Risiko Bulanan Telah Disetujui",
             "instruction": (
-                "Laporan risiko bulanan telah disetujui. Mohon Group BID MRK "
-                "melakukan pemantauan dan tindak lanjut sesuai kewenangan."
+                "Laporan risiko bulanan telah disetujui. Mohon Pairing Officer dan "
+                "atasan pada hierarki organisasi melakukan pemantauan dan tindak lanjut "
+                "sesuai kewenangan."
             ),
         }
     return None
@@ -189,9 +233,11 @@ def send_monthly_report_notification(
     recipient_users = stage.get("recipients")
     recipient = stage.get("recipient")
     bcc_recipient = stage.get("bcc_recipient")
+    cc_recipient_users = stage.get("cc_recipients") or []
     recipient_names = []
     test_email = "" if stage.get("ignore_test_email") else app_setting.monthly_report_notification_test_email
     bcc_recipients = []
+    cc_recipients = []
     if test_email:
         recipients = [test_email]
     else:
@@ -226,6 +272,21 @@ def send_monthly_report_notification(
             if not bcc_recipient.email:
                 raise ValidationError(f"Email user {bcc_recipient.get_username()} belum diisi.")
             bcc_recipients = [bcc_recipient.email]
+        users_without_email = [
+            user.get_username() for user in cc_recipient_users if not user.email
+        ]
+        if users_without_email:
+            raise ValidationError(
+                "Email atasan organisasi belum diisi: " + ", ".join(users_without_email)
+            )
+        recipient_emails = set(recipients)
+        cc_recipients = list(
+            dict.fromkeys(
+                user.email
+                for user in cc_recipient_users
+                if user.email not in recipient_emails
+            )
+        )
 
     context = {
         "report": report,
@@ -250,6 +311,7 @@ def send_monthly_report_notification(
         text_body,
         from_email,
         recipients,
+        cc=cc_recipients,
         bcc=bcc_recipients,
         connection=_mail_connection(app_setting),
     )

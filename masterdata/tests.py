@@ -3,7 +3,11 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
-from masterdata.models import OrganizationUnit, OrganizationUnitAccessGroup
+from masterdata.models import (
+    OrganizationUnit,
+    OrganizationUnitAccessGroup,
+    OrganizationUnitUserAssignment,
+)
 
 
 class OrganizationUnitAccessGroupTests(TestCase):
@@ -50,3 +54,43 @@ class OrganizationUnitAccessGroupTests(TestCase):
 
         with self.assertRaises(ValidationError):
             mapping.full_clean()
+
+
+class OrganizationUnitUserAssignmentTests(TestCase):
+    def setUp(self):
+        self.organization_unit = OrganizationUnit.objects.create(
+            code="TEST-USERS",
+            name="SBID TEST",
+        )
+        User = self.organization_unit._meta.apps.get_model("auth", "User")
+        self.first_user = User.objects.create_user(username="first.head")
+        self.second_user = User.objects.create_user(username="second.head")
+
+    def test_only_one_active_head_is_allowed_per_organization_unit(self):
+        OrganizationUnitUserAssignment.objects.create(
+            user=self.first_user,
+            organization_unit=self.organization_unit,
+            is_unit_head=True,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            OrganizationUnitUserAssignment.objects.create(
+                user=self.second_user,
+                organization_unit=self.organization_unit,
+                is_unit_head=True,
+            )
+
+    def test_inactive_historical_head_can_coexist(self):
+        OrganizationUnitUserAssignment.objects.create(
+            user=self.first_user,
+            organization_unit=self.organization_unit,
+            is_unit_head=True,
+            aktif=False,
+        )
+        current = OrganizationUnitUserAssignment.objects.create(
+            user=self.second_user,
+            organization_unit=self.organization_unit,
+            is_unit_head=True,
+        )
+
+        self.assertTrue(current.aktif)

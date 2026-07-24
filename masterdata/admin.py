@@ -9,6 +9,7 @@ from masterdata.models import (
     Division,
     OrganizationUnit,
     OrganizationUnitAccessGroup,
+    OrganizationUnitUserAssignment,
     PeriodeLaporan,
     PersonnelArea,
     PersonnelSubArea,
@@ -66,6 +67,22 @@ class OrganizationUnitAccessGroupInline(admin.TabularInline):
     autocomplete_fields = ("group",)
     verbose_name = "Grup Bidang / Unit Bisnis"
     verbose_name_plural = "Grup Bidang / Unit Bisnis (cakupan akses)"
+
+
+class OrganizationUnitUserAssignmentInline(admin.TabularInline):
+    model = OrganizationUnitUserAssignment
+    extra = 0
+    fields = (
+        "user",
+        "is_unit_head",
+        "utama",
+        "aktif",
+        "tanggal_mulai",
+        "tanggal_selesai",
+    )
+    autocomplete_fields = ("user",)
+    verbose_name = "User / Pejabat"
+    verbose_name_plural = "User / Pejabat pada Organization Unit"
 
 
 @admin.register(CompanyCode)
@@ -161,7 +178,11 @@ class OrganizationUnitAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
         "division",
         "parent",
     )
-    inlines = [OrganizationUnitAccessGroupInline, OrganizationUnitInline]
+    inlines = [
+        OrganizationUnitAccessGroupInline,
+        OrganizationUnitUserAssignmentInline,
+        OrganizationUnitInline,
+    ]
 
     @admin.display(description="Bidang / Unit Bisnis")
     def access_groups(self, obj):
@@ -170,6 +191,29 @@ class OrganizationUnitAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
             .order_by("group__name")
             .values_list("group__name", flat=True)
         ) or "-"
+
+
+@admin.register(OrganizationUnitUserAssignment)
+class OrganizationUnitUserAssignmentAdmin(StaffCanViewAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "user",
+        "organization_unit",
+        "is_unit_head",
+        "utama",
+        "aktif",
+        "tanggal_mulai",
+        "tanggal_selesai",
+    )
+    list_filter = ("is_unit_head", "utama", "aktif", "organization_unit")
+    search_fields = (
+        "user__username",
+        "user__first_name",
+        "user__last_name",
+        "user__email",
+        "organization_unit__code",
+        "organization_unit__name",
+    )
+    autocomplete_fields = ("user", "organization_unit")
 
 
 @admin.register(TahunBuku)
@@ -217,6 +261,7 @@ for model, model_admin in (
     (Directorate, DirectorateAdmin),
     (Division, DivisionAdmin),
     (OrganizationUnit, OrganizationUnitAdmin),
+    (OrganizationUnitUserAssignment, OrganizationUnitUserAssignmentAdmin),
 ):
     try:
         risk_admin_site.register(model, model_admin)
