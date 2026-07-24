@@ -2521,8 +2521,8 @@ class RiskManagementReview(models.Model):
 
 class ProfilRisikoKorporatSummary(models.Model):
     STATUS_CHOICES = [
-        ("Draft", "Draft"),
-        ("Final", "Final"),
+        ("draft", "Draft"),
+        ("final", "Final"),
     ]
 
     judul = models.CharField(max_length=200, verbose_name="Judul Profil Risiko Korporat")
@@ -2540,7 +2540,7 @@ class ProfilRisikoKorporatSummary(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default="Draft",
+        default="draft",
         verbose_name="Status",
     )
     catatan = models.TextField(blank=True, null=True, verbose_name="Catatan")
