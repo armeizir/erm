@@ -9,7 +9,6 @@ from django.db import models
 from decimal import Decimal
 
 from core.models import TimeStampedModel
-from km.models import KontrakManajemen, KontrakManajemenItem
 from masterdata.models import (
     PeriodeLaporan,
     SkalaDampak,
@@ -20,6 +19,8 @@ from masterdata.models import (
 from risk.models import (
     MasterSkalaDampak as RiskSkalaDampak,
     MasterSkalaProbabilitas as RiskSkalaProbabilitas,
+    ItemKontrakManajemen,
+    KontrakManajemen,
     ReAssessmentItem,
     ReAssessmentSummary,
     RiskMatrix,
@@ -200,12 +201,24 @@ class MonthlyRiskReport(TimeStampedModel):
             if self.tahun_buku_id and self.reassessment.tahun != self.tahun_buku.tahun:
                 errors["tahun_buku"] = "Tahun buku laporan harus sama dengan tahun buku reassessment."
         if self.kontrak_manajemen_id:
-            if self.unit_id and self.kontrak_manajemen.unit_id != self.unit_id:
-                errors["kontrak_manajemen"] = "KM harus milik unit yang sama dengan laporan."
-            if self.tahun_buku_id and self.kontrak_manajemen.tahun_buku_id != self.tahun_buku_id:
+            if (
+                self.reassessment_id
+                and self.kontrak_manajemen.unit_bisnis_id != self.reassessment.unit_bisnis_id
+            ):
+                errors["kontrak_manajemen"] = "KM harus milik unit/bidang yang sama dengan profil risiko."
+            if self.tahun_buku_id and self.kontrak_manajemen.tahun != self.tahun_buku.tahun:
                 errors["kontrak_manajemen"] = "KM harus berada pada tahun buku yang sama."
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.reassessment_id:
+            canonical_km_id = self.reassessment.kontrak_manajemen_id
+            if canonical_km_id and self.kontrak_manajemen_id != canonical_km_id:
+                self.kontrak_manajemen_id = canonical_km_id
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {"kontrak_manajemen"}
+        super().save(*args, **kwargs)
 
     def generate_items(self):
 
@@ -252,7 +265,7 @@ class MonthlyRiskReportItem(TimeStampedModel):
         verbose_name="Item Risiko Unit/Bidang",
     )
     km_item = models.ForeignKey(
-        KontrakManajemenItem, on_delete=models.PROTECT, null=True, blank=True
+        ItemKontrakManajemen, on_delete=models.PROTECT, null=True, blank=True
     )
 
     inherent_skala_dampak = models.ForeignKey(
@@ -423,7 +436,7 @@ class MonthlyRiskReportItem(TimeStampedModel):
             if self.risk_event.summary_id != self.report.reassessment_id:
                 errors["risk_event"] = "Item risiko harus berasal dari profil risiko yang sama dengan report."
         if self.km_item_id and self.report_id:
-            if self.km_item.bagian.kontrak_id != self.report.kontrak_manajemen_id:
+            if self.km_item.kontrak_id != self.report.kontrak_manajemen_id:
                 errors["km_item"] = "KM item harus berasal dari Kontrak Manajemen pada report ini."
         if self.residual_level and self.target_residual_level:
             if self.residual_level > self.target_residual_level and not self.escalation_note:
@@ -490,6 +503,12 @@ class MonthlyRiskReportItem(TimeStampedModel):
                 self.realisasi_level_risiko = cell.level_risiko.nama
 
     def save(self, *args, **kwargs):
+        if self.risk_event_id:
+            canonical_km_item_id = self.risk_event.km_item_id
+            if canonical_km_item_id and self.km_item_id != canonical_km_item_id:
+                self.km_item_id = canonical_km_item_id
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {"km_item"}
         self._calculate_realisasi()
         super().save(*args, **kwargs)
 
@@ -507,7 +526,7 @@ class MonthlyRiskReportKMAlignment(TimeStampedModel):
         related_name="km_alignment",
     )
     km_item = models.ForeignKey(
-        KontrakManajemenItem, on_delete=models.PROTECT, null=True, blank=True
+        ItemKontrakManajemen, on_delete=models.PROTECT, null=True, blank=True
     )
     alignment_status = models.CharField(
         max_length=20,
@@ -527,6 +546,15 @@ class MonthlyRiskReportKMAlignment(TimeStampedModel):
                 errors["km_item"] = "KM alignment harus mengacu pada KM item yang sama dengan report item."
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.report_item_id:
+            canonical_km_item_id = self.report_item.km_item_id
+            if canonical_km_item_id and self.km_item_id != canonical_km_item_id:
+                self.km_item_id = canonical_km_item_id
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {"km_item"}
+        super().save(*args, **kwargs)
 
 
 class MonthlyRiskReportChange(TimeStampedModel):

@@ -762,10 +762,7 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
     ordering = ("-tahun", "judul")
 
     def _has_km_permission(self, request, action):
-        return (
-            request.user.has_perm(f"risk.{action}_kontrakmanajemen")
-            or request.user.has_perm(f"km.{action}_kontrakmanajemen")
-        )
+        return request.user.has_perm(f"risk.{action}_kontrakmanajemen")
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -1603,10 +1600,7 @@ class ItemKontrakManajemenAdmin(admin.ModelAdmin):
     )
 
     def _has_km_permission(self, request, action):
-        return (
-            request.user.has_perm(f"risk.{action}_itemkontrakmanajemen")
-            or request.user.has_perm(f"km.{action}_kontrakmanajemenitem")
-        )
+        return request.user.has_perm(f"risk.{action}_itemkontrakmanajemen")
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

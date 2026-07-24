@@ -85,6 +85,22 @@ class MonthlyRiskReportAdminTests(TestCase):
             prepared_by=self.prepared_by,
         )
 
+    def test_report_syncs_canonical_km_from_reassessment(self):
+        report = self._report("BID SYNC KM")
+        self.assertEqual(
+            report.kontrak_manajemen_id,
+            report.reassessment.kontrak_manajemen_id,
+        )
+
+    def test_report_item_syncs_canonical_km_item_from_risk_event(self):
+        report = self._report("BID SYNC ITEM")
+        risk_event = self._risk_item(report)
+        report_item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+        )
+        self.assertEqual(report_item.km_item_id, risk_event.km_item_id)
+
     def _assign_pairing_officer(self, report, username="pairing", email="pairing@example.com"):
         User = get_user_model()
         pairing = User.objects.create_user(username=username, email=email)
