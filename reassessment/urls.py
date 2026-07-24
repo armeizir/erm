@@ -1,6 +1,7 @@
-from django.contrib import admin
-from django.urls import path
+"""Legacy reassessment URL module.
 
-urlpatterns = [
-    path("admin/", admin.site.urls),
-]
+The former ``/reassessment/admin/`` route exposed Django's default AdminSite
+in parallel with the restricted ERM admin. It is intentionally disabled.
+"""
+
+urlpatterns = []

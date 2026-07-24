@@ -132,8 +132,9 @@ LDAP_DEBUG = env_bool("LDAP_DEBUG", default=False)
 LDAP_SUPERUSER_USERNAMES = {value.lower() for value in env_list("LDAP_SUPERUSER_USERNAMES")}
 LDAP_SUPERUSER_EMAILS = {value.lower() for value in env_list("LDAP_SUPERUSER_EMAILS")}
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# Master key used only to encrypt/decrypt application-managed secrets stored in DB.
+# Individual AI/SMTP credentials remain managed through AppSetting in Django Admin.
+APP_ENCRYPTION_KEY = os.environ.get("APP_ENCRYPTION_KEY", "")
 
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",

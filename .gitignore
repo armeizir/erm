@@ -38,3 +38,16 @@ prod_exports/
 prod_exports*.tar.gz
 exports/
 tmp/
+
+# Security hardening: never commit local/prod data artifacts
+*.db
+*.sqlite
+*.dump
+*.sql
+*.sql.gz
+**/backups/
+**/.venv/
+
+# Generated clean source archives
+risk_app*.zip
+riskproject_clean_*.zip

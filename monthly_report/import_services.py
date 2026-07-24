@@ -301,7 +301,7 @@ def _extract_json(text):
 
 def _run_ai_review(batch, rows):
     setting = AppSetting.get_solo()
-    if not setting.ai_aktif or not setting.ai_api_key:
+    if not setting.ai_aktif or not setting.runtime_ai_api_key:
         return False, "AI tidak aktif; analisis deterministik digunakan."
     ambiguous = [row for row in rows if row.validation_level != row.LEVEL_GREEN]
     if not ambiguous:
@@ -331,7 +331,7 @@ def _run_ai_review(batch, rows):
             model = setting.ai_model if not setting.ai_model.startswith("gpt-") else "gemini-3.1-flash-lite"
             response = httpx.post(
                 f"{base}/models/{model}:generateContent",
-                headers={"x-goog-api-key": setting.ai_api_key},
+                headers={"x-goog-api-key": setting.runtime_ai_api_key},
                 json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json"}},
                 timeout=30,
             )
@@ -342,7 +342,7 @@ def _run_ai_review(batch, rows):
             base = (setting.ai_base_url or "https://api.openai.com/v1").rstrip("/")
             response = httpx.post(
                 f"{base}/chat/completions",
-                headers={"Authorization": f"Bearer {setting.ai_api_key}"},
+                headers={"Authorization": f"Bearer {setting.runtime_ai_api_key}"},
                 json={"model": setting.ai_model or "gpt-4.1-mini", "temperature": float(setting.ai_temperature), "messages": [{"role": "user", "content": prompt}], "response_format": {"type": "json_object"}},
                 timeout=30,
             )

@@ -140,7 +140,7 @@ def _gemini_generate_management_language(setting: AppSetting, prompt: str) -> di
     url = f"{base_url}/models/{model_name}:generateContent"
     response = httpx.post(
         url,
-        headers={"x-goog-api-key": setting.ai_api_key},
+        headers={"x-goog-api-key": setting.runtime_ai_api_key},
         json={
             "contents": [
                 {
@@ -182,7 +182,7 @@ def _polish_multi_metric_insight_with_ai(
     recommended_actions: str,
 ) -> tuple[str, str, str]:
     setting = AppSetting.get_solo()
-    if not setting.ai_aktif or not setting.ai_api_key:
+    if not setting.ai_aktif or not setting.runtime_ai_api_key:
         return executive_summary, key_findings, recommended_actions
     if setting.ai_provider != AppSetting.AI_PROVIDER_GEMINI:
         return executive_summary, key_findings, recommended_actions

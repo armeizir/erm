@@ -1,7 +1,7 @@
 import os
 import django
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "riskproject.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "riskproject.settings.dev")
 django.setup()
 
 from risk.models import (

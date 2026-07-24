@@ -707,6 +707,7 @@ class AwarenessFlowTests(TestCase):
     @override_settings(
         EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
         DEFAULT_FROM_EMAIL="webmaster@localhost",
+        APP_ENCRYPTION_KEY="F4ME9LRv7d0aAqxRhC49wa8oI9VPDgruGuZVXh_LraE=",
     )
     def test_awareness_notification_uses_smtp_from_app_setting_when_active(self):
         app_setting = AppSetting.get_solo()
@@ -742,3 +743,7 @@ class AwarenessFlowTests(TestCase):
         self.assertEqual(mail.outbox[0].from_email, "PLNBATAM CSIRT <noreply@plnbatam.com>")
         self.assertEqual(DummySMTPBackend.init_kwargs["host"], "smtp.plnbatam.com")
         self.assertEqual(DummySMTPBackend.init_kwargs["username"], "csirt")
+        self.assertEqual(DummySMTPBackend.init_kwargs["password"], "secret")
+        app_setting.refresh_from_db()
+        self.assertNotEqual(app_setting.email_host_password, "secret")
+        self.assertTrue(app_setting.email_host_password.startswith("fernet:v1:"))

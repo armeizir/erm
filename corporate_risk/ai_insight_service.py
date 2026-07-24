@@ -1,15 +1,17 @@
 import json
-import os
-
 from openai import OpenAI
+
+from risk.models import AppSetting
 
 from .models import AIInsightKorporat, MonteCarloKorporatResult
 
 
-def generate_ai_insight_for_result(result_id: int, model_name: str = "gpt-5.4-mini"):
-    api_key = os.environ.get("OPENAI_API_KEY")
+def generate_ai_insight_for_result(result_id: int, model_name: str | None = None):
+    app_setting = AppSetting.get_solo()
+    api_key = app_setting.runtime_ai_api_key
     if not api_key:
-        raise ValueError("OPENAI_API_KEY belum diset.")
+        raise ValueError("API Key AI belum dikonfigurasi pada Pengaturan Aplikasi.")
+    model_name = model_name or app_setting.ai_model or "gpt-5.4-mini"
 
     result = MonteCarloKorporatResult.objects.select_related(
         "corporate_risk_item"

@@ -8,6 +8,8 @@ from django.conf import settings
 from django.utils import timezone
 from django.utils.text import Truncator, slugify
 
+from .crypto import decrypt_secret, encrypt_secret, is_encrypted_secret
+
 
 # =========================================================
 # MASTER DATA
@@ -105,12 +107,11 @@ class AppSetting(models.Model):
         default=AI_PROVIDER_OPENAI,
         verbose_name="Provider AI",
     )
-    ai_api_key = models.CharField(
-        max_length=255,
+    ai_api_key = models.TextField(
         blank=True,
         default="",
-        verbose_name="API Key AI",
-        help_text="Simpan API key di sini hanya jika server sudah diamankan.",
+        verbose_name="API Key AI (terenkripsi)",
+        help_text="Disimpan terenkripsi. Gunakan form admin untuk mengganti secret.",
     )
     ai_model = models.CharField(
         max_length=80,
@@ -150,11 +151,11 @@ class AppSetting(models.Model):
         default="",
         verbose_name="SMTP Username",
     )
-    email_host_password = models.CharField(
-        max_length=255,
+    email_host_password = models.TextField(
         blank=True,
         default="",
-        verbose_name="SMTP Password",
+        verbose_name="SMTP Password (terenkripsi)",
+        help_text="Disimpan terenkripsi. Gunakan form admin untuk mengganti secret.",
     )
     email_use_tls = models.BooleanField(
         default=True,
@@ -201,6 +202,13 @@ class AppSetting(models.Model):
         verbose_name_plural = "PENGATURAN — Aplikasi"
 
     def save(self, *args, **kwargs):
+        # Secret tetap dapat dikelola melalui Konfigurasi Aplikasi, tetapi nilai
+        # yang masuk database selalu ciphertext. Already-encrypted values are
+        # left untouched so ordinary edits do not re-encrypt the same secret.
+        if self.ai_api_key:
+            self.ai_api_key = encrypt_secret(self.ai_api_key)
+        if self.email_host_password:
+            self.email_host_password = encrypt_secret(self.email_host_password)
         self.pk = 1
         super().save(*args, **kwargs)
 
@@ -213,20 +221,30 @@ class AppSetting(models.Model):
         return self.nama_aplikasi
 
     @property
+    def runtime_ai_api_key(self):
+        """Return decrypted AI secret only at the moment it is needed."""
+        return decrypt_secret(self.ai_api_key)
+
+    @property
+    def runtime_email_host_password(self):
+        """Return decrypted SMTP secret only at the moment it is needed."""
+        return decrypt_secret(self.email_host_password)
+
+    @property
     def masked_ai_api_key(self):
         if not self.ai_api_key:
-            return "-"
-        if len(self.ai_api_key) <= 8:
-            return "********"
-        return f"{self.ai_api_key[:4]}...{self.ai_api_key[-4:]}"
+            return "Belum dikonfigurasi"
+        if is_encrypted_secret(self.ai_api_key):
+            return "Sudah dikonfigurasi (terenkripsi)"
+        return "Sudah dikonfigurasi (menunggu migrasi enkripsi)"
 
     @property
     def masked_email_host_password(self):
         if not self.email_host_password:
-            return "-"
-        if len(self.email_host_password) <= 8:
-            return "********"
-        return f"{self.email_host_password[:2]}...{self.email_host_password[-2:]}"
+            return "Belum dikonfigurasi"
+        if is_encrypted_secret(self.email_host_password):
+            return "Sudah dikonfigurasi (terenkripsi)"
+        return "Sudah dikonfigurasi (menunggu migrasi enkripsi)"
 
 
 class KnowledgeBaseCategory(models.Model):

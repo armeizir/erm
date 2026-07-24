@@ -232,7 +232,7 @@ def send_awareness_notification(campaign, recipients, request=None, base_url=Non
             host=app_setting.email_host,
             port=app_setting.email_port,
             username=app_setting.email_host_user or None,
-            password=app_setting.email_host_password or None,
+            password=app_setting.runtime_email_host_password or None,
             use_tls=app_setting.email_use_tls,
             use_ssl=app_setting.email_use_ssl,
         )

@@ -3,6 +3,7 @@ anyio==4.13.0
 asgiref==3.11.1
 certifi==2026.2.25
 charset-normalizer==3.4.7
+cryptography==46.0.4
 distro==1.9.0
 Django==6.0.3
 django-auth-ldap==5.3.0

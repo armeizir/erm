@@ -3,6 +3,8 @@ from .base import *
 
 DEBUG = False
 SECRET_KEY = env_required("SECRET_KEY")
+# Required in production because AppSetting stores AI/SMTP secrets encrypted in DB.
+APP_ENCRYPTION_KEY = env_required("APP_ENCRYPTION_KEY")
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS")
 if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
     raise ImproperlyConfigured("ALLOWED_HOSTS must be set explicitly in production.")

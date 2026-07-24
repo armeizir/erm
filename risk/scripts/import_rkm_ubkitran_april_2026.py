@@ -8,7 +8,7 @@ import sys
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "riskproject.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "riskproject.settings.dev")
 
 import django
 

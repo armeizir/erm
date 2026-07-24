@@ -211,22 +211,71 @@ class CustomGroupAdmin(BaseGroupAdmin):
 
 
 class AppSettingForm(forms.ModelForm):
-    ai_api_key = forms.CharField(
+    ai_api_key_baru = forms.CharField(
         required=False,
-        widget=forms.PasswordInput(render_value=True),
-        label="API Key AI",
-        help_text="Kosongkan jika belum menggunakan AI. Nilai disimpan di database lokal aplikasi.",
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        label="API Key AI Baru",
+        help_text=(
+            "Kosongkan untuk mempertahankan API key yang sudah tersimpan. "
+            "Nilai baru langsung dienkripsi sebelum disimpan ke database."
+        ),
     )
-    email_host_password = forms.CharField(
+    hapus_ai_api_key = forms.BooleanField(
         required=False,
-        widget=forms.PasswordInput(render_value=True),
-        label="SMTP Password",
-        help_text="Kosongkan jika SMTP belum digunakan. Nilai disimpan di database lokal aplikasi.",
+        label="Hapus API Key AI tersimpan",
+    )
+    email_host_password_baru = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        label="SMTP Password Baru",
+        help_text=(
+            "Kosongkan untuk mempertahankan password yang sudah tersimpan. "
+            "Nilai baru langsung dienkripsi sebelum disimpan ke database."
+        ),
+    )
+    hapus_email_host_password = forms.BooleanField(
+        required=False,
+        label="Hapus SMTP Password tersimpan",
     )
 
     class Meta:
         model = AppSetting
         fields = "__all__"
+        exclude = ("ai_api_key", "email_host_password")
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("ai_api_key_baru") and cleaned.get("hapus_ai_api_key"):
+            self.add_error(
+                "hapus_ai_api_key",
+                "Pilih salah satu: isi API key baru atau hapus API key tersimpan.",
+            )
+        if cleaned.get("email_host_password_baru") and cleaned.get("hapus_email_host_password"):
+            self.add_error(
+                "hapus_email_host_password",
+                "Pilih salah satu: isi password baru atau hapus password tersimpan.",
+            )
+        return cleaned
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+
+        if self.cleaned_data.get("hapus_ai_api_key"):
+            instance.ai_api_key = ""
+        elif self.cleaned_data.get("ai_api_key_baru"):
+            # AppSetting.save() performs encryption.
+            instance.ai_api_key = self.cleaned_data["ai_api_key_baru"]
+
+        if self.cleaned_data.get("hapus_email_host_password"):
+            instance.email_host_password = ""
+        elif self.cleaned_data.get("email_host_password_baru"):
+            # AppSetting.save() performs encryption.
+            instance.email_host_password = self.cleaned_data["email_host_password_baru"]
+
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
 
 
 @admin.register(AppSetting)
@@ -272,13 +321,14 @@ class AppSettingAdmin(admin.ModelAdmin):
                 "ai_provider",
                 "ai_model",
                 "ai_base_url",
-                "ai_api_key",
                 "masked_ai_key",
+                "ai_api_key_baru",
+                "hapus_ai_api_key",
                 "ai_temperature",
             ),
             "description": (
-                "Digunakan untuk memoles AI Insight menjadi bahasa manajemen. "
-                "Untuk free tier, pilih Google Gemini API dan isi API key dari Google AI Studio. "
+                "API key tetap dikelola dari halaman ini tetapi tidak pernah ditampilkan kembali. "
+                "Database hanya menyimpan ciphertext yang dienkripsi dengan APP_ENCRYPTION_KEY. "
                 "Jika AI tidak aktif atau API gagal, sistem tetap memakai insight rule-based."
             ),
         }),
@@ -288,16 +338,17 @@ class AppSettingAdmin(admin.ModelAdmin):
                 "email_host",
                 "email_port",
                 "email_host_user",
-                "email_host_password",
                 "masked_email_password",
+                "email_host_password_baru",
+                "hapus_email_host_password",
                 "email_use_tls",
                 "email_use_ssl",
                 "default_from_email",
                 "monthly_report_notification_test_email",
             ),
             "description": (
-                "Dipakai untuk mengirim notifikasi email dari aplikasi, termasuk Risk Awareness. "
-                "Jika tidak aktif, sistem memakai konfigurasi EMAIL_* dari environment."
+                "SMTP password tetap dikelola dari halaman ini tetapi tidak pernah ditampilkan kembali. "
+                "Database hanya menyimpan ciphertext yang dienkripsi dengan APP_ENCRYPTION_KEY."
             ),
         }),
         ("Lain-lain", {
@@ -327,7 +378,7 @@ class AppSettingAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
-    @admin.display(description="SMTP Password Tersimpan")
+    @admin.display(description="SMTP Secret")
     def masked_email_password(self, obj):
         return obj.masked_email_host_password if obj else "-"
 
@@ -359,7 +410,7 @@ class AppSettingAdmin(admin.ModelAdmin):
     def masked_ai_key(self, obj):
         return obj.masked_ai_api_key if obj else "-"
 
-    masked_ai_key.short_description = "API Key Tersimpan"
+    masked_ai_key.short_description = "AI Secret"
 
 
 @admin.register(User)
