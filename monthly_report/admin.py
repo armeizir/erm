@@ -680,6 +680,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "status",
         "copy_source_display",
         "flow_action_button",
+        "latest_revision_comment",
         "notification_button",
         "import_profile_button",
         "evidence_url",
@@ -691,6 +692,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "petunjuk_lampiran",
         "peta_risiko_iiic_link",
         "flow_action_button",
+        "latest_revision_comment",
         "notification_button",
         "import_profile_button",
         "prepared_by_display",
@@ -1080,7 +1082,44 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             f"{self.admin_site.name}:monthly_report_monthlyriskreport_flow_action",
             args=[obj.pk, action_name],
         )
-        return format_html('<a class="button" href="{}">{}</a>', url, label)
+        primary_button = format_html('<a class="button" href="{}">{}</a>', url, label)
+        if obj.status not in {"submitted", "under_review"}:
+            return primary_button
+        revise_url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_flow_action",
+            args=[obj.pk, "revise"],
+        )
+        return format_html(
+            '{} <a class="button" style="margin-left:6px;background:#b45309" '
+            'href="{}">Kembalikan ke Drafter</a>',
+            primary_button,
+            revise_url,
+        )
+
+    @admin.display(description="Komentar Koreksi Terakhir")
+    def latest_revision_comment(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+        revision = (
+            obj.submission_logs.filter(action="revise")
+            .select_related("action_by")
+            .order_by("-action_at", "-pk")
+            .first()
+        )
+        if revision is None:
+            return "-"
+        actor = (
+            revision.action_by.get_full_name().strip()
+            or revision.action_by.get_username()
+        )
+        action_time = timezone.localtime(revision.action_at).strftime("%d-%m-%Y %H:%M")
+        return format_html(
+            '<div style="border-left:4px solid #b45309;padding:8px 12px;'
+            'background:#fff7ed;white-space:pre-line"><strong>{}</strong> — {}<br>{}</div>',
+            actor,
+            action_time,
+            revision.note or "-",
+        )
 
     @admin.display(description="Notifikasi")
     def notification_button(self, obj):
@@ -1349,9 +1388,13 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             self._monthly_report_web_context(request, report),
         )
 
-    def _send_next_notification(self, request, report):
+    def _send_next_notification(self, request, report, correction_note=""):
         try:
-            sent = send_monthly_report_notification(report, request=request)
+            sent = send_monthly_report_notification(
+                report,
+                request=request,
+                correction_note=correction_note,
+            )
         except ValidationError as exc:
             message = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
             self.message_user(request, message, level=messages.ERROR)
@@ -1364,11 +1407,12 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             )
         return sent
 
-    def _apply_flow_action(self, report, flow_action, user):
+    def _apply_flow_action(self, report, flow_action, user, note=""):
         valid_actions = {
             "submit": {"draft", "revision"},
             "review": {"submitted"},
             "approve": {"under_review"},
+            "revise": {"submitted", "under_review"},
         }
         if flow_action not in valid_actions:
             raise ValidationError("Aksi flow tidak dikenal.")
@@ -1378,7 +1422,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             )
 
         update_fields = ["status", "updated_at"]
-        note = ""
+        action_note = ""
         if flow_action == "submit":
             if not report.evidence_url:
                 raise ValidationError(
@@ -1396,14 +1440,14 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             report.status = "submitted"
             report.submitted_at = timezone.now()
             update_fields.append("submitted_at")
-            note = "Submitted oleh Prepared by/Risk Office."
+            action_note = "Submitted oleh Prepared by/Risk Office."
         elif flow_action == "review":
             if not report.reviewed_by_id:
                 raise ValidationError("Reviewed by belum diisi.")
             if not user.is_superuser and user.pk != report.reviewed_by_id:
                 raise ValidationError("Hanya user Reviewed by yang dapat melakukan review dan paraf.")
             report.status = "under_review"
-            note = "Review dan paraf oleh Reviewed by."
+            action_note = "Review dan paraf oleh Reviewed by."
         elif flow_action == "approve":
             if not report.approved_by_id:
                 raise ValidationError("Approved by belum diisi.")
@@ -1412,14 +1456,38 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             report.status = "approved"
             report.approved_at = timezone.now()
             update_fields.append("approved_at")
-            note = "Approved oleh Approved by."
+            action_note = "Approved oleh Approved by."
+        elif flow_action == "revise":
+            correction_note = (note or "").strip()
+            if not correction_note:
+                raise ValidationError("Komentar koreksi wajib diisi.")
+            if report.status == "submitted":
+                if not report.reviewed_by_id:
+                    raise ValidationError("Reviewed by belum diisi.")
+                if not user.is_superuser and user.pk != report.reviewed_by_id:
+                    raise ValidationError(
+                        "Hanya user Reviewed by yang dapat mengembalikan laporan."
+                    )
+                actor_role = "Reviewed by"
+            else:
+                if not report.approved_by_id:
+                    raise ValidationError("Approved by belum diisi.")
+                if not user.is_superuser and user.pk != report.approved_by_id:
+                    raise ValidationError(
+                        "Hanya user Approved by yang dapat mengembalikan laporan."
+                    )
+                actor_role = "Approved by"
+            report.status = "revision"
+            report.approved_at = None
+            update_fields.append("approved_at")
+            action_note = f"Dikembalikan oleh {actor_role}. Koreksi: {correction_note}"
 
         report.save(update_fields=update_fields)
         MonthlyRiskReportSubmissionLog.objects.create(
             report=report,
             action=flow_action,
             action_by=user,
-            note=note,
+            note=action_note,
         )
         return report
 
@@ -1427,18 +1495,46 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         report = self.get_object(request, object_id)
         if report is None:
             raise Http404("Monthly risk report tidak ditemukan.")
+        if flow_action == "revise" and request.method != "POST":
+            context = {
+                **self.admin_site.each_context(request),
+                "title": "Kembalikan Laporan ke Drafter",
+                "opts": self.model._meta,
+                "report": report,
+                "cancel_url": reverse(
+                    f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
+                    args=[report.pk],
+                ),
+            }
+            return TemplateResponse(
+                request,
+                "admin/monthly_report/monthlyriskreport/confirm_revision.html",
+                context,
+            )
+        correction_note = request.POST.get("correction_note", "") if flow_action == "revise" else ""
         try:
-            self._apply_flow_action(report, flow_action, request.user)
+            self._apply_flow_action(
+                report,
+                flow_action,
+                request.user,
+                note=correction_note,
+            )
         except ValidationError as exc:
             message = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
             self.message_user(request, message, level=messages.ERROR)
+            if flow_action == "revise":
+                return redirect(request.path)
         else:
             self.message_user(
                 request,
                 f"Flow laporan berhasil diproses. Status sekarang: {report.get_status_display()}.",
                 level=messages.SUCCESS,
             )
-            self._send_next_notification(request, report)
+            self._send_next_notification(
+                request,
+                report,
+                correction_note=correction_note,
+            )
         return HttpResponseRedirect(
             reverse(
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",

@@ -453,6 +453,58 @@ class MonthlyRiskReportAdminTests(TestCase):
             ["submit", "review", "approve"],
         )
 
+    def test_reviewer_can_return_submitted_report_to_drafter_with_required_comment(self):
+        User = get_user_model()
+        reviewer = User.objects.create_user(
+            username="revision.reviewer",
+            email="reviewer@example.com",
+        )
+        report = self._report("INFRA REVISION")
+        report.status = "submitted"
+        report.reviewed_by = reviewer
+        report.save(update_fields=["status", "reviewed_by"])
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        with self.assertRaisesMessage(ValidationError, "Komentar koreksi wajib diisi"):
+            report_admin._apply_flow_action(report, "revise", reviewer)
+
+        report_admin._apply_flow_action(
+            report,
+            "revise",
+            reviewer,
+            note="Perbaiki nilai residual dan tambahkan dasar perhitungan.",
+        )
+        report.refresh_from_db()
+
+        self.assertEqual(report.status, "revision")
+        revision_log = report.submission_logs.get(action="revise")
+        self.assertEqual(revision_log.action_by, reviewer)
+        self.assertIn("Perbaiki nilai residual", revision_log.note)
+        rendered_comment = str(report_admin.latest_revision_comment(report))
+        self.assertIn("revision.reviewer", rendered_comment)
+        self.assertIn("Perbaiki nilai residual", rendered_comment)
+
+    def test_approver_can_return_under_review_report_to_drafter(self):
+        User = get_user_model()
+        approver = User.objects.create_user(username="revision.approver")
+        report = self._report("INFRA APPROVER REVISION")
+        report.status = "under_review"
+        report.approved_by = approver
+        report.approved_at = timezone.now()
+        report.save(update_fields=["status", "approved_by", "approved_at"])
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+
+        report_admin._apply_flow_action(
+            report,
+            "revise",
+            approver,
+            note="Lengkapi eviden perlakuan risiko.",
+        )
+        report.refresh_from_db()
+
+        self.assertEqual(report.status, "revision")
+        self.assertIsNone(report.approved_at)
+
     def test_monthly_report_submit_requires_evidence_on_nas(self):
         report = self._report("BID AGA EVIDENCE")
         PenugasanUnitBisnis.objects.create(
@@ -715,6 +767,57 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIn(
             "https://erm.plnbatam.com/admin/monthly_report/monthlyriskreport/",
             mail.outbox[0].body,
+        )
+
+    def test_revision_notification_sends_comment_to_all_drafters_and_bcc_pairing(self):
+        app_setting = AppSetting.get_solo()
+        app_setting.monthly_report_notification_test_email = ""
+        app_setting.save(update_fields=["monthly_report_notification_test_email"])
+        report = self._report("INFRA CORRECTION EMAIL")
+        report.status = "revision"
+        report.save(update_fields=["status"])
+        User = get_user_model()
+        first_officer = User.objects.create_user(
+            username="revision.officer.1",
+            email="revision.officer.1@example.com",
+        )
+        second_officer = User.objects.create_user(
+            username="revision.officer.2",
+            email="revision.officer.2@example.com",
+        )
+        for officer in (first_officer, second_officer):
+            PenugasanUnitBisnis.objects.create(
+                unit_bisnis=report.reassessment.unit_bisnis,
+                user=officer,
+                peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+            )
+        pairing = self._assign_pairing_officer(
+            report,
+            username="revision.pairing",
+            email="revision.pairing@example.com",
+        )
+
+        sent = send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+            correction_note="Perbaiki nilai residual dan unggah eviden pendukung.",
+        )
+
+        self.assertEqual(sent, 1)
+        self.assertCountEqual(
+            mail.outbox[-1].to,
+            [
+                "revision.officer.1@example.com",
+                "revision.officer.2@example.com",
+            ],
+        )
+        self.assertEqual(mail.outbox[-1].bcc, [pairing.email])
+        self.assertIn("Koreksi Laporan Risiko Bulanan", mail.outbox[-1].subject)
+        self.assertIn("Perbaiki nilai residual", mail.outbox[-1].body)
+        self.assertIn("Submit Ulang", mail.outbox[-1].body)
+        self.assertIn(
+            "Perbaiki nilai residual",
+            mail.outbox[-1].alternatives[0].content,
         )
 
     def test_monthly_report_workflow_notifications_include_pairing_kpmr_and_mrk(self):

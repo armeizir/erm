@@ -4,6 +4,10 @@ Yth. {% if recipient_names %}{{ recipient_names|join:"; " }}{% else %}{{ recipie
 
 {{ stage.instruction }}
 
+{% if correction_note %}Komentar koreksi:
+{{ correction_note }}
+
+{% endif %}
 Laporan: {{ report.reassessment }}
 Periode: {{ report.periode.nama_periode }}
 Status: {{ report.get_status_display }}

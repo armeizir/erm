@@ -1,0 +1,35 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div id="content-main">
+  <form method="post">
+    {% csrf_token %}
+    <fieldset class="module aligned">
+      <h2>Koreksi Review / Paraf</h2>
+      <div class="form-row">
+        <p>
+          Laporan <strong>{{ report.reassessment }} - {{ report.periode.nama_periode }}</strong>
+          akan dikembalikan kepada seluruh Prepared by/Risk Officer unit.
+        </p>
+        <label class="required" for="id_correction_note">Komentar koreksi:</label>
+        <textarea
+          id="id_correction_note"
+          name="correction_note"
+          rows="7"
+          style="width:100%;max-width:900px"
+          required
+          placeholder="Jelaskan data atau bagian laporan yang perlu diperbaiki."
+        ></textarea>
+        <div class="help">
+          Komentar disimpan dalam riwayat workflow dan disertakan dalam email kepada drafter.
+        </div>
+      </div>
+    </fieldset>
+    <div class="submit-row">
+      <input type="submit" value="Kembalikan ke Drafter" class="default">
+      <a href="{{ cancel_url }}" class="closelink">Batal</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

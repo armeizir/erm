@@ -160,10 +160,30 @@ def _mail_connection(app_setting):
     return None
 
 
-def send_monthly_report_notification(report, request=None, base_url=None):
+def send_monthly_report_notification(
+    report,
+    request=None,
+    base_url=None,
+    correction_note="",
+):
     stage = monthly_report_notification_stage(report)
     if not stage:
         raise ValidationError("Status laporan tidak memerlukan notifikasi tahap berikutnya.")
+    correction_note = (correction_note or "").strip()
+    if correction_note:
+        if report.status != "revision":
+            raise ValidationError(
+                "Komentar koreksi hanya dapat dikirim untuk laporan berstatus Revision."
+            )
+        stage = {
+            **stage,
+            "title": "Koreksi Laporan Risiko Bulanan",
+            "instruction": (
+                "Laporan dikembalikan oleh reviewer/approver. "
+                "Mohon Prepared by memperbaiki laporan sesuai komentar koreksi, "
+                "kemudian melakukan Submit Ulang."
+            ),
+        }
 
     app_setting = AppSetting.get_solo()
     recipient_users = stage.get("recipients")
@@ -218,6 +238,7 @@ def send_monthly_report_notification(report, request=None, base_url=None):
         "report_url": monthly_report_admin_url(report, request=request, base_url=base_url),
         "app_setting": app_setting,
         "kpmr": calculate_kpmr_for_report(report),
+        "correction_note": correction_note,
     }
     subject = f"{stage['title']} - {report.reassessment} {report.periode.nama_periode}"
     text_body = render_to_string("monthly_report/email/notification.txt", context)
