@@ -1,9 +1,33 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from django.contrib.auth.models import Group
+
+from .kpmr_aggregation import (
+    _aggregate_budget_absorption,
+    _aggregate_exposure_for_i1,
+    _format_report_scope,
+    _format_report_sum_details,
+    _sum_detail_by_report,
+)
+from .kpmr_scoring import (
+    INDICATOR_DEFINITIONS,
+    SUBINDICATOR_DEFINITIONS,
+    _fmt,
+    _indicator,
+    _score_budget_absorption,
+    _score_output_progress,
+    _weighted_score,
+    actual_residual_score,
+    int_or_none,
+    month_to_quarter,
+    quantize_score,
+    quarter_months,
+    rating_for_score,
+    target_residual_score,
+)
+from .kpmr_types import KPMRCalculation
 
 from monthly_report.models import (
     MonthlyRiskReport,
@@ -15,336 +39,6 @@ from risk.models import (
     KPMRPeriode,
     KPMRSubIndikatorResmi,
 )
-
-
-INDICATOR_DEFINITIONS = {
-    "I1": {
-        "nama": "Pencapaian Nilai Eksposur Risiko dibandingkan target Risiko Residual",
-        "bobot": Decimal("30.00"),
-    },
-    "I2": {
-        "nama": "Pencapaian output pelaksanaan perlakuan Risiko dibandingkan target total output",
-        "bobot": Decimal("20.00"),
-    },
-    "I3": {
-        "nama": "Realisasi biaya pelaksanaan perlakuan Risiko dibandingkan anggaran",
-        "bobot": Decimal("20.00"),
-    },
-    "I4": {
-        "nama": "Ketepatan penilaian Risiko",
-        "bobot": Decimal("30.00"),
-    },
-}
-
-SUBINDICATOR_DEFINITIONS = {
-    "IDENTIFIKASI": "Ketepatan identifikasi Risiko",
-    "KUANTIFIKASI": "Ketepatan kuantifikasi Risiko",
-    "RENCANA": "Ketepatan rencana perlakuan Risiko",
-    "PRIORITISASI": "Ketepatan prioritisasi Risiko",
-}
-
-
-@dataclass(frozen=True)
-class KPMRCalculation:
-    year: int
-    quarter: int
-    unit: Group
-    report_count: int
-    item_count: int
-    score_total: Decimal
-    rating: str
-    indicators: list[dict]
-    notes: list[str]
-    month: int | None = None
-
-
-def month_to_quarter(month: int | None) -> int | None:
-    if not month:
-        return None
-    return ((month - 1) // 3) + 1
-
-
-def quarter_months(quarter: int) -> list[int]:
-    start = ((quarter - 1) * 3) + 1
-    return [start, start + 1, start + 2]
-
-
-def quantize_score(value) -> Decimal:
-    return Decimal(value or 0).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _fmt(value) -> str:
-    if value is None:
-        return "-"
-    return str(quantize_score(value))
-
-
-def _sum_detail_by_report(reports, attr: str) -> tuple[list, Decimal, int]:
-    details = []
-    total = Decimal("0")
-    count = 0
-    for report in reports:
-        values = [
-            getattr(item, attr)
-            for item in report.items.all()
-            if getattr(item, attr) is not None
-        ]
-        subtotal = sum(values, Decimal("0"))
-        total += subtotal
-        count += len(values)
-        details.append((report.periode.nama_periode, subtotal, len(values)))
-    return details, total, count
-
-
-def _format_report_sum_details(details) -> str:
-    if not details:
-        return "-"
-    return "; ".join(
-        f"{name}: {_fmt(subtotal)} dari {count} item"
-        for name, subtotal, count in details
-    )
-
-
-def int_or_none(value):
-    if value in (None, ""):
-        return None
-    try:
-        return int(Decimal(str(value).strip()))
-    except Exception:
-        return None
-
-
-def target_residual_score(item, quarter: int):
-    if item.target_residual_level is not None:
-        return item.target_residual_level
-    if item.risk_event_id:
-        return int_or_none(getattr(item.risk_event, f"skala_risiko_q{quarter}", None))
-    return None
-
-
-def actual_residual_score(item):
-    if item.realisasi_skor_risiko is not None:
-        return item.realisasi_skor_risiko
-    return item.residual_level
-
-
-def rating_for_score(score: Decimal) -> str:
-    if score > Decimal("90"):
-        return "STRONG"
-    if Decimal("85") <= score <= Decimal("90"):
-        return "SATISFACTORY"
-    if Decimal("80") <= score <= Decimal("84"):
-        return "FAIR"
-    if Decimal("75") <= score <= Decimal("79"):
-        return "MARGINAL"
-    return "UNSATISFACTORY"
-
-
-
-def _format_report_scope(reports):
-    """Return a readable, stable label for reports included in a KPMR calculation."""
-    if reports is None:
-        return "-"
-
-    try:
-        report_list = list(reports)
-    except TypeError:
-        report_list = [reports]
-
-    if not report_list:
-        return "-"
-
-    labels = []
-    for report in report_list:
-        report_id = getattr(report, "pk", None) or getattr(report, "id", None)
-        label = str(report)
-        if report_id is not None:
-            labels.append(f"#{report_id} {label}")
-        else:
-            labels.append(label)
-
-    return "; ".join(labels)
-
-
-def _aggregate_exposure_for_i1(report_items, quarter):
-    """Agregasi eksposur KPMR I1 per top-risk/no_item, bukan per treatment row.
-
-    Satu top risk dapat mempunyai banyak penyebab/perlakuan. Nilai eksposur target
-    dan residual harus dihitung satu kali per ``risk_event.no_item`` agar tidak
-    terduplikasi oleh banyaknya treatment rows.
-    """
-    groups = {}
-    conflicts = []
-
-    for item in report_items:
-        risk_event = getattr(item, "risk_event", None)
-        if risk_event is None:
-            continue
-
-        group_key = getattr(risk_event, "no_item", None)
-        if group_key in (None, ""):
-            group_key = getattr(risk_event, "pk", None)
-        if group_key is None:
-            continue
-
-        entry = groups.setdefault(
-            group_key,
-            {
-                "target": None,
-                "residual": None,
-                "risk_event_ids": set(),
-            },
-        )
-        risk_event_id = getattr(risk_event, "pk", None)
-        if risk_event_id is not None:
-            entry["risk_event_ids"].add(risk_event_id)
-
-        raw_target = getattr(risk_event, f"eksposur_risiko_q{quarter}", None)
-        raw_residual = getattr(item, "realisasi_eksposur", None)
-
-        for field_name, raw_value in (
-            ("target", raw_target),
-            ("residual", raw_residual),
-        ):
-            if raw_value in (None, ""):
-                continue
-            value = Decimal(raw_value)
-            current = entry[field_name]
-            if current is None:
-                entry[field_name] = value
-            elif current != value:
-                conflicts.append(
-                    {
-                        "group": group_key,
-                        "field": field_name,
-                        "first": current,
-                        "other": value,
-                    }
-                )
-
-    if not groups:
-        return None
-
-    complete = [
-        entry
-        for entry in groups.values()
-        if entry["target"] is not None and entry["residual"] is not None
-    ]
-    incomplete_count = len(groups) - len(complete)
-
-    total_target = sum((entry["target"] for entry in complete), Decimal("0"))
-    total_residual = sum((entry["residual"] for entry in complete), Decimal("0"))
-
-    return {
-        "total_target": total_target,
-        "total_residual": total_residual,
-        "group_count": len(groups),
-        "comparable_group_count": len(complete),
-        "incomplete_group_count": incomplete_count,
-        "conflicts": conflicts,
-    }
-
-
-def _score_output_progress(progress):
-    if progress is None:
-        return None, "Belum ada data progress pelaksanaan perlakuan risiko."
-    progress = Decimal(progress)
-    if progress >= Decimal("90"):
-        return Decimal("100"), "a. Terealisasi 90-100%"
-    if progress >= Decimal("80"):
-        return Decimal("80"), "b. Terealisasi 80-89%"
-    if progress >= Decimal("70"):
-        return Decimal("60"), "c. Terealisasi 70-79%"
-    if progress >= Decimal("60"):
-        return Decimal("40"), "d. Terealisasi 60-69%"
-    return Decimal("20"), "e. Terealisasi kurang dari 60%"
-
-
-def _score_budget_absorption(absorption):
-    if absorption is None:
-        return None, "Belum ada data realisasi biaya/serapan biaya perlakuan risiko."
-    absorption = Decimal(absorption)
-    if absorption <= Decimal("100"):
-        return Decimal("80"), "a. Realisasi biaya sama dengan atau lebih rendah dari anggaran"
-    return Decimal("40"), "b. Realisasi biaya lebih tinggi dari anggaran"
-
-
-
-def _aggregate_budget_absorption(report_items):
-    """Hitung serapan biaya agregat termasuk perlakuan no-cost.
-
-    - Anggaran positif: dihitung total actual / total budget.
-    - Anggaran eksplisit 0 dan actual 0: valid sebagai no-cost, tidak over-budget.
-    - Actual > 0 tanpa anggaran positif: over-budget/unbudgeted.
-    - Semua budget None/kosong: dianggap belum ada data dan mengembalikan None.
-    """
-    total_budget = Decimal("0")
-    total_actual = Decimal("0")
-    unbudgeted_actual = Decimal("0")
-    comparable_count = 0
-    declared_budget_count = 0
-
-    for item in report_items:
-        risk_event = getattr(item, "risk_event", None)
-        raw_budget = getattr(risk_event, "biaya_perlakuan_risiko", None)
-        raw_actual = getattr(item, "realisasi_biaya_perlakuan", None)
-
-        if raw_budget not in (None, ""):
-            declared_budget_count += 1
-
-        budget = Decimal(raw_budget) if raw_budget not in (None, "") else Decimal("0")
-        actual = Decimal(raw_actual) if raw_actual not in (None, "") else Decimal("0")
-
-        if budget > 0:
-            total_budget += budget
-            total_actual += actual
-            comparable_count += 1
-        elif actual > 0:
-            unbudgeted_actual += actual
-
-    if total_budget <= 0:
-        if declared_budget_count <= 0:
-            return None
-        return {
-            "total_budget": Decimal("0"),
-            "total_actual": Decimal("0"),
-            "ratio": Decimal("0"),
-            "comparable_count": declared_budget_count,
-            "declared_budget_count": declared_budget_count,
-            "unbudgeted_actual": unbudgeted_actual,
-            "is_over_budget": unbudgeted_actual > 0,
-            "is_zero_cost": True,
-        }
-
-    ratio = total_actual / total_budget * Decimal("100")
-    return {
-        "total_budget": total_budget,
-        "total_actual": total_actual,
-        "ratio": ratio,
-        "comparable_count": comparable_count,
-        "declared_budget_count": declared_budget_count,
-        "unbudgeted_actual": unbudgeted_actual,
-        "is_over_budget": total_actual > total_budget or unbudgeted_actual > 0,
-        "is_zero_cost": False,
-    }
-
-def _weighted_score(raw_score, weight):
-    if raw_score is None:
-        return Decimal("0.00")
-    return quantize_score(Decimal(raw_score) * Decimal(weight) / Decimal("100"))
-
-
-def _indicator(code, raw_score, weight, option, note, reference="Laporan Risiko Bulanan"):
-    return {
-        "kode": code,
-        "nama": INDICATOR_DEFINITIONS[code]["nama"],
-        "bobot": Decimal(weight),
-        "hasil": quantize_score(raw_score) if raw_score is not None else None,
-        "skor": _weighted_score(raw_score, weight),
-        "jawaban": option or "",
-        "dokumen_referensi": reference,
-        "keterangan": note,
-    }
 
 
 def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_count: int):
