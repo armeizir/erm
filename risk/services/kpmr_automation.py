@@ -8,8 +8,6 @@ from .kpmr_aggregation import (
     _aggregate_budget_absorption,
     _aggregate_exposure_for_i1,
     _format_report_scope,
-    _format_report_sum_details,
-    _sum_detail_by_report,
 )
 from .kpmr_i1 import calculate_i1
 from .kpmr_i2 import calculate_i2
@@ -21,7 +19,6 @@ from .kpmr_scoring import (
     _fmt,
     _indicator,
     _score_budget_absorption,
-    _score_output_progress,
     _weighted_score,
     actual_residual_score,
     int_or_none,
@@ -33,11 +30,7 @@ from .kpmr_scoring import (
 )
 from .kpmr_types import KPMRCalculation
 
-from monthly_report.models import (
-    MonthlyRiskReport,
-    MonthlyRiskReportChange,
-    MonthlyRiskReportLossEvent,
-)
+from monthly_report.models import MonthlyRiskReport
 from risk.models import (
     KPMRIndikatorResmi,
     KPMRPeriode,
