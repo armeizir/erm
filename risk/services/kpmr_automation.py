@@ -7,21 +7,16 @@ from django.contrib.auth.models import Group
 from .kpmr_aggregation import (
     _aggregate_budget_absorption,
     _aggregate_exposure_for_i1,
-    _format_report_scope,
 )
+from .kpmr_assembly import build_kpmr_indicators, finalize_kpmr_result
 from .kpmr_i1 import calculate_i1
 from .kpmr_i2 import calculate_i2
 from .kpmr_i3 import calculate_i3
 from .kpmr_i4 import calculate_i4
 from .kpmr_scoring import (
     INDICATOR_DEFINITIONS,
-    SUBINDICATOR_DEFINITIONS,
-    _fmt,
-    _indicator,
-    _score_budget_absorption,
     _weighted_score,
     actual_residual_score,
-    int_or_none,
     month_to_quarter,
     quantize_score,
     quarter_months,
@@ -373,30 +368,19 @@ def calculate_kpmr_for_unit(
         notes=notes,
     )
 
-    indicators = [
-        _indicator("I1", i1_raw, 30, i1_option, i1_note, "III.C / III.D Laporan Risiko Bulanan"),
-        _indicator("I2", i2_raw, 20, i2_option, i2_note, "III.D Laporan Risiko Bulanan"),
-        _indicator("I3", i3_raw, 20, i3_option, i3_note, "III.D Laporan Risiko Bulanan"),
-        _indicator("I4", i4_raw, 30, "", i4_note, "III.A-E Laporan Risiko Bulanan"),
-    ]
-    indicators[-1]["subindikator"] = [
-        {
-            "kode": code,
-            "nama": SUBINDICATOR_DEFINITIONS[code],
-            "bobot": Decimal("25.00"),
-            "hasil": quantize_score(score),
-            "skor": _weighted_score(score, 25),
-            "jawaban": "a" if score >= Decimal("90") else "b",
-            "keterangan": note,
-        }
-        for code, score, note in sub_scores
-    ]
-
-    # I4.jawaban harus selalu merefleksikan empat jawaban subindikator
-    # dalam urutan resmi: IDENTIFIKASI, KUANTIFIKASI, RENCANA, PRIORITISASI.
-    indicators[-1]["jawaban"] = ",".join(
-        subindicator["jawaban"]
-        for subindicator in indicators[-1]["subindikator"]
+    indicators = build_kpmr_indicators(
+        i1_raw=i1_raw,
+        i1_option=i1_option,
+        i1_note=i1_note,
+        i2_raw=i2_raw,
+        i2_option=i2_option,
+        i2_note=i2_note,
+        i3_raw=i3_raw,
+        i3_option=i3_option,
+        i3_note=i3_note,
+        i4_raw=i4_raw,
+        i4_note=i4_note,
+        i4_sub_scores=sub_scores,
     )
 
     indicators = _apply_official_assessment_precedence(
@@ -407,15 +391,12 @@ def calculate_kpmr_for_unit(
         notes=notes,
     )
 
-    score_total = quantize_score(sum(indicator["skor"] for indicator in indicators))
-    return KPMRCalculation(
+    return finalize_kpmr_result(
         year=year,
         quarter=quarter,
         unit=unit,
         report_count=len(report_ids),
         item_count=item_count,
-        score_total=score_total,
-        rating=rating_for_score(score_total),
         indicators=indicators,
         notes=notes,
         month=selected_month,
