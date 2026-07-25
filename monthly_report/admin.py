@@ -1388,12 +1388,19 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             self._monthly_report_web_context(request, report),
         )
 
-    def _send_next_notification(self, request, report, correction_note=""):
+    def _send_next_notification(
+        self,
+        request,
+        report,
+        correction_note="",
+        approved_transition=False,
+    ):
         try:
             sent = send_monthly_report_notification(
                 report,
                 request=request,
                 correction_note=correction_note,
+                approved_transition=approved_transition,
             )
         except ValidationError as exc:
             message = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
@@ -1534,6 +1541,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 request,
                 report,
                 correction_note=correction_note,
+                approved_transition=flow_action == "approve",
             )
         return HttpResponseRedirect(
             reverse(

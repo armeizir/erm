@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import json
 from io import BytesIO
@@ -47,6 +47,7 @@ from .models import (
 )
 from .import_services import analyze_import_batch, apply_import_batch
 from .notifications import send_monthly_report_notification
+from .recipient_services import build_approved_report_recipients
 from .services import duplicate_approved_report_to_next_month, refresh_monthly_report_summary
 
 
@@ -912,7 +913,10 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         report.status = "submitted"
         report.save(update_fields=["status", "reviewed_by", "approved_by"])
-        send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
+        send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+        )
         self.assertEqual(mail.outbox[-1].to, [reviewer.email])
         self.assertEqual(mail.outbox[-1].cc, [])
         self.assertEqual(mail.outbox[-1].bcc, [pairing.email])
@@ -920,7 +924,10 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         report.status = "under_review"
         report.save(update_fields=["status"])
-        send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
+        send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+        )
         self.assertEqual(mail.outbox[-1].to, [approver.email])
         self.assertEqual(mail.outbox[-1].cc, [])
         self.assertEqual(mail.outbox[-1].bcc, [pairing.email])
@@ -928,7 +935,11 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         report.status = "approved"
         report.save(update_fields=["status"])
-        send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
+        send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+            approved_transition=True,
+        )
         self.assertEqual(mail.outbox[-1].to, [pairing.email])
         self.assertEqual(
             mail.outbox[-1].cc,
@@ -953,11 +964,198 @@ class MonthlyRiskReportAdminTests(TestCase):
         report.status = "approved"
         report.save(update_fields=["status"])
 
-        send_monthly_report_notification(report, base_url="https://erm.plnbatam.com")
+        send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+            approved_transition=True,
+        )
 
         self.assertEqual(mail.outbox[-1].to, [pairing.email])
         self.assertEqual(mail.outbox[-1].cc, [])
         self.assertEqual(mail.outbox[-1].bcc, [])
+
+    def test_approved_recipient_resolution_filters_assignments_and_invalid_emails(self):
+        User = get_user_model()
+        report = self._report("APPROVED RECIPIENT FILTERS")
+        pairing = self._assign_pairing_officer(
+            report, username="filter.pairing", email="Pairing@Example.com"
+        )
+        today = timezone.localdate()
+        root = OrganizationUnit.objects.create(code="FILTER-ROOT", name="Root")
+        expired_level = OrganizationUnit.objects.create(
+            code="FILTER-EXPIRED", name="Expired", parent=root
+        )
+        future_level = OrganizationUnit.objects.create(
+            code="FILTER-FUTURE", name="Future", parent=expired_level
+        )
+        inactive_level = OrganizationUnit.objects.create(
+            code="FILTER-INACTIVE", name="Inactive", parent=future_level
+        )
+        current = OrganizationUnit.objects.create(
+            code="FILTER-CURRENT", name="Current", parent=inactive_level
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=pairing, organization_unit=current
+        )
+        ordinary = User.objects.create_user(
+            username="filter.member", email="member@example.com"
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=ordinary, organization_unit=current, utama=False
+        )
+        blank_head = User.objects.create_user(username="filter.blank", email="")
+        OrganizationUnitUserAssignment.objects.create(
+            user=blank_head,
+            organization_unit=current,
+            is_unit_head=True,
+            utama=False,
+        )
+        inactive_head = User.objects.create_user(
+            username="filter.inactive", email="inactive@example.com"
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=inactive_head,
+            organization_unit=inactive_level,
+            is_unit_head=True,
+            utama=False,
+            aktif=False,
+        )
+        future_head = User.objects.create_user(
+            username="filter.future", email="future@example.com"
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=future_head,
+            organization_unit=future_level,
+            is_unit_head=True,
+            utama=False,
+            tanggal_mulai=today + timedelta(days=1),
+        )
+        expired_head = User.objects.create_user(
+            username="filter.expired", email="expired@example.com"
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=expired_head,
+            organization_unit=expired_level,
+            is_unit_head=True,
+            utama=False,
+            tanggal_mulai=today - timedelta(days=2),
+            tanggal_selesai=today - timedelta(days=1),
+        )
+        invalid_head = User.objects.create_user(
+            username="filter.invalid", email="bukan-email"
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=invalid_head,
+            organization_unit=root,
+            is_unit_head=True,
+            utama=False,
+        )
+
+        recipients = build_approved_report_recipients(report, on_date=today)
+
+        self.assertEqual(recipients.to, [pairing.email])
+        self.assertEqual(recipients.cc, [])
+        excluded = " ".join(recipients.excluded)
+        self.assertIn("filter.blank", excluded)
+        self.assertIn("filter.invalid", excluded)
+        for email in (
+            ordinary.email,
+            inactive_head.email,
+            future_head.email,
+            expired_head.email,
+        ):
+            self.assertNotIn(email, recipients.cc)
+
+    def test_approved_recipient_resolution_deduplicates_case_insensitively_and_excludes_to(self):
+        User = get_user_model()
+        report = self._report("APPROVED RECIPIENT DEDUP")
+        pairing = self._assign_pairing_officer(
+            report, username="dedup.pairing", email="same@example.com"
+        )
+        root = OrganizationUnit.objects.create(code="DEDUP-ROOT", name="Root")
+        child = OrganizationUnit.objects.create(
+            code="DEDUP-CHILD", name="Child", parent=root
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=pairing,
+            organization_unit=child,
+            is_unit_head=True,
+        )
+        root_head = User.objects.create_user(
+            username="dedup.root", email="SAME@EXAMPLE.COM"
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=root_head,
+            organization_unit=root,
+            is_unit_head=True,
+            utama=False,
+        )
+
+        recipients = build_approved_report_recipients(report)
+
+        self.assertEqual(recipients.to, ["same@example.com"])
+        self.assertEqual(recipients.cc, [])
+        self.assertEqual(len(recipients.excluded), 2)
+
+    def test_approved_recipient_resolution_skips_headless_unit_and_handles_cycle(self):
+        User = get_user_model()
+        report = self._report("APPROVED RECIPIENT CYCLE")
+        pairing = self._assign_pairing_officer(
+            report, username="cycle.pairing", email="cycle.pairing@example.com"
+        )
+        first = OrganizationUnit.objects.create(code="CYCLE-A", name="A")
+        second = OrganizationUnit.objects.create(code="CYCLE-B", name="B", parent=first)
+        OrganizationUnit.objects.filter(pk=first.pk).update(parent=second)
+        first.refresh_from_db()
+        head = User.objects.create_user(
+            username="cycle.head", email="cycle.head@example.com"
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=pairing, organization_unit=first
+        )
+        OrganizationUnitUserAssignment.objects.create(
+            user=head,
+            organization_unit=second,
+            is_unit_head=True,
+            utama=False,
+        )
+
+        recipients = build_approved_report_recipients(report)
+
+        self.assertEqual(recipients.to, [pairing.email])
+        self.assertEqual(recipients.cc, [head.email])
+
+    def test_approved_notification_is_transition_only_and_keeps_subject_body(self):
+        app_setting = AppSetting.get_solo()
+        app_setting.monthly_report_notification_test_email = ""
+        app_setting.save(update_fields=["monthly_report_notification_test_email"])
+        report = self._report("APPROVED IDEMPOTENT")
+        pairing = self._assign_pairing_officer(
+            report, username="idempotent.pairing", email="idempotent@example.com"
+        )
+        report.status = "approved"
+        report.save(update_fields=["status"])
+
+        sent = send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+            approved_transition=True,
+        )
+        report.save()
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [pairing.email])
+        self.assertIn("Laporan Risiko Bulanan Telah Disetujui", mail.outbox[0].subject)
+        self.assertIn("telah disetujui", mail.outbox[0].body)
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Notifikasi Approved hanya dikirim saat transisi status menjadi Approved.",
+        ):
+            send_monthly_report_notification(
+                report, base_url="https://erm.plnbatam.com"
+            )
+        self.assertEqual(len(mail.outbox), 1)
 
     def test_risk_item_autocomplete_is_limited_by_selected_reassessment(self):
         report_infra = self._report("INFRA")
