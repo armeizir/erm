@@ -136,6 +136,20 @@ class OrganizationAssignmentDashboardTests(TestCase):
         )
         return section["items"]
 
+    def _master_organization_sidebar_items(self, response):
+        sections = response.context["sidebar_sections"]
+        support = next(
+            section
+            for section in sections
+            if section["level"] == "Support Modules"
+        )
+        group = next(
+            group
+            for group in support["groups"]
+            if group["title"] == "Master Organisasi"
+        )
+        return group["items"]
+
     def test_staff_with_permission_sees_ordered_assignment_menu_and_can_open_it(self):
         self._grant_view_permission(self.staff)
         self.client.force_login(self.staff)
@@ -154,6 +168,14 @@ class OrganizationAssignmentDashboardTests(TestCase):
             labels.index("Penugasan User"),
             labels.index("Organization Unit") + 1,
         )
+        sidebar_items = self._master_organization_sidebar_items(response)
+        sidebar_labels = [item["label"] for item in sidebar_items]
+        self.assertEqual(sidebar_labels.count("Penugasan User"), 1)
+        self.assertEqual(
+            sidebar_labels.index("Penugasan User"),
+            sidebar_labels.index("Organization Unit") + 1,
+        )
+        self.assertEqual(sidebar_items[-1]["url"], self.assignment_url)
         self.assertContains(response, "Master Organisasi")
         self.assertContains(response, "Penugasan User")
 
@@ -178,6 +200,11 @@ class OrganizationAssignmentDashboardTests(TestCase):
         items = self._master_organization_items(response)
         labels = [item["label"] for item in items]
         self.assertEqual(labels.count("Penugasan User"), 1)
+        sidebar_labels = [
+            item["label"]
+            for item in self._master_organization_sidebar_items(response)
+        ]
+        self.assertEqual(sidebar_labels.count("Penugasan User"), 1)
         self.assertEqual(
             labels,
             [

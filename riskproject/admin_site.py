@@ -340,6 +340,13 @@ class RiskAdminSite(AdminSite):
                             item("Directorate", reverse("risk_admin:masterdata_directorate_changelist")),
                             item("Division", reverse("risk_admin:masterdata_division_changelist")),
                             item("Organization Unit", reverse("risk_admin:masterdata_organizationunit_changelist")),
+                            item(
+                                "Penugasan User",
+                                reverse(
+                                    "risk_admin:"
+                                    "masterdata_organizationunituserassignment_changelist"
+                                ),
+                            ),
                         ],
                     },
                     {
