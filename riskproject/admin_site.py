@@ -652,6 +652,13 @@ class RiskAdminSite(AdminSite):
                         "label": "Organization Unit",
                         "url": reverse("risk_admin:masterdata_organizationunit_changelist"),
                     },
+                    {
+                        "label": "Penugasan User",
+                        "url": reverse(
+                            "risk_admin:"
+                            "masterdata_organizationunituserassignment_changelist"
+                        ),
+                    },
                 ],
             },
             {
