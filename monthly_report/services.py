@@ -4,7 +4,7 @@ from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db import transaction
 from django.utils import timezone
 
@@ -219,22 +219,48 @@ STRUCTURE_ITEM_FIELDS = (
 )
 
 
-def previous_report_with_structure(report):
+def structure_reference_reports(report):
     return (
         MonthlyRiskReport.objects.filter(
             reassessment=report.reassessment,
-            periode__tanggal_mulai__lt=report.periode.tanggal_mulai,
+            reassessment__unit_bisnis=report.reassessment.unit_bisnis,
             items__isnull=False,
         )
+        .exclude(pk=report.pk)
         .select_related("periode")
         .annotate(structure_item_count=Count("items", distinct=True))
+        .annotate(
+            reference_priority=Case(
+                When(status="approved", then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by(
+            "reference_priority",
+            "-periode__tanggal_mulai",
+            "-structure_item_count",
+            "-pk",
+        )
+    )
+
+
+def recommended_structure_reference(report):
+    return structure_reference_reports(report).first()
+
+
+def previous_report_with_structure(report):
+    """Compatibility helper for callers that still need an earlier report."""
+    return (
+        structure_reference_reports(report)
+        .filter(periode__tanggal_mulai__lt=report.periode.tanggal_mulai)
         .order_by("-periode__tanggal_mulai", "-pk")
         .first()
     )
 
 
 @transaction.atomic
-def initialize_monthly_report_structure_from_previous(report):
+def initialize_monthly_report_structure_from_reference(report, reference_report):
     """Copy only stable item links/baselines; all monthly realization stays empty."""
     target = (
         MonthlyRiskReport.objects.select_for_update()
@@ -247,14 +273,25 @@ def initialize_monthly_report_structure_from_previous(report):
         )
     if target.items.exists():
         raise ValidationError("Laporan target sudah memiliki item risiko.")
-    source = previous_report_with_structure(target)
-    if source is None:
+    reference_id = getattr(reference_report, "pk", reference_report)
+    valid_reference_id = (
+        structure_reference_reports(target)
+        .filter(pk=reference_id)
+        .values_list("pk", flat=True)
+        .first()
+    )
+    if valid_reference_id is None:
         raise ValidationError(
-            "Tidak ada laporan bulan sebelumnya dengan struktur risiko. "
-            "Buat struktur dari Profil Risiko/Reassessment."
+            "Laporan referensi tidak valid, tidak memiliki struktur, atau berada "
+            "di luar Profil Risiko/BID yang sama."
         )
+    source = (
+        MonthlyRiskReport.objects.select_for_update()
+        .select_related("periode")
+        .get(pk=valid_reference_id)
+    )
 
-    source_items = list(source.items.order_by("pk"))
+    source_items = list(source.items.select_for_update().order_by("pk"))
     for source_item in source_items:
         values = {
             field_name: getattr(source_item, field_name)
@@ -277,6 +314,18 @@ def initialize_monthly_report_structure_from_previous(report):
     )
     refresh_monthly_report_summary(target)
     return source, len(source_items)
+
+
+@transaction.atomic
+def initialize_monthly_report_structure_from_previous(report):
+    """Backward-compatible wrapper; new UI uses an explicitly selected reference."""
+    source = previous_report_with_structure(report)
+    if source is None:
+        raise ValidationError(
+            "Tidak ada laporan bulan sebelumnya dengan struktur risiko. "
+            "Pilih laporan referensi lain atau buat struktur dari Profil Risiko/Reassessment."
+        )
+    return initialize_monthly_report_structure_from_reference(report, source)
 
 
 @transaction.atomic

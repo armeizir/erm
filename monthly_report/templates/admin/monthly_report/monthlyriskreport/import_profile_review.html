@@ -20,12 +20,12 @@
   {% if batch.blocking_reason %}
     <div class="blocking">
       <strong>{{ batch.blocking_reason }}</strong>
-      {% if previous_report %}
-        <p>Sumber tersedia: {{ previous_report.periode.nama_periode }}
-          ({{ previous_report.structure_item_count }} item). Hanya struktur yang disalin;
-          realisasi, eviden, approval, dan log tidak disalin.</p>
+      {% if recommended_reference %}
+        <p>Struktur final tersedia dari {{ recommended_reference.periode.nama_periode }}
+          ({{ recommended_reference.get_status_display }},
+          {{ recommended_reference.structure_item_count }} item).</p>
       {% else %}
-        <p>Tidak ada laporan bulan sebelumnya yang memiliki struktur. Buat struktur dari Profil Risiko/Reassessment.</p>
+        <p>Tidak ada laporan referensi yang memiliki struktur. Buat struktur dari Profil Risiko/Reassessment.</p>
       {% endif %}
     </div>
   {% endif %}
@@ -33,6 +33,11 @@
     <span class="import-badge">Risiko sumber: {{ summary.source_risks|default:0 }}</span>
     <span class="import-badge">Rencana perlakuan: {{ summary.source_treatments|default:0 }}</span>
     <span class="import-badge">Total sumber: {{ summary.source_total|default:0 }}</span>
+    <span class="import-badge">Target risiko ERM: {{ summary.target_risks|default:0 }}</span>
+    <span class="import-badge green">Risiko cocok: {{ summary.matched_risks|default:0 }}</span>
+    <span class="import-badge">Target tanpa data sumber: {{ summary.target_only|default:0 }}</span>
+    <span class="import-badge yellow">Ambigu: {{ summary.ambiguous|default:0 }}</span>
+    <span class="import-badge red">Tidak valid: {{ summary.invalid|default:0 }}</span>
   </div>
   <div class="import-summary">
     <span class="import-badge green">Hijau: {{ counts.green }}</span>
@@ -74,13 +79,55 @@
         </tbody>
       </table>
     </div>
+    {% if target_only_items %}
+      <div style="padding:12px;background:#eef5fb;margin:12px 0">
+        <strong>Tidak ada data pada file {{ report.periode.nama_periode }}:</strong>
+        <ul>
+          {% for item in target_only_items %}
+            <li>{{ item.risk_event }} — tetap kosong/default dan tidak diubah.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
     <div class="submit-row">
       {% if batch.status == 'review' %}
-        {% if batch.blocking_reason and previous_report %}
-          <button class="button" name="action" value="copy_structure"
-                  onclick="return confirm('Salin struktur dari {{ previous_report.periode.nama_periode }}?');">
-            Salin Struktur dari Bulan Sebelumnya
-          </button>
+        {% if batch.blocking_reason and reference_reports %}
+          <div style="text-align:left;padding:12px 0">
+            <label for="reference-report"><strong>Laporan referensi:</strong></label>
+            <select id="reference-report" name="reference_report">
+              {% for reference in reference_reports %}
+                <option value="{{ reference.pk }}"
+                        data-future="{{ reference.is_future|yesno:'yes,no' }}"
+                        data-month="{{ reference.periode.nama_periode }}">
+                  {{ reference.periode.nama_periode }} — {{ reference.get_status_display }}
+                  — {{ reference.structure_item_count }} item
+                  {% if reference.is_future %}— setelah bulan target{% endif %}
+                  {% if reference.is_recommended %}— Direkomendasikan{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+            {% if recommended_reference.is_future %}
+              <p class="warning" id="future-reference-warning">
+                Laporan referensi <span id="future-reference-month">{{ recommended_reference.periode.nama_periode }}</span>
+                berada setelah {{ report.periode.nama_periode }}. Gunakan pilihan ini hanya untuk
+                backfill berdasarkan struktur final.
+              </p>
+            {% else %}
+              <p class="warning" id="future-reference-warning" hidden>
+                Laporan referensi <span id="future-reference-month"></span>
+                berada setelah {{ report.periode.nama_periode }}. Gunakan pilihan ini hanya untuk
+                backfill berdasarkan struktur final.
+              </p>
+            {% endif %}
+            <label>
+              <input type="checkbox" name="confirm_reference" value="yes">
+              Saya mengonfirmasi struktur referensi yang dipilih.
+            </label>
+            <button class="button" name="action" value="copy_structure"
+                    onclick="return confirm('Salin struktur dari laporan referensi yang dipilih?');">
+              Pilih dan Salin Struktur Referensi
+            </button>
+          </div>
         {% endif %}
         <button class="button" name="action" value="save">Simpan Keputusan</button>
         <button class="default" name="action" value="apply"
@@ -93,4 +140,20 @@
     </div>
   </form>
 </div>
+<script>
+  (() => {
+    const selector = document.getElementById("reference-report");
+    const warning = document.getElementById("future-reference-warning");
+    const month = document.getElementById("future-reference-month");
+    if (!selector || !warning || !month) return;
+    const updateWarning = () => {
+      const option = selector.options[selector.selectedIndex];
+      const isFuture = option && option.dataset.future === "yes";
+      warning.hidden = !isFuture;
+      month.textContent = isFuture ? option.dataset.month : "";
+    };
+    selector.addEventListener("change", updateWarning);
+    updateWarning();
+  })();
+</script>
 {% endblock %}

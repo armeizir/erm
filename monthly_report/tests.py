@@ -58,8 +58,11 @@ from .notifications import send_monthly_report_notification
 from .recipient_services import build_approved_report_recipients
 from .services import (
     duplicate_approved_report_to_next_month,
+    initialize_monthly_report_structure_from_reference,
     initialize_monthly_report_structure_from_previous,
+    recommended_structure_reference,
     refresh_monthly_report_summary,
+    structure_reference_reports,
 )
 
 
@@ -644,6 +647,208 @@ class MonthlyRiskReportAdminTests(TestCase):
             initialize_monthly_report_structure_from_previous(report)
 
         self.assertFalse(report.items.exists())
+
+    def test_approved_future_reference_is_recommended_and_copies_final_structure(self):
+        target = self._report("SPI REFERENCE SELECTOR")
+
+        def period(month, name):
+            return PeriodeLaporan.objects.create(
+                tahun_buku=self.tahun_buku,
+                kode_periode=f"2026-{month:02d}",
+                nama_periode=f"{name} 2026",
+                jenis_periode="bulanan",
+                tanggal_mulai=date(2026, month, 1),
+                tanggal_selesai=date(2026, month, 28),
+            )
+
+        april = period(4, "April")
+        may = period(5, "Mei")
+        june = period(6, "Juni")
+        target.periode = may
+        target.save(update_fields=["periode", "updated_at"])
+        april_report = MonthlyRiskReport.objects.create(
+            tahun_buku=self.tahun_buku,
+            periode=april,
+            reassessment=target.reassessment,
+            prepared_by=self.prepared_by,
+            status="draft",
+        )
+        june_report = MonthlyRiskReport.objects.create(
+            tahun_buku=self.tahun_buku,
+            periode=june,
+            reassessment=target.reassessment,
+            prepared_by=self.prepared_by,
+            reviewed_by=self.admin_user,
+            approved_by=self.admin_user,
+            status="approved",
+            submitted_at=timezone.now(),
+            approved_at=timezone.now(),
+            evidence_url="https://example.com/june-evidence",
+        )
+        risk_events = []
+        for number in range(1, 23):
+            risk_events.append(
+                self._risk_item(
+                    target,
+                    no_item=number,
+                    no_risiko=number,
+                    peristiwa_risiko=f"Risiko SPI {number}",
+                )
+            )
+        for risk_event in risk_events[:15]:
+            MonthlyRiskReportItem.objects.create(
+                report=april_report, risk_event=risk_event
+            )
+        for risk_event in risk_events:
+            MonthlyRiskReportItem.objects.create(
+                report=june_report,
+                risk_event=risk_event,
+                realisasi_nilai_dampak=Decimal("999"),
+                progress_pelaksanaan_percent=Decimal("100"),
+            )
+
+        references = list(structure_reference_reports(target))
+        self.assertEqual([report.pk for report in references], [
+            june_report.pk,
+            april_report.pk,
+        ])
+        self.assertEqual(recommended_structure_reference(target), june_report)
+        self.assertNotIn(target.pk, [report.pk for report in references])
+
+        copied_from, copied_count = initialize_monthly_report_structure_from_reference(
+            target, june_report
+        )
+        self.assertEqual(copied_from, june_report)
+        self.assertEqual(copied_count, 22)
+        self.assertEqual(target.items.count(), 22)
+        self.assertFalse(
+            target.items.filter(realisasi_nilai_dampak__isnull=False).exists()
+        )
+        self.assertFalse(
+            target.items.filter(
+                progress_pelaksanaan_percent__isnull=False
+            ).exists()
+        )
+        target.refresh_from_db()
+        self.assertEqual(target.status, "draft")
+        self.assertIsNone(target.reviewed_by)
+        self.assertIsNone(target.approved_by)
+        self.assertIsNone(target.submitted_at)
+        self.assertIsNone(target.approved_at)
+        self.assertEqual(target.evidence_url, "")
+        self.assertFalse(target.submission_logs.exists())
+
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=target,
+                source_file=self._anchored_spi_workbook(),
+                original_filename="spi_mei_2026.xlsx",
+                file_sha256="f" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            batch.refresh_from_db()
+
+        self.assertEqual(batch.analysis_summary["source_risks"], 15)
+        self.assertEqual(batch.analysis_summary["source_treatments"], 22)
+        self.assertEqual(batch.analysis_summary["source_total"], 37)
+        self.assertEqual(batch.analysis_summary["target_risks"], 22)
+        self.assertEqual(batch.analysis_summary["matched_risks"], 15)
+        self.assertEqual(batch.analysis_summary["target_only"], 7)
+        self.assertEqual(batch.analysis_summary["ambiguous"], 0)
+        self.assertEqual(batch.analysis_summary["invalid"], 0)
+        self.assertEqual(len(batch.analysis_summary["target_only_ids"]), 7)
+        target_only_ids = batch.analysis_summary["target_only_ids"]
+        target_only_timestamps = dict(
+            target.items.filter(pk__in=target_only_ids).values_list(
+                "pk", "updated_at"
+            )
+        )
+
+        apply_import_batch(batch, self.admin_user)
+
+        self.assertEqual(target.items.count(), 22)
+        target.refresh_from_db()
+        self.assertEqual(target.status, "draft")
+        self.assertEqual(
+            dict(
+                target.items.filter(pk__in=target_only_ids).values_list(
+                    "pk", "updated_at"
+                )
+            ),
+            target_only_timestamps,
+        )
+        self.assertFalse(
+            target.items.filter(
+                pk__in=target_only_ids,
+                realisasi_nilai_dampak__isnull=False,
+            ).exists()
+        )
+
+    def test_reference_copy_requires_explicit_confirmation_and_shows_future_warning(self):
+        target = self._report("SPI REFERENCE UI")
+        may = PeriodeLaporan.objects.create(
+            tahun_buku=self.tahun_buku,
+            kode_periode="2026-05-ui",
+            nama_periode="Mei 2026",
+            jenis_periode="bulanan",
+            tanggal_mulai=date(2026, 5, 1),
+            tanggal_selesai=date(2026, 5, 31),
+        )
+        june = PeriodeLaporan.objects.create(
+            tahun_buku=self.tahun_buku,
+            kode_periode="2026-06-ui",
+            nama_periode="Juni 2026",
+            jenis_periode="bulanan",
+            tanggal_mulai=date(2026, 6, 1),
+            tanggal_selesai=date(2026, 6, 30),
+        )
+        target.periode = may
+        target.save(update_fields=["periode", "updated_at"])
+        source = MonthlyRiskReport.objects.create(
+            tahun_buku=self.tahun_buku,
+            periode=june,
+            reassessment=target.reassessment,
+            prepared_by=self.prepared_by,
+            status="approved",
+        )
+        risk_event = self._risk_item(target, no_item=1, no_risiko=1)
+        MonthlyRiskReportItem.objects.create(report=source, risk_event=risk_event)
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=target,
+                source_file=self._anchored_spi_workbook(),
+                original_filename="spi_mei_2026.xlsx",
+                file_sha256="9" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            self.client.force_login(self.admin_user)
+            url = reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreport_import_profile_review",
+                args=[target.pk, batch.pk],
+            )
+            response = self.client.get(url)
+            self.assertContains(response, "Pilih dan Salin Struktur Referensi")
+            self.assertContains(response, "Juni 2026")
+            self.assertContains(response, "Direkomendasikan")
+            self.assertContains(response, "setelah Mei 2026")
+
+            response = self.client.post(
+                url,
+                {"action": "copy_structure", "reference_report": source.pk},
+                follow=True,
+            )
+
+        self.assertContains(
+            response, "Konfirmasi pilihan laporan referensi wajib diberikan"
+        )
+        self.assertFalse(target.items.exists())
 
     def test_parser_version_or_target_change_invalidates_cached_analysis(self):
         report = self._report("SPI CACHE INVALIDATION")
