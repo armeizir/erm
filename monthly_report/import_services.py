@@ -545,6 +545,10 @@ def analyze_import_batch(batch):
         "source_risks": source_risks,
         "source_treatments": source_treatments,
         "source_total": len(entries),
+        "target_risks": batch.report.items.count(),
+        "matched_risks": 0,
+        "target_only": 0,
+        "target_only_ids": [],
         "matched": 0,
         "ambiguous": 0,
         "invalid": 0,
@@ -621,6 +625,17 @@ def analyze_import_batch(batch):
             summary["ambiguous"] += 1
         if level == MonthlyRiskReportImportRow.LEVEL_RED:
             summary["invalid"] += 1
+    matched_risk_ids = {
+        row.matched_report_item_id
+        for row in rows
+        if row.raw_data.get("source_sheet") == "III.A"
+        and row.matched_report_item_id
+    }
+    target_ids = set(batch.report.items.values_list("pk", flat=True))
+    target_only_ids = sorted(target_ids - matched_risk_ids)
+    summary["matched_risks"] = len(matched_risk_ids)
+    summary["target_only"] = len(target_only_ids)
+    summary["target_only_ids"] = target_only_ids
     ai_used, ai_summary = _run_ai_review(batch, rows)
     batch.status = batch.STATUS_REVIEW
     batch.ai_used = ai_used

@@ -56,9 +56,9 @@ from risk.services.kpmr_automation import month_to_quarter
 from .notifications import send_monthly_report_notification
 from .services import (
     duplicate_approved_report_to_next_month,
-    initialize_monthly_report_structure_from_previous,
-    previous_report_with_structure,
+    initialize_monthly_report_structure_from_reference,
     refresh_monthly_report_summary,
+    structure_reference_reports,
 )
 from .import_services import (
     IMPORT_PARSER_VERSION,
@@ -908,8 +908,12 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         if request.method == "POST" and batch.status == batch.STATUS_REVIEW:
             if request.POST.get("action") == "copy_structure":
                 try:
-                    source, copied = initialize_monthly_report_structure_from_previous(
-                        report
+                    if request.POST.get("confirm_reference") != "yes":
+                        raise ValidationError(
+                            "Konfirmasi pilihan laporan referensi wajib diberikan."
+                        )
+                    source, copied = initialize_monthly_report_structure_from_reference(
+                        report, request.POST.get("reference_report")
                     )
                     analyze_import_batch(batch)
                 except ValidationError as exc:
@@ -959,7 +963,23 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         }
         for row in rows:
             row.display_changes = build_display_changes(row)
-        previous_report = previous_report_with_structure(report)
+        reference_reports = list(structure_reference_reports(report))
+        recommended_reference = (
+            reference_reports[0] if reference_reports else None
+        )
+        for reference in reference_reports:
+            reference.is_recommended = (
+                recommended_reference is not None
+                and reference.pk == recommended_reference.pk
+            )
+            reference.is_future = (
+                reference.periode.tanggal_mulai > report.periode.tanggal_mulai
+            )
+        target_only_items = list(
+            report.items.filter(
+                pk__in=batch.analysis_summary.get("target_only_ids", [])
+            ).select_related("risk_event")
+        )
         unresolved = any(
             row.user_decision == row.DECISION_PENDING
             and row.validation_level in {row.LEVEL_YELLOW, row.LEVEL_RED}
@@ -975,7 +995,9 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "rows": rows,
             "counts": counts,
             "summary": batch.analysis_summary,
-            "previous_report": previous_report,
+            "reference_reports": reference_reports,
+            "recommended_reference": recommended_reference,
+            "target_only_items": target_only_items,
             "can_apply": can_apply,
             "cancel_url": reverse(
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change", args=[report.pk]
