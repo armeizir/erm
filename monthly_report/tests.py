@@ -11,6 +11,7 @@ from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from django.utils import timezone
 from openpyxl import Workbook
 
@@ -45,10 +46,21 @@ from .models import (
     MonthlyRiskReportLossEvent,
     MonthlyRiskReportImportBatch,
 )
-from .import_services import analyze_import_batch, apply_import_batch
+from .import_services import (
+    IMPORT_PARSER_VERSION,
+    _match_item,
+    analyze_import_batch,
+    apply_import_batch,
+    batch_analysis_is_current,
+    normalize_treatment_code,
+)
 from .notifications import send_monthly_report_notification
 from .recipient_services import build_approved_report_recipients
-from .services import duplicate_approved_report_to_next_month, refresh_monthly_report_summary
+from .services import (
+    duplicate_approved_report_to_next_month,
+    initialize_monthly_report_structure_from_previous,
+    refresh_monthly_report_summary,
+)
 
 
 class MonthlyRiskReportAdminTests(TestCase):
@@ -244,7 +256,9 @@ class MonthlyRiskReportAdminTests(TestCase):
         iiia = workbook.active
         iiia.title = "III.A"
         iiib = workbook.create_sheet("III.B")
-        iiia.cell(10, 2, "BID BIS-1-a")
+        iiia.cell(9, 1, "Start pengisian")
+        iiib.cell(9, 1, "Start pengisian")
+        iiia.cell(10, 2, 1)
         iiia.cell(10, 3, "Risiko BID BIS")
         iiia.cell(10, 12, "Asumsi dampak Februari")
         iiia.cell(10, 13, 1500000)
@@ -252,6 +266,8 @@ class MonthlyRiskReportAdminTests(TestCase):
         iiia.cell(10, 25, probability)
         iiia.cell(10, 29, 2)
         iiia.cell(10, 57, "Efektif")
+        iiib.cell(10, 2, 1)
+        iiib.cell(10, 3, "Risiko BID BIS")
         iiib.cell(10, 6, "BID BIS-1-a")
         iiib.cell(10, 11, "Realisasi mitigasi")
         iiib.cell(10, 12, "Output mitigasi")
@@ -292,7 +308,7 @@ class MonthlyRiskReportAdminTests(TestCase):
                 uploaded_by=self.admin_user,
             )
             analyze_import_batch(batch)
-            row = batch.rows.get()
+            row = batch.rows.get(source_reference="III.A:10")
             self.assertEqual(row.validation_level, row.LEVEL_GREEN)
             self.assertEqual(row.user_decision, row.DECISION_IMPORT)
             item.refresh_from_db()
@@ -325,13 +341,380 @@ class MonthlyRiskReportAdminTests(TestCase):
                 uploaded_by=self.admin_user,
             )
             analyze_import_batch(batch)
-            row = batch.rows.get()
+            row = batch.rows.get(source_reference="III.A:10")
             self.assertEqual(row.validation_level, row.LEVEL_RED)
             with self.assertRaisesMessage(ValidationError, "belum dikonfirmasi"):
                 apply_import_batch(batch, self.admin_user)
             row.user_decision = row.DECISION_SKIP
             row.save(update_fields=["user_decision"])
             apply_import_batch(batch, self.admin_user)
+
+    def _anchored_spi_workbook(self, risks=15, treatments=22):
+        workbook = Workbook()
+        iiia = workbook.active
+        iiia.title = "III.A"
+        iiib = workbook.create_sheet("III.B")
+        iiia.cell(
+            10,
+            3,
+            "Nama peristiwa risiko harus sama persis dengan nama peristiwa risiko "
+            "yang ada pada tabel profil risiko",
+        )
+        iiia.cell(11, 1, " Start Pengisian ")
+        for offset in range(risks):
+            row = 13 + offset
+            iiia.cell(row, 2, offset + 1)
+            iiia.cell(row, 3, f"Risiko SPI {offset + 1}")
+        iiia.cell(29, 2, "=SUM(B13:B27)")
+        iiia.cell(29, 3, "TOTAL")
+
+        iiib.cell(10, 1, "START PENGISIAN")
+        for offset in range(treatments):
+            row = 11 + offset
+            risk_number = (offset % risks) + 1
+            iiib.cell(row, 2, risk_number)
+            iiib.cell(row, 3, f"Risiko SPI {risk_number}")
+            iiib.cell(row, 6, f"SPI {risk_number}{chr(97 + (offset // risks))}")
+            iiib.cell(row, 11, f"Rencana {offset + 1}")
+        stream = BytesIO()
+        workbook.save(stream)
+        return SimpleUploadedFile(
+            "spi_mei_2026.xlsx",
+            stream.getvalue(),
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+
+    def test_parser_uses_anchor_and_counts_15_risks_plus_22_treatments(self):
+        report = self._report("SPI EMPTY IMPORT")
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=self._anchored_spi_workbook(),
+                original_filename="spi_mei_2026.xlsx",
+                file_sha256="c" * 64,
+                uploaded_by=self.admin_user,
+            )
+
+            analyze_import_batch(batch)
+            batch.refresh_from_db()
+
+        self.assertEqual(batch.parser_version, IMPORT_PARSER_VERSION)
+        self.assertEqual(batch.analysis_summary["source_risks"], 15)
+        self.assertEqual(batch.analysis_summary["source_treatments"], 22)
+        self.assertEqual(batch.analysis_summary["source_total"], 37)
+        self.assertIn("belum memiliki item risiko", batch.blocking_reason)
+        self.assertFalse(batch.rows.exists())
+        self.assertNotIn("III.A:10", batch.ai_summary)
+
+    def test_empty_target_review_is_blocked_and_has_safe_navigation(self):
+        report = self._report("SPI EMPTY REVIEW")
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=self._anchored_spi_workbook(),
+                original_filename="spi_mei_2026.xlsx",
+                file_sha256="1" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            self.client.force_login(self.admin_user)
+            response = self.client.get(
+                reverse(
+                    "risk_admin:"
+                    "monthly_report_monthlyriskreport_import_profile_review",
+                    args=[report.pk, batch.pk],
+                )
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "belum memiliki item risiko")
+        self.assertContains(response, "Risiko sumber: 15")
+        self.assertContains(response, "Rencana perlakuan: 22")
+        self.assertContains(response, "Total sumber: 37")
+        self.assertContains(response, "Konfirmasi dan Import")
+        self.assertContains(response, "disabled aria-disabled")
+        self.assertContains(response, "Kembali ke laporan")
+        self.assertNotContains(response, "'realisasi_nilai_dampak':")
+
+    def test_parser_requires_anchor_and_required_sheets(self):
+        report = self._report("SPI INVALID TEMPLATE")
+        workbook = Workbook()
+        workbook.active.title = "III.A"
+        workbook.create_sheet("III.B")
+        stream = BytesIO()
+        workbook.save(stream)
+        upload = SimpleUploadedFile("no-anchor.xlsx", stream.getvalue())
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=upload,
+                original_filename=upload.name,
+                file_sha256="d" * 64,
+                uploaded_by=self.admin_user,
+            )
+            with self.assertRaisesMessage(
+                ValidationError, "Anchor 'Start pengisian' tidak ditemukan"
+            ):
+                analyze_import_batch(batch)
+
+        workbook = Workbook()
+        workbook.active.title = "III.A"
+        workbook["III.A"].cell(1, 1, "Start pengisian")
+        stream = BytesIO()
+        workbook.save(stream)
+        upload = SimpleUploadedFile("missing-sheet.xlsx", stream.getvalue())
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=upload,
+                original_filename=upload.name,
+                file_sha256="e" * 64,
+                uploaded_by=self.admin_user,
+            )
+            with self.assertRaisesMessage(
+                ValidationError, "sheet III.A dan III.B"
+            ):
+                analyze_import_batch(batch)
+
+    def test_risk_number_prevents_duplicate_names_from_cross_matching(self):
+        report = self._report("SPI DUPLICATE NAMES")
+        risk_five = self._risk_item(
+            report,
+            no_item=5,
+            no_risiko=5,
+            peristiwa_risiko="Tim SPI tidak menerima reminder penugasan HCR OCR",
+        )
+        risk_six = self._risk_item(
+            report,
+            no_item=6,
+            no_risiko=6,
+            peristiwa_risiko="Tim SPI tidak menerima reminder penugasan HCR OCR",
+        )
+        MonthlyRiskReportItem.objects.create(report=report, risk_event=risk_five)
+        item_six = MonthlyRiskReportItem.objects.create(
+            report=report, risk_event=risk_six
+        )
+        entry = {
+            "no_risiko": 6,
+            "normalized_code": "",
+            "cause": "",
+            "risk_event_text": risk_six.peristiwa_risiko,
+        }
+
+        matched, strategy, confidence, candidates = _match_item(report, entry)
+
+        self.assertEqual(matched, item_six)
+        self.assertEqual(strategy, "exact_risk_number")
+        self.assertEqual(confidence, Decimal("100"))
+        self.assertEqual(candidates, [])
+
+    def test_treatment_code_normalization_is_stable(self):
+        keys = {
+            normalize_treatment_code(value)
+            for value in ("SPI-14a", "SPI 14a", "SPI14a", "spi-14A")
+        }
+        self.assertEqual(keys, {"SPI14A"})
+        self.assertNotEqual(
+            normalize_treatment_code("SPI-14a"),
+            normalize_treatment_code("SPI14b"),
+        )
+
+    def test_treatment_matching_uses_parent_number_and_normalized_code(self):
+        report = self._report("SPI TREATMENT MATCH")
+        risk_five = self._risk_item(
+            report, no_item=5, no_risiko=5, no_penyebab_risiko="a"
+        )
+        risk_six = self._risk_item(
+            report, no_item=6, no_risiko=6, no_penyebab_risiko="a"
+        )
+        item_five = MonthlyRiskReportItem.objects.create(
+            report=report, risk_event=risk_five
+        )
+        item_six = MonthlyRiskReportItem.objects.create(
+            report=report, risk_event=risk_six
+        )
+        common = {"cause": "a", "risk_event_text": ""}
+
+        matched_five, method_five, _, _ = _match_item(
+            report,
+            {
+                **common,
+                "no_risiko": 5,
+                "normalized_code": normalize_treatment_code("SPI-5a"),
+            },
+        )
+        matched_six, method_six, _, _ = _match_item(
+            report,
+            {
+                **common,
+                "no_risiko": 6,
+                "normalized_code": normalize_treatment_code("SPI 6a"),
+            },
+        )
+
+        self.assertEqual(matched_five, item_five)
+        self.assertEqual(matched_six, item_six)
+        self.assertEqual(method_five, "exact_risk_number_and_code")
+        self.assertEqual(method_six, "exact_risk_number_and_code")
+
+    def test_duplicate_normalized_name_without_number_is_ambiguous(self):
+        report = self._report("SPI AMBIGUOUS NAME")
+        for number in (11, 12):
+            risk = self._risk_item(
+                report,
+                no_item=number,
+                no_risiko=number,
+                peristiwa_risiko="Ketidaksesuaian perencanaan (PACA)",
+            )
+            MonthlyRiskReportItem.objects.create(report=report, risk_event=risk)
+
+        matched, strategy, _, candidates = _match_item(
+            report,
+            {
+                "no_risiko": None,
+                "normalized_code": "",
+                "cause": "",
+                "risk_event_text": "Ketidaksesuaian perencanaan PACA",
+            },
+        )
+
+        self.assertIsNone(matched)
+        self.assertEqual(strategy, "ambiguous")
+        self.assertEqual(len(candidates), 2)
+
+    def test_empty_report_can_copy_structure_without_monthly_realization_or_logs(self):
+        report = self._report("SPI COPY STRUCTURE")
+        january = PeriodeLaporan.objects.create(
+            tahun_buku=self.tahun_buku,
+            kode_periode="2026-01",
+            nama_periode="Januari 2026",
+            jenis_periode="bulanan",
+            tanggal_mulai=date(2026, 1, 1),
+            tanggal_selesai=date(2026, 1, 31),
+        )
+        source = MonthlyRiskReport.objects.create(
+            tahun_buku=self.tahun_buku,
+            periode=january,
+            reassessment=report.reassessment,
+            prepared_by=self.prepared_by,
+            status="approved",
+            evidence_url="https://example.com/evidence-january",
+        )
+        risk_event = self._risk_item(report, no_item=1, no_risiko=1)
+        source_item = MonthlyRiskReportItem.objects.create(
+            report=source,
+            risk_event=risk_event,
+            km_item=risk_event.km_item,
+            realisasi_nilai_dampak=Decimal("999"),
+            progress_pelaksanaan_percent=Decimal("100"),
+        )
+
+        copied_from, copied_count = (
+            initialize_monthly_report_structure_from_previous(report)
+        )
+        report.refresh_from_db()
+        target_item = report.items.get()
+
+        self.assertEqual(copied_from, source)
+        self.assertEqual(copied_count, 1)
+        self.assertEqual(target_item.risk_event, source_item.risk_event)
+        self.assertEqual(target_item.km_item, source_item.km_item)
+        self.assertIsNone(target_item.realisasi_nilai_dampak)
+        self.assertIsNone(target_item.progress_pelaksanaan_percent)
+        self.assertEqual(report.status, "draft")
+        self.assertEqual(report.evidence_url, "")
+        self.assertFalse(report.submission_logs.exists())
+
+    def test_copy_structure_without_previous_report_fails_safely(self):
+        report = self._report("SPI NO PREVIOUS STRUCTURE")
+
+        with self.assertRaisesMessage(
+            ValidationError, "Tidak ada laporan bulan sebelumnya"
+        ):
+            initialize_monthly_report_structure_from_previous(report)
+
+        self.assertFalse(report.items.exists())
+
+    def test_parser_version_or_target_change_invalidates_cached_analysis(self):
+        report = self._report("SPI CACHE INVALIDATION")
+        risk_event = self._risk_item(report, no_item=1, no_risiko=1)
+        MonthlyRiskReportItem.objects.create(report=report, risk_event=risk_event)
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=self._import_workbook(),
+                original_filename="cache.xlsx",
+                file_sha256="2" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            batch.refresh_from_db()
+            self.assertTrue(batch_analysis_is_current(batch))
+
+            batch.parser_version = IMPORT_PARSER_VERSION - 1
+            batch.save(update_fields=["parser_version"])
+            self.assertFalse(batch_analysis_is_current(batch))
+
+            batch.parser_version = IMPORT_PARSER_VERSION
+            batch.save(update_fields=["parser_version"])
+            another_risk = self._risk_item(report, no_item=2, no_risiko=2)
+            MonthlyRiskReportItem.objects.create(
+                report=report, risk_event=another_risk
+            )
+            self.assertFalse(batch_analysis_is_current(batch))
+
+    def test_apply_rolls_back_all_rows_when_a_critical_save_fails(self):
+        from unittest.mock import patch
+
+        report = self._report("SPI ATOMIC IMPORT")
+        risk_event = self._risk_item(
+            report,
+            no_item=1,
+            no_risiko=1,
+            peristiwa_risiko="Risiko BID BIS",
+        )
+        item = MonthlyRiskReportItem.objects.create(
+            report=report, risk_event=risk_event
+        )
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=self._import_workbook(),
+                original_filename="atomic.xlsx",
+                file_sha256="f" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            original_save = MonthlyRiskReportItem.save
+
+            def fail_on_treatment(instance, *args, **kwargs):
+                if instance.realisasi_rencana_perlakuan:
+                    raise RuntimeError("simulated critical failure")
+                return original_save(instance, *args, **kwargs)
+
+            with patch.object(
+                MonthlyRiskReportItem, "save", new=fail_on_treatment
+            ), self.assertRaisesMessage(RuntimeError, "simulated critical failure"):
+                apply_import_batch(batch, self.admin_user)
+
+        item.refresh_from_db()
+        batch.refresh_from_db()
+        self.assertIsNone(item.realisasi_nilai_dampak)
+        self.assertEqual(batch.status, batch.STATUS_REVIEW)
 
     def test_group_filter_limits_monthly_reports_by_reassessment_group(self):
         report_aga = self._report("BID AGA")

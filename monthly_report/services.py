@@ -4,7 +4,7 @@ from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.db import transaction
 from django.utils import timezone
 
@@ -203,6 +203,80 @@ def duplicate_approved_report_to_next_month(source_report, user):
         note=f"Dibuat dari laporan Approved {source.periode.nama_periode} (ID {source.pk}).",
     )
     return target
+
+
+STRUCTURE_ITEM_FIELDS = (
+    "risk_event_id",
+    "km_item_id",
+    "inherent_skala_dampak_id",
+    "inherent_skala_probabilitas_id",
+    "inherent_level",
+    "residual_skala_dampak_id",
+    "residual_skala_probabilitas_id",
+    "residual_level",
+    "target_residual_level",
+    "contributes_to_corporate",
+)
+
+
+def previous_report_with_structure(report):
+    return (
+        MonthlyRiskReport.objects.filter(
+            reassessment=report.reassessment,
+            periode__tanggal_mulai__lt=report.periode.tanggal_mulai,
+            items__isnull=False,
+        )
+        .select_related("periode")
+        .annotate(structure_item_count=Count("items", distinct=True))
+        .order_by("-periode__tanggal_mulai", "-pk")
+        .first()
+    )
+
+
+@transaction.atomic
+def initialize_monthly_report_structure_from_previous(report):
+    """Copy only stable item links/baselines; all monthly realization stays empty."""
+    target = (
+        MonthlyRiskReport.objects.select_for_update()
+        .select_related("reassessment", "periode")
+        .get(pk=report.pk)
+    )
+    if target.status not in {"draft", "revision"}:
+        raise ValidationError(
+            "Struktur hanya dapat disalin ke laporan Draft atau Revision."
+        )
+    if target.items.exists():
+        raise ValidationError("Laporan target sudah memiliki item risiko.")
+    source = previous_report_with_structure(target)
+    if source is None:
+        raise ValidationError(
+            "Tidak ada laporan bulan sebelumnya dengan struktur risiko. "
+            "Buat struktur dari Profil Risiko/Reassessment."
+        )
+
+    source_items = list(source.items.order_by("pk"))
+    for source_item in source_items:
+        values = {
+            field_name: getattr(source_item, field_name)
+            for field_name in STRUCTURE_ITEM_FIELDS
+        }
+        MonthlyRiskReportItem.objects.create(report=target, **values)
+
+    target.status = "draft"
+    target.submitted_at = None
+    target.approved_at = None
+    target.is_locked = False
+    target.save(
+        update_fields=[
+            "status",
+            "submitted_at",
+            "approved_at",
+            "is_locked",
+            "updated_at",
+        ]
+    )
+    refresh_monthly_report_summary(target)
+    return source, len(source_items)
 
 
 @transaction.atomic
