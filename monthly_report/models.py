@@ -848,16 +848,14 @@ class MonthlyRiskReportImportBatch(TimeStampedModel):
     ai_used = models.BooleanField(default=False)
     ai_summary = models.TextField(blank=True, default="")
     error_message = models.TextField(blank=True, default="")
+    parser_version = models.PositiveSmallIntegerField(default=1)
+    target_fingerprint = models.CharField(max_length=64, blank=True, default="")
+    analysis_summary = models.JSONField(default=dict, blank=True)
+    blocking_reason = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "mr_import_batch"
         ordering = ["-created_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=("report", "file_sha256"),
-                name="uniq_monthly_report_import_file",
-            )
-        ]
 
     def __str__(self):
         return f"{self.report} - {self.original_filename}"

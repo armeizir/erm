@@ -54,8 +54,21 @@ from risk.models import (
 from risk.services.kpmr_automation import calculate_kpmr_for_report
 from risk.services.kpmr_automation import month_to_quarter
 from .notifications import send_monthly_report_notification
-from .services import duplicate_approved_report_to_next_month, refresh_monthly_report_summary
-from .import_services import analyze_import_batch, apply_import_batch, file_sha256
+from .services import (
+    duplicate_approved_report_to_next_month,
+    initialize_monthly_report_structure_from_previous,
+    previous_report_with_structure,
+    refresh_monthly_report_summary,
+)
+from .import_services import (
+    IMPORT_PARSER_VERSION,
+    analyze_import_batch,
+    apply_import_batch,
+    batch_analysis_is_current,
+    build_display_changes,
+    file_sha256,
+    target_item_fingerprint,
+)
 
 
 BULAN_CHOICES = [
@@ -829,9 +842,12 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             source_file = form.cleaned_data["source_file"]
             digest = file_sha256(source_file)
             existing = MonthlyRiskReportImportBatch.objects.filter(
-                report=report, file_sha256=digest
+                report=report,
+                file_sha256=digest,
+                parser_version=IMPORT_PARSER_VERSION,
+                target_fingerprint=target_item_fingerprint(report),
             ).first()
-            if existing:
+            if existing and batch_analysis_is_current(existing):
                 self.message_user(
                     request,
                     "File yang sama sudah pernah diunggah. Menampilkan hasil sebelumnya.",
@@ -848,6 +864,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 source_file=source_file,
                 original_filename=source_file.name,
                 file_sha256=digest,
+                parser_version=IMPORT_PARSER_VERSION,
                 uploaded_by=request.user,
             )
             try:
@@ -889,6 +906,24 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             raise Http404("Batch import tidak ditemukan.")
         rows = list(batch.rows.select_related("matched_report_item__risk_event").order_by("pk"))
         if request.method == "POST" and batch.status == batch.STATUS_REVIEW:
+            if request.POST.get("action") == "copy_structure":
+                try:
+                    source, copied = initialize_monthly_report_structure_from_previous(
+                        report
+                    )
+                    analyze_import_batch(batch)
+                except ValidationError as exc:
+                    self.message_user(
+                        request, "; ".join(exc.messages), level=messages.ERROR
+                    )
+                else:
+                    self.message_user(
+                        request,
+                        f"{copied} struktur item disalin dari "
+                        f"{source.periode.nama_periode}; analisis dijalankan ulang.",
+                        level=messages.SUCCESS,
+                    )
+                return redirect(request.path)
             for row in rows:
                 decision = request.POST.get(f"decision_{row.pk}", row.user_decision)
                 if decision not in {row.DECISION_IMPORT, row.DECISION_SKIP}:
@@ -922,6 +957,15 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             level: sum(row.validation_level == level for row in rows)
             for level in ("green", "yellow", "red")
         }
+        for row in rows:
+            row.display_changes = build_display_changes(row)
+        previous_report = previous_report_with_structure(report)
+        unresolved = any(
+            row.user_decision == row.DECISION_PENDING
+            and row.validation_level in {row.LEVEL_YELLOW, row.LEVEL_RED}
+            for row in rows
+        )
+        can_apply = bool(rows) and not batch.blocking_reason and not unresolved
         context = {
             **self.admin_site.each_context(request),
             "title": "Review Import Laporan Profil Risiko",
@@ -930,6 +974,9 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "batch": batch,
             "rows": rows,
             "counts": counts,
+            "summary": batch.analysis_summary,
+            "previous_report": previous_report,
+            "can_apply": can_apply,
             "cancel_url": reverse(
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change", args=[report.pk]
             ),

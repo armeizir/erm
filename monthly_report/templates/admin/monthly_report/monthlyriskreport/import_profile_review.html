@@ -7,7 +7,8 @@
   .green {background:#d9f2df}.yellow {background:#fff1bd}.red {background:#ffdada}
   .import-table {width:100%; border-collapse:collapse}
   .import-table th,.import-table td {padding:9px; border-bottom:1px solid #ddd; vertical-align:top}
-  .import-table pre {white-space:pre-wrap; max-width:360px; margin:0; font-size:11px}
+  .change-list {margin:0; padding-left:18px}
+  .blocking {padding:14px; background:#fff1f1; border-left:4px solid #ba2121; margin:14px 0}
 </style>
 {% endblock %}
 
@@ -16,6 +17,23 @@
   <h2>{{ report.display_profile_name }} - {{ report.periode.nama_periode }}</h2>
   <p><strong>File:</strong> {{ batch.original_filename }} &nbsp; <strong>Status:</strong> {{ batch.get_status_display }}</p>
   {% if batch.error_message %}<p class="errornote">{{ batch.error_message }}</p>{% endif %}
+  {% if batch.blocking_reason %}
+    <div class="blocking">
+      <strong>{{ batch.blocking_reason }}</strong>
+      {% if previous_report %}
+        <p>Sumber tersedia: {{ previous_report.periode.nama_periode }}
+          ({{ previous_report.structure_item_count }} item). Hanya struktur yang disalin;
+          realisasi, eviden, approval, dan log tidak disalin.</p>
+      {% else %}
+        <p>Tidak ada laporan bulan sebelumnya yang memiliki struktur. Buat struktur dari Profil Risiko/Reassessment.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+  <div class="import-summary">
+    <span class="import-badge">Risiko sumber: {{ summary.source_risks|default:0 }}</span>
+    <span class="import-badge">Rencana perlakuan: {{ summary.source_treatments|default:0 }}</span>
+    <span class="import-badge">Total sumber: {{ summary.source_total|default:0 }}</span>
+  </div>
   <div class="import-summary">
     <span class="import-badge green">Hijau: {{ counts.green }}</span>
     <span class="import-badge yellow">Kuning: {{ counts.yellow }}</span>
@@ -35,7 +53,14 @@
             <td>{{ row.source_reference }}<br><strong>{{ row.risk_code }}</strong><br>{{ row.risk_event_text }}</td>
             <td>{% if row.matched_report_item_id %}{{ row.matched_report_item.risk_event }}{% else %}-{% endif %}</td>
             <td>{% for issue in row.issues %}<div>{{ issue }}</div>{% empty %}-{% endfor %}{% if row.ai_analysis %}<hr>{{ row.ai_analysis }}{% endif %}</td>
-            <td><pre>{{ row.proposed_data }}</pre></td>
+            <td>
+              <ul class="change-list">
+                {% for change in row.display_changes %}
+                  <li><strong>{{ change.label }}:</strong>
+                    {{ change.before }} &rarr; {{ change.after }}</li>
+                {% empty %}<li>Tidak ada field yang berubah.</li>{% endfor %}
+              </ul>
+            </td>
             <td>
               <select name="decision_{{ row.pk }}" {% if batch.status != 'review' %}disabled{% endif %}>
                 <option value="pending" {% if row.user_decision == 'pending' %}selected{% endif %}>Konfirmasi</option>
@@ -51,8 +76,18 @@
     </div>
     <div class="submit-row">
       {% if batch.status == 'review' %}
+        {% if batch.blocking_reason and previous_report %}
+          <button class="button" name="action" value="copy_structure"
+                  onclick="return confirm('Salin struktur dari {{ previous_report.periode.nama_periode }}?');">
+            Salin Struktur dari Bulan Sebelumnya
+          </button>
+        {% endif %}
         <button class="button" name="action" value="save">Simpan Keputusan</button>
-        <button class="default" name="action" value="apply" onclick="return confirm('Import data terpilih ke laporan?');">Konfirmasi dan Import</button>
+        <button class="default" name="action" value="apply"
+                {% if not can_apply %}disabled aria-disabled="true"{% endif %}
+                onclick="return confirm('Import data terpilih ke laporan?');">
+          Konfirmasi dan Import
+        </button>
       {% endif %}
       <a href="{{ cancel_url }}" class="button cancel-link">Kembali ke laporan</a>
     </div>
