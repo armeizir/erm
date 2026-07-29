@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 from risk.models import AppSetting, MasterSkalaDampak, MasterSkalaProbabilitas
 
@@ -36,7 +37,7 @@ IMPORTABLE_FIELDS = (
     "realisasi_threshold_kri",
     "realisasi_threshold_kri_skor",
 )
-IMPORT_PARSER_VERSION = 2
+IMPORT_PARSER_VERSION = 4
 FIELD_LABELS = {
     "realisasi_asumsi_dampak": "Asumsi perhitungan dampak",
     "realisasi_nilai_dampak": "Nilai dampak",
@@ -79,26 +80,160 @@ def _normalize(value):
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", _text(value).lower())).strip()
 
 
+def normalize_header_name(value):
+    text = _text(value).casefold().replace("\n", " ")
+    text = re.sub(r"[./]+", " ", text)
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9%]+", " ", text)).strip()
+
+
+HEADER_ALIASES = {
+    "risk_number": {
+        "no risiko",
+        "nomor risiko",
+        "kode risiko",
+    },
+    "risk_event": {
+        "peristiwa risiko",
+        "nama peristiwa risiko",
+    },
+    "cause_code": {
+        "kode penyebab",
+        "kode penyebab risiko",
+    },
+    "treatment_plan": {
+        "rencana perlakuan",
+        "rencana perlakuan risiko",
+    },
+    "impact_assumption": {
+        "asumsi perhitungan dampak",
+        "asumsi perhitungan dampak kuantitatif penjelasana dampak kualitatif",
+    },
+    "impact_value": {"nilai dampak"},
+    "impact_scale": {"skala dampak"},
+    "probability_value": {"nilai probabilitas"},
+    "probability_scale": {"skala probabilitas"},
+    "effectiveness": {
+        "efektifitas perlakuan risiko",
+        "efektivitas perlakuan risiko",
+    },
+    "actual_treatment": {"realisasi rencana perlakuan risiko"},
+    "actual_output": {
+        "realisasi output atas masing masing breakdown perlakuan risiko",
+        "realisasi output perlakuan risiko",
+    },
+    "actual_cost": {
+        "realisasi biaya perlakuan risiko rp usd",
+        "realisasi biaya perlakuan risiko",
+    },
+    "actual_pic": {"realisasi pic"},
+    "treatment_status": {"status rencana perlakuan risiko"},
+    "treatment_status_note": {"penjelasan status rencana perlakuan"},
+    "treatment_progress": {"progress pelaksanaan rencana perlakuan"},
+}
+
+
+def _header_key(value):
+    normalized = normalize_header_name(value)
+    for key, aliases in HEADER_ALIASES.items():
+        if normalized in aliases:
+            return key
+    return None
+
+
+def find_header_columns(worksheet, anchor_row):
+    """Map semantic columns from the multi-row header surrounding the anchor."""
+    columns = {}
+    header_rows = set()
+    start = max(1, anchor_row - 10)
+    end = min(worksheet.max_row, anchor_row + 5)
+    for row in worksheet.iter_rows(min_row=start, max_row=end):
+        for cell in row:
+            key = _header_key(cell.value)
+            if key and key not in columns:
+                columns[key] = cell.column - 1
+                header_rows.add(cell.row)
+    return columns, sorted(header_rows)
+
+
+def _normalize_business_code(value):
+    text = _text(value).replace("–", "-").replace("—", "-").upper()
+    return re.sub(r"[^A-Z0-9]+", "", text)
+
+
+def normalize_risk_code(value):
+    """Canonical comparison key without discarding meaningful suffixes."""
+    return _normalize_business_code(value)
+
+
+def normalize_cause_code(value):
+    return _normalize_business_code(value)
+
+
 def normalize_treatment_code(value):
-    return re.sub(r"[\s-]+", "", _text(value)).upper()
+    # Backward-compatible public name used by existing imports/tests.
+    return normalize_cause_code(value)
+
+
+def is_malformed_risk_code(value):
+    text = _text(value).replace("–", "-").replace("—", "-")
+    return bool(not text or re.search(r"-\s*-", text))
 
 
 def _positive_integer(value):
     if isinstance(value, bool):
         return None
+    if isinstance(value, str):
+        text = value.strip()
+        match = re.fullmatch(r"0*(\d+)(?:\.0+|\.)?", text)
+        if match:
+            number = int(match.group(1))
+            return number if number > 0 else None
     number = _decimal(value)
     if number is None or number <= 0 or number != number.to_integral_value():
         return None
     return int(number)
 
 
-def find_start_row(worksheet):
-    for row_number, row in enumerate(worksheet.iter_rows(values_only=True), start=1):
-        if any(_text(value).casefold() == "start pengisian" for value in row):
-            return row_number
+def extract_risk_number(value):
+    direct = _positive_integer(value)
+    if direct:
+        return direct
+    text = _text(value)
+    if not text:
+        return None
+    match = re.match(r"^0*(\d+)(?=[.\s-]|$)", text)
+    if not match:
+        match = re.search(r"(?:^|[\s-])0*(\d+)(?=[.\s-]|$)", text)
+    if not match:
+        return None
+    number = int(match.group(1))
+    return number if number > 0 else None
+
+
+def _profile_item_codes(item):
+    unit_name = _text(item.summary.unit_bisnis.name)
+    number = item.no_risiko
+    cause = _text(item.no_penyebab_risiko)
+    values = {
+        item.kode_penyebab_risiko,
+        f"{unit_name}-{number}-{cause}",
+        f"{unit_name} {number} {cause}",
+    }
+    return {normalize_risk_code(value) for value in values if _text(value)}
+
+
+def find_start_anchor(worksheet):
+    for row in worksheet.iter_rows():
+        for cell in row:
+            if _text(cell.value).casefold() == "start pengisian":
+                return cell.row, cell.coordinate
     raise ValidationError(
         f"Anchor 'Start pengisian' tidak ditemukan pada sheet {worksheet.title}."
     )
+
+
+def find_start_row(worksheet):
+    return find_start_anchor(worksheet)[0]
 
 
 def iter_data_rows_after_anchor(worksheet):
@@ -106,6 +241,20 @@ def iter_data_rows_after_anchor(worksheet):
     for row_number, row in enumerate(
         worksheet.iter_rows(min_row=start_row + 1, values_only=True),
         start=start_row + 1,
+    ):
+        yield row_number, list(row)
+
+
+def iter_candidate_rows(worksheet, max_row=None):
+    """The anchor may occupy the first data row, as in the BIS workbook."""
+    start_row = find_start_row(worksheet)
+    for row_number, row in enumerate(
+        worksheet.iter_rows(
+            min_row=start_row,
+            max_row=max_row or worksheet.max_row,
+            values_only=True,
+        ),
+        start=start_row,
     ):
         yield row_number, list(row)
 
@@ -243,170 +392,460 @@ def _json_value(value):
     return value
 
 
-def _parse_workbook(batch):
+def _is_total_or_footer(*values):
+    normalized = " ".join(normalize_header_name(value) for value in values if value)
+    return any(token in normalized.split() for token in ("total", "jumlah", "footer"))
+
+
+def _legacy_layout_available(worksheet, anchor_row):
+    for row in worksheet.iter_rows(
+        min_row=anchor_row,
+        max_row=min(worksheet.max_row, anchor_row + 50),
+        values_only=True,
+    ):
+        if extract_risk_number(row[1] if len(row) > 1 else None) and _text(
+            row[2] if len(row) > 2 else None
+        ):
+            return True
+    return False
+
+
+def _parser_diagnostic(anchor_coordinate, header_rows, columns):
+    return {
+        "anchor": anchor_coordinate,
+        "header_rows": header_rows,
+        "columns": {
+            key: {"index": index + 1, "letter": get_column_letter(index + 1)}
+            for key, index in columns.items()
+        },
+        "candidate_rows": 0,
+        "accepted_rows": 0,
+        "skipped_rows": 0,
+        "skip_reasons": {},
+        "context_reasons": {},
+        "continuation_rows": 0,
+        "skipped": [],
+    }
+
+
+def _record_skip(diagnostic, row_number, reason):
+    diagnostic["skipped_rows"] += 1
+    diagnostic["skip_reasons"][reason] = (
+        diagnostic["skip_reasons"].get(reason, 0) + 1
+    )
+    if len(diagnostic["skipped"]) < 100:
+        diagnostic["skipped"].append({"row": row_number, "reason": reason})
+
+
+def _column_value(row, columns, key, fallback=None):
+    index = columns.get(key, fallback)
+    if index is None or index < 0 or index >= len(row):
+        return None
+    return row[index]
+
+
+def _last_relevant_row(worksheet, column_indexes, start_row):
+    last_row = start_row
+    for row_number in range(start_row, worksheet.max_row + 1):
+        if any(
+            _text(worksheet.cell(row_number, index + 1).value)
+            for index in column_indexes
+            if index is not None
+        ):
+            last_row = row_number
+    return last_row
+
+
+def _parse_workbook(batch, include_diagnostics=False):
     batch.source_file.open("rb")
-    workbook = load_workbook(batch.source_file, data_only=True, read_only=True)
+    workbook = load_workbook(batch.source_file, data_only=True, read_only=False)
     if "III.A" not in workbook.sheetnames or "III.B" not in workbook.sheetnames:
-        raise ValidationError("File harus memiliki sheet III.A dan III.B sesuai template laporan ERM.")
+        raise ValidationError(
+            "File harus memiliki sheet III.A dan III.B sesuai template laporan ERM."
+        )
 
     month = batch.report.periode.tanggal_mulai.month
     quarter = ((month - 1) // 3) + 1
-    # Template historis antar-unit memiliki beberapa pergeseran kolom. Kandidat
-    # dipilih per baris berdasarkan pasangan skala yang benar-benar dikenali.
     iiia_schemas = (
-        (11 + quarter, 15 + quarter, 23 + quarter, 27 + quarter, 56, 11),  # BIS
-        (13 + quarter, 17 + quarter, 21 + quarter, 25 + quarter, 46, 13),  # umum
-        (13 + quarter, 17 + quarter, 25 + quarter, 29 + quarter, 58, 13),  # RENKIN
-        (11 + quarter, 15 + quarter, 19 + quarter, 23 + quarter, 40, 11),  # legacy
+        (11 + quarter, 15 + quarter, 23 + quarter, 27 + quarter, 56, 11),
+        (13 + quarter, 17 + quarter, 21 + quarter, 25 + quarter, 46, 13),
+        (13 + quarter, 17 + quarter, 25 + quarter, 29 + quarter, 58, 13),
+        (11 + quarter, 15 + quarter, 19 + quarter, 23 + quarter, 40, 11),
     )
     entries = []
-    for row_number, row in iter_data_rows_after_anchor(workbook["III.A"]):
-        if not is_valid_risk_row(row):
-            continue
-        code = row[1]
-        event = row[2] if len(row) > 2 else None
-        no_risiko = _positive_integer(code)
-        def schema_score(schema):
-            _, dampak_scale, _, prob_scale, _, _ = schema
-            return int(bool(len(row) > dampak_scale and _scale_id(MasterSkalaDampak, row[dampak_scale]))) + int(
-                bool(len(row) > prob_scale and _scale_id(MasterSkalaProbabilitas, row[prob_scale]))
+    diagnostics = {}
+
+    iiia = workbook["III.A"]
+    anchor_row, anchor_coordinate = find_start_anchor(iiia)
+    columns, header_rows = find_header_columns(iiia, anchor_row)
+    if not {"risk_number", "risk_event"}.issubset(columns):
+        if _legacy_layout_available(iiia, anchor_row):
+            columns.setdefault("risk_number", 1)
+            columns.setdefault("risk_event", 2)
+        else:
+            raise ValidationError(
+                "Kolom Nomor Risiko dan Peristiwa Risiko tidak ditemukan pada sheet III.A."
             )
-        nilai_dampak, skala_dampak, nilai_prob, skala_prob, efektivitas, asumsi = max(
+    diagnostic = _parser_diagnostic(anchor_coordinate, header_rows, columns)
+    diagnostics["III.A"] = diagnostic
+    iiia_last_row = _last_relevant_row(
+        iiia,
+        [columns["risk_number"], columns["risk_event"]],
+        anchor_row,
+    )
+    for row_number, row in iter_candidate_rows(iiia, iiia_last_row):
+        code = _column_value(row, columns, "risk_number")
+        event = _column_value(row, columns, "risk_event")
+        if row_number in header_rows:
+            diagnostic["candidate_rows"] += 1
+            _record_skip(diagnostic, row_number, "header_row")
+            continue
+        if code in (None, "") and event in (None, ""):
+            diagnostic["candidate_rows"] += 1
+            _record_skip(diagnostic, row_number, "blank_row")
+            continue
+        diagnostic["candidate_rows"] += 1
+        if _is_total_or_footer(code, event):
+            _record_skip(diagnostic, row_number, "total_or_footer")
+            continue
+        if not _text(event):
+            _record_skip(diagnostic, row_number, "missing_risk_event")
+            continue
+        no_risiko = extract_risk_number(code)
+        malformed = is_malformed_risk_code(code)
+
+        def schema_score(schema):
+            _, impact_scale, _, probability_scale, _, _ = schema
+            return int(
+                bool(
+                    len(row) > impact_scale
+                    and _scale_id(MasterSkalaDampak, row[impact_scale])
+                )
+            ) + int(
+                bool(
+                    len(row) > probability_scale
+                    and _scale_id(
+                        MasterSkalaProbabilitas, row[probability_scale]
+                    )
+                )
+            )
+
+        impact, impact_scale, probability, probability_scale, effectiveness, assumption = max(
             iiia_schemas, key=schema_score
         )
-        entries.append({
-            "source_reference": f"III.A:{row_number}",
-            "source_sheet": "III.A",
-            "source_row": row_number,
-            "risk_code": _text(code),
-            "risk_event_text": _text(event),
-            "no_risiko": no_risiko,
-            "cause": "",
-            "normalized_code": "",
-            "raw_data": {"source_sheet": "III.A", "source_row": row_number},
-            "proposed_data": {
-                "realisasi_asumsi_dampak": _safe_import_text(
-                    row[asumsi] if len(row) > asumsi else None
-                ),
-                "realisasi_nilai_dampak": _decimal(row[nilai_dampak])
-                if len(row) > nilai_dampak else None,
-                "realisasi_skala_dampak_id": _scale_id(
-                    MasterSkalaDampak,
-                    row[skala_dampak] if len(row) > skala_dampak else None,
-                ),
-                "realisasi_nilai_probabilitas": _percent(row[nilai_prob])
-                if len(row) > nilai_prob else None,
-                "realisasi_skala_probabilitas_id": _scale_id(
-                    MasterSkalaProbabilitas,
-                    row[skala_prob] if len(row) > skala_prob else None,
-                ),
-                "efektivitas_perlakuan_risiko": _effectiveness(
-                    row[efektivitas] if len(row) > efektivitas else None
-                ),
-            },
-        })
-    if not entries:
+        entries.append(
+            {
+                "source_reference": f"III.A:{row_number}",
+                "source_sheet": "III.A",
+                "source_row": row_number,
+                "risk_code": _text(code),
+                "source_risk_code": _text(code),
+                "source_risk_sequence": no_risiko,
+                "source_risk_event": _text(event),
+                "risk_event_text": _text(event),
+                "no_risiko": no_risiko,
+                "cause": "",
+                "normalized_code": normalize_risk_code(code),
+                "scope_hint": "malformed_code" if malformed else "",
+                "raw_data": {
+                    "source_sheet": "III.A",
+                    "source_row": row_number,
+                    "source_columns": diagnostic["columns"],
+                    "original_code": _text(code),
+                    "sequence_warning": (
+                        "sequence_not_extracted" if no_risiko is None else ""
+                    ),
+                },
+                "proposed_data": {
+                    "realisasi_asumsi_dampak": _safe_import_text(
+                        row[assumption] if len(row) > assumption else None
+                    ),
+                    "realisasi_nilai_dampak": _decimal(row[impact])
+                    if len(row) > impact
+                    else None,
+                    "realisasi_skala_dampak_id": _scale_id(
+                        MasterSkalaDampak,
+                        row[impact_scale] if len(row) > impact_scale else None,
+                    ),
+                    "realisasi_nilai_probabilitas": _percent(row[probability])
+                    if len(row) > probability
+                    else None,
+                    "realisasi_skala_probabilitas_id": _scale_id(
+                        MasterSkalaProbabilitas,
+                        row[probability_scale]
+                        if len(row) > probability_scale
+                        else None,
+                    ),
+                    "efektivitas_perlakuan_risiko": _effectiveness(
+                        row[effectiveness]
+                        if len(row) > effectiveness
+                        else None
+                    ),
+                },
+            }
+        )
+        diagnostic["accepted_rows"] += 1
+    if not diagnostic["accepted_rows"]:
         raise ValidationError(
-            "Tidak ada data risiko valid setelah anchor pada sheet III.A."
+            "Tidak ada data risiko valid setelah anchor pada sheet III.A. "
+            f"Alasan: {diagnostic['skip_reasons']}."
         )
 
     progress_col = {1: 30, 2: 31, 3: 32, 4: 33}[quarter] - 1
     threshold_col = 39 + ((month - 1) * 2) - 1
-    treatment_start = len(entries)
-    for row_number, row in iter_data_rows_after_anchor(workbook["III.B"]):
-        if not is_valid_treatment_row(row):
+    iiib = workbook["III.B"]
+    anchor_row, anchor_coordinate = find_start_anchor(iiib)
+    columns, header_rows = find_header_columns(iiib, anchor_row)
+    if not {"risk_number", "risk_event"}.issubset(columns):
+        if _legacy_layout_available(iiib, anchor_row):
+            columns.setdefault("risk_number", 1)
+            columns.setdefault("risk_event", 2)
+            columns.setdefault("cause_code", 5)
+            columns.setdefault("actual_treatment", 10)
+        else:
+            raise ValidationError(
+                "Kolom Nomor Risiko dan Peristiwa Risiko tidak ditemukan pada sheet III.B."
+            )
+    diagnostic = _parser_diagnostic(anchor_coordinate, header_rows, columns)
+    diagnostics["III.B"] = diagnostic
+    iiib_last_row = _last_relevant_row(
+        iiib,
+        [
+            columns.get("risk_number"),
+            columns.get("risk_event"),
+            columns.get("cause_code", 5),
+            columns.get("treatment_plan", 7),
+            columns.get("actual_treatment", 10),
+        ],
+        anchor_row,
+    )
+    last_number = None
+    last_event = ""
+    last_code = ""
+    for row_number, row in iter_candidate_rows(iiib, iiib_last_row):
+        raw_number = _column_value(row, columns, "risk_number")
+        raw_event = _column_value(row, columns, "risk_event")
+        raw_code = _column_value(row, columns, "cause_code", 5)
+        treatment = _column_value(row, columns, "treatment_plan", 7)
+        actual_treatment = _column_value(row, columns, "actual_treatment", 10)
+        if row_number in header_rows:
+            diagnostic["candidate_rows"] += 1
+            _record_skip(diagnostic, row_number, "header_row")
             continue
-        code = (row[5] if len(row) > 5 else None) or (row[1] if len(row) > 1 else None)
-        no_risiko = _positive_integer(row[1] if len(row) > 1 else None)
-        code_number, cause = _risk_identity(code)
-        no_risiko = no_risiko or code_number
-        event = row[2] if len(row) > 2 else None
-        entries.append({
-            "source_reference": f"III.B:{row_number}",
-            "source_sheet": "III.B",
-            "source_row": row_number,
-            "risk_code": _text(code),
-            "risk_event_text": _text(event),
-            "no_risiko": no_risiko,
-            "cause": cause,
-            "normalized_code": normalize_treatment_code(code),
-            "raw_data": {
+        if not any(
+            _text(value)
+            for value in (
+                raw_number,
+                raw_event,
+                raw_code,
+                treatment,
+                actual_treatment,
+            )
+        ):
+            diagnostic["candidate_rows"] += 1
+            _record_skip(diagnostic, row_number, "blank_row")
+            continue
+        diagnostic["candidate_rows"] += 1
+        if _is_total_or_footer(raw_number, raw_event):
+            _record_skip(diagnostic, row_number, "total_or_footer")
+            continue
+        explicit_number = extract_risk_number(raw_number)
+        code_number = extract_risk_number(raw_code)
+        no_risiko = explicit_number or code_number or last_number
+        event = _text(raw_event) or last_event
+        code = _text(raw_code) or last_code or _text(raw_number)
+        continuation = not _text(raw_number) and not _text(raw_event)
+        context_reason = ""
+        if continuation:
+            diagnostic["continuation_rows"] += 1
+            if last_event or last_number:
+                context_reason = "inherited_parent_context"
+            elif raw_code:
+                context_reason = "derived_parent_from_code"
+            else:
+                _record_skip(diagnostic, row_number, "missing_parent_context")
+                continue
+        if not event:
+            # Cause-only rows can still be resolved deterministically against
+            # the canonical target profile during matching.
+            if raw_code:
+                context_reason = "derived_parent_from_code"
+            else:
+                _record_skip(diagnostic, row_number, "missing_parent_context")
+                continue
+        if context_reason:
+            diagnostic["context_reasons"][context_reason] = (
+                diagnostic["context_reasons"].get(context_reason, 0) + 1
+            )
+        if not (
+            _text(treatment) or _text(actual_treatment) or _text(raw_event)
+        ):
+            _record_skip(diagnostic, row_number, "unsupported_layout")
+            continue
+
+        _, cause = _risk_identity(code)
+        entries.append(
+            {
+                "source_reference": f"III.B:{row_number}",
                 "source_sheet": "III.B",
                 "source_row": row_number,
-                "normalized_treatment_code": normalize_treatment_code(code),
-            },
-            "proposed_data": {
-                "realisasi_rencana_perlakuan": _safe_import_text(
-                    row[10] if len(row) > 10 else None
+                "risk_code": _text(code),
+                "source_risk_code": _text(code),
+                "source_risk_sequence": no_risiko,
+                "source_risk_event": event,
+                "risk_event_text": event,
+                "no_risiko": no_risiko,
+                "cause": cause,
+                "normalized_code": normalize_cause_code(code),
+                "scope_hint": (
+                    "malformed_code" if is_malformed_risk_code(code) else ""
                 ),
-                "realisasi_output_perlakuan": _safe_import_text(
-                    row[11] if len(row) > 11 else None
-                ),
-                "realisasi_biaya_perlakuan": _decimal(row[12] if len(row) > 12 else None),
-                "realisasi_pic": _safe_import_text(
-                    row[14] if len(row) > 14 else None
-                ),
-                "status_rencana_perlakuan": _treatment_status(row[27] if len(row) > 27 else None),
-                "penjelasan_status_rencana": _safe_import_text(
-                    row[28] if len(row) > 28 else None
-                ),
-                "progress_pelaksanaan_percent": _percent(row[progress_col])
-                if len(row) > progress_col else None,
-                "realisasi_threshold_kri": _safe_import_text(row[threshold_col])
-                if len(row) > threshold_col else "",
-                "realisasi_threshold_kri_skor": _safe_import_text(
-                    row[threshold_col + 1]
-                )
-                if len(row) > threshold_col + 1 else "",
-            },
-        })
-    if len(entries) == treatment_start:
-        raise ValidationError(
-            "Tidak ada data rencana perlakuan valid setelah anchor pada sheet III.B."
+                "raw_data": {
+                    "source_sheet": "III.B",
+                    "source_row": row_number,
+                    "normalized_treatment_code": normalize_cause_code(code),
+                    "source_columns": diagnostic["columns"],
+                    "parent_context": context_reason,
+                    "continuation_row": continuation,
+                    "original_code": _text(code),
+                },
+                "proposed_data": {
+                    "realisasi_rencana_perlakuan": _safe_import_text(
+                        _column_value(row, columns, "actual_treatment", 10)
+                    ),
+                    "realisasi_output_perlakuan": _safe_import_text(
+                        _column_value(row, columns, "actual_output", 11)
+                    ),
+                    "realisasi_biaya_perlakuan": _decimal(
+                        _column_value(row, columns, "actual_cost", 12)
+                    ),
+                    "realisasi_pic": _safe_import_text(
+                        _column_value(row, columns, "actual_pic", 14)
+                    ),
+                    "status_rencana_perlakuan": _treatment_status(
+                        _column_value(row, columns, "treatment_status", 27)
+                    ),
+                    "penjelasan_status_rencana": _safe_import_text(
+                        _column_value(
+                            row, columns, "treatment_status_note", 28
+                        )
+                    ),
+                    "progress_pelaksanaan_percent": _percent(
+                        _column_value(
+                            row,
+                            columns,
+                            "treatment_progress",
+                            progress_col,
+                        )
+                    ),
+                    "realisasi_threshold_kri": _safe_import_text(
+                        row[threshold_col] if len(row) > threshold_col else ""
+                    ),
+                    "realisasi_threshold_kri_skor": _safe_import_text(
+                        row[threshold_col + 1]
+                        if len(row) > threshold_col + 1
+                        else ""
+                    ),
+                },
+            }
         )
+        diagnostic["accepted_rows"] += 1
+        if explicit_number:
+            last_number = explicit_number
+        elif code_number:
+            last_number = code_number
+        if raw_event:
+            last_event = _text(raw_event)
+        if raw_code:
+            last_code = _text(raw_code)
+    if not diagnostic["accepted_rows"]:
+        raise ValidationError(
+            "Tidak ada data rencana perlakuan valid setelah anchor pada sheet III.B. "
+            f"Alasan: {diagnostic['skip_reasons']}."
+        )
+    if include_diagnostics:
+        return entries, diagnostics
     return entries
 
 
 def _match_item(report, entry):
-    items = list(report.items.select_related("risk_event"))
+    items = list(
+        report.items.select_related(
+            "risk_event", "risk_event__summary__unit_bisnis"
+        )
+    )
     if not items:
         return None, "target_report_empty", Decimal("0"), []
+    if entry.get("scope_hint") == "malformed_code":
+        source_name = _normalize(entry.get("risk_event_text"))
+        likely = [
+            item.pk
+            for item in items
+            if source_name
+            and _normalize(item.risk_event.peristiwa_risiko) == source_name
+        ]
+        return None, "malformed_code", Decimal("0"), likely
+
+    normalized_code = normalize_risk_code(
+        entry.get("risk_code") or entry.get("normalized_code")
+    )
+    if normalized_code:
+        exact_code = [
+            item
+            for item in items
+            if normalized_code in _profile_item_codes(item.risk_event)
+        ]
+        if len(exact_code) == 1:
+            return exact_code[0], "matched_target_profile", Decimal("100"), []
+        if len(exact_code) > 1:
+            return (
+                None,
+                "ambiguous_target_profile",
+                Decimal("0"),
+                [item.pk for item in exact_code],
+            )
+        unit_name = _text(report.reassessment.unit_bisnis.name)
+        unit_key = normalize_risk_code(unit_name)
+        unit_short_key = normalize_risk_code(unit_name.split()[-1]) if unit_name else ""
+        contains_letters = bool(re.search(r"[A-Z]", normalized_code))
+        if (
+            entry.get("source_sheet")
+            and unit_key
+            and contains_letters
+            and not normalized_code.startswith(unit_key)
+            and not (
+                unit_short_key
+                and normalized_code.startswith(unit_short_key)
+            )
+        ):
+            return None, "outside_target_profile", Decimal("0"), []
+
     same_number = [
         item
         for item in items
         if entry["no_risiko"] is not None
         and item.risk_event.no_risiko == entry["no_risiko"]
     ]
-    normalized_code = entry.get("normalized_code")
     if normalized_code:
         exact_code = [
             item
             for item in same_number
-            if normalize_treatment_code(
-                f"SPI{item.risk_event.no_risiko}"
-                f"{item.risk_event.no_penyebab_risiko or ''}"
-            ) == normalized_code
-            or normalize_treatment_code(
+            if normalize_cause_code(
                 f"{item.risk_event.no_risiko}"
                 f"{item.risk_event.no_penyebab_risiko or ''}"
             ) == normalized_code
-            or normalize_treatment_code(item.risk_event.no_penyebab_risiko)
-            == normalized_code
-            or normalize_treatment_code(item.risk_event.no_penyebab_risiko)
-            == normalize_treatment_code(entry["cause"])
+            or normalized_code.endswith(
+                normalize_cause_code(
+                    f"{item.risk_event.no_risiko}"
+                    f"{item.risk_event.no_penyebab_risiko or ''}"
+                )
+            )
         ]
         if len(exact_code) == 1:
             return exact_code[0], "exact_risk_number_and_code", Decimal("100"), []
     if len(same_number) == 1:
         item = same_number[0]
         return item, "exact_risk_number", Decimal("100"), []
-    if len(same_number) > 1 and entry.get("source_sheet") == "III.A":
-        return (
-            same_number[0],
-            "exact_risk_number_primary",
-            Decimal("100"),
-            [item.pk for item in same_number[1:]],
-        )
     source_event = _normalize(entry["risk_event_text"])
     same_name = [
         item
@@ -416,9 +855,17 @@ def _match_item(report, entry):
     ]
     if len(same_name) == 1:
         return same_name[0], "unique_normalized_name", Decimal("85"), []
+    if len(same_number) > 1 and entry.get("source_sheet") == "III.A":
+        return (
+            None,
+            "ambiguous_target_profile",
+            Decimal("0"),
+            [item.pk for item in same_number],
+        )
     if len(same_number) > 1 or len(same_name) > 1:
         candidates = sorted({item.pk for item in same_number + same_name})
         return None, "ambiguous", Decimal("0"), candidates
+
     return None, "unmatched", Decimal("0"), []
 
 
@@ -438,7 +885,22 @@ def _validate_entry(entry, item, method, confidence, candidates):
         issues.append("Realisasi biaya tidak boleh negatif.")
         fatal = True
     if not item:
-        if method == "ambiguous":
+        if method == "outside_target_profile":
+            issues.append(
+                "Baris berada di luar Profil Risiko target dan akan diabaikan."
+            )
+            return MonthlyRiskReportImportRow.LEVEL_GREEN, issues
+        if method == "malformed_code":
+            candidate_text = (
+                ", kandidat target: " + ", ".join(str(value) for value in candidates)
+                if candidates
+                else ""
+            )
+            issues.append(
+                "Kode risiko malformed; perlu konfirmasi manual"
+                f"{candidate_text}."
+            )
+        elif method in {"ambiguous", "ambiguous_target_profile"}:
             issues.append(
                 "Pencocokan ambigu; kandidat target: "
                 + ", ".join(str(value) for value in candidates)
@@ -536,7 +998,9 @@ def analyze_import_batch(batch):
     if batch.report.status not in {"draft", "revision"}:
         raise ValidationError("Import hanya dapat dilakukan pada laporan Draft atau Revision.")
     batch.rows.all().delete()
-    entries = _parse_workbook(batch)
+    entries, parser_diagnostics = _parse_workbook(
+        batch, include_diagnostics=True
+    )
     if not entries:
         raise ValidationError("Tidak ditemukan baris risiko valid pada sheet III.A/III.B.")
     source_risks = sum(entry["source_sheet"] == "III.A" for entry in entries)
@@ -549,8 +1013,15 @@ def analyze_import_batch(batch):
         "matched_risks": 0,
         "target_only": 0,
         "target_only_ids": [],
+        "parser_diagnostics": parser_diagnostics,
         "matched": 0,
         "ambiguous": 0,
+        "outside_target_profile": 0,
+        "malformed": 0,
+        "unmatched": 0,
+        "continuation_rows": parser_diagnostics.get("III.B", {}).get(
+            "continuation_rows", 0
+        ),
         "invalid": 0,
         "skipped": 0,
     }
@@ -612,17 +1083,32 @@ def analyze_import_batch(batch):
                 raw_data={
                     **entry["raw_data"],
                     "parser_version": IMPORT_PARSER_VERSION,
+                    "source_risk_code": entry.get("source_risk_code", ""),
+                    "source_risk_sequence": entry.get("source_risk_sequence"),
+                    "source_risk_event": entry.get("source_risk_event", ""),
                     "normalized_risk_name": _normalize(entry["risk_event_text"]),
                     "ambiguity_candidates": candidates,
                 },
                 proposed_data=proposed,
-                user_decision="import" if level == "green" else "pending",
+                user_decision=(
+                    "skip"
+                    if method == "outside_target_profile"
+                    else "import"
+                    if level == "green"
+                    else "pending"
+                ),
             )
         )
         if item:
             summary["matched"] += 1
-        if method == "ambiguous":
+        if method in {"ambiguous", "ambiguous_target_profile"}:
             summary["ambiguous"] += 1
+        if method == "outside_target_profile":
+            summary["outside_target_profile"] += 1
+        if method == "malformed_code":
+            summary["malformed"] += 1
+        if method == "unmatched":
+            summary["unmatched"] += 1
         if level == MonthlyRiskReportImportRow.LEVEL_RED:
             summary["invalid"] += 1
     matched_risk_ids = {

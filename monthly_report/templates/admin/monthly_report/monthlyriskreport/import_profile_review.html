@@ -30,15 +30,35 @@
     </div>
   {% endif %}
   <div class="import-summary">
+    <span class="import-badge">Candidate Excel III.A: {{ summary.source_risks|default:0 }}</span>
+    <span class="import-badge">Candidate Excel III.B: {{ summary.source_treatments|default:0 }}</span>
     <span class="import-badge">Risiko sumber: {{ summary.source_risks|default:0 }}</span>
     <span class="import-badge">Rencana perlakuan: {{ summary.source_treatments|default:0 }}</span>
     <span class="import-badge">Total sumber: {{ summary.source_total|default:0 }}</span>
-    <span class="import-badge">Target risiko ERM: {{ summary.target_risks|default:0 }}</span>
-    <span class="import-badge green">Risiko cocok: {{ summary.matched_risks|default:0 }}</span>
+    <span class="import-badge">Target Profil Risiko: {{ summary.target_risks|default:0 }}</span>
+    <span class="import-badge green">Cocok target: {{ summary.matched_risks|default:0 }}</span>
+    <span class="import-badge">Di luar profil target: {{ summary.outside_target_profile|default:0 }}</span>
     <span class="import-badge">Target tanpa data sumber: {{ summary.target_only|default:0 }}</span>
     <span class="import-badge yellow">Ambigu: {{ summary.ambiguous|default:0 }}</span>
+    <span class="import-badge red">Malformed: {{ summary.malformed|default:0 }}</span>
+    <span class="import-badge yellow">Unmatched: {{ summary.unmatched|default:0 }}</span>
+    <span class="import-badge">Continuation row: {{ summary.continuation_rows|default:0 }}</span>
     <span class="import-badge red">Tidak valid: {{ summary.invalid|default:0 }}</span>
   </div>
+  {% if summary.parser_diagnostics %}
+    <details style="margin:12px 0">
+      <summary>Diagnostik parser</summary>
+      {% for sheet, diagnostic in summary.parser_diagnostics.items %}
+        <p><strong>{{ sheet }}</strong> — anchor {{ diagnostic.anchor }};
+          kandidat {{ diagnostic.candidate_rows }};
+          diterima {{ diagnostic.accepted_rows }};
+          dilewati {{ diagnostic.skipped_rows }};
+          alasan {{ diagnostic.skip_reasons }};
+          continuation {{ diagnostic.continuation_rows|default:0 }};
+          konteks {{ diagnostic.context_reasons|default:"-" }}.</p>
+      {% endfor %}
+    </details>
+  {% endif %}
   <div class="import-summary">
     <span class="import-badge green">Hijau: {{ counts.green }}</span>
     <span class="import-badge yellow">Kuning: {{ counts.yellow }}</span>
@@ -90,6 +110,19 @@
       </div>
     {% endif %}
     <div class="submit-row">
+      {% if target_is_empty and report.status == "draft" %}
+        <div style="text-align:left;padding:12px;background:#eef5fb;margin-bottom:10px;">
+          <strong>Profil Risiko utama:</strong> {{ profile.judul }}
+          — {{ profile_status }} — {{ profile_item_count }} item
+          {% if profile_status == "Status tidak tersedia" %}
+            <p class="warning">Status Approved/aktif belum tersedia. Verifikasi profil sebelum menyalin.</p>
+          {% endif %}
+          <button class="button" name="action" value="initialize_profile"
+                  onclick="return confirm('Ambil struktur dari Profil Risiko terkait?');">
+            Ambil Struktur dari Profil Risiko
+          </button>
+        </div>
+      {% endif %}
       {% if batch.status == 'review' %}
         {% if batch.blocking_reason and reference_reports %}
           <div style="text-align:left;padding:12px 0">

@@ -329,6 +329,42 @@ def initialize_monthly_report_structure_from_previous(report):
 
 
 @transaction.atomic
+def initialize_monthly_report_structure_from_profile(report):
+    """Initialize an empty draft from its canonical reassessment items."""
+    target = (
+        MonthlyRiskReport.objects.select_for_update()
+        .select_related("reassessment")
+        .get(pk=report.pk)
+    )
+    if target.status != "draft":
+        raise ValidationError(
+            "Struktur dari Profil Risiko hanya dapat diambil untuk laporan Draft."
+        )
+    existing_count = target.items.count()
+    if existing_count:
+        # Idempotent retry: never create duplicates or overwrite monthly values.
+        return target.reassessment, existing_count, 0
+
+    risk_events = list(
+        target.reassessment.item.select_related("km_item").order_by(
+            "no_item", "no_risiko", "pk"
+        )
+    )
+    if not risk_events:
+        raise ValidationError(
+            "Profil Risiko terkait belum memiliki item yang dapat disalin."
+        )
+    for risk_event in risk_events:
+        MonthlyRiskReportItem.objects.create(
+            report=target,
+            risk_event=risk_event,
+            km_item=risk_event.km_item,
+        )
+    refresh_monthly_report_summary(target)
+    return target.reassessment, len(risk_events), len(risk_events)
+
+
+@transaction.atomic
 def generate_monthly_report_from_reassessment(report: MonthlyRiskReport):
     """
     Membuat atau memperbarui item report dari seluruh risk event di reassessment.

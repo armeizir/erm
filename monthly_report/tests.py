@@ -49,15 +49,20 @@ from .models import (
 from .import_services import (
     IMPORT_PARSER_VERSION,
     _match_item,
+    _parse_workbook,
     analyze_import_batch,
     apply_import_batch,
     batch_analysis_is_current,
+    extract_risk_number,
+    normalize_cause_code,
+    normalize_risk_code,
     normalize_treatment_code,
 )
 from .notifications import send_monthly_report_notification
 from .recipient_services import build_approved_report_recipients
 from .services import (
     duplicate_approved_report_to_next_month,
+    initialize_monthly_report_structure_from_profile,
     initialize_monthly_report_structure_from_reference,
     initialize_monthly_report_structure_from_previous,
     recommended_structure_reference,
@@ -389,6 +394,240 @@ class MonthlyRiskReportAdminTests(TestCase):
             ),
         )
 
+    def _bis_header_workbook(self):
+        workbook = Workbook()
+        iiia = workbook.active
+        iiia.title = "III.A"
+        iiia["A4"] = "Data Item"
+        iiia["B4"] = "No. Risiko"
+        iiia["C4"] = "Peristiwa Risiko"
+        iiia["L4"] = "Realisasi Residual Risk"
+        iiia["L5"] = "Asumsi Perhitungan Dampak"
+        iiia.merge_cells("L4:O4")
+        iiia["A11"] = "Start pengisian"
+        iiia["B11"] = "1-A.2-KEU-1"
+        iiia["C11"] = "Risiko BIS Pertama"
+        iiia["B12"] = "BID BIS-02-a"
+        iiia["C12"] = "Risiko BIS Kedua"
+        iiia["B13"] = "TOTAL"
+        iiia["C13"] = "TOTAL RISIKO"
+
+        iiib = workbook.create_sheet("III.B")
+        iiib["A4"] = "Data Item"
+        iiib["B4"] = "Nomor Risiko"
+        iiib["C4"] = "Nama Peristiwa Risiko"
+        iiib["F4"] = "Kode Penyebab"
+        iiib["H4"] = "Rencana Perlakuan"
+        iiib["K4"] = "Realisasi Rencana Perlakuan Risiko"
+        iiib["A10"] = "Start pengisian"
+        iiib["B10"] = "1-A.2-KEU-1"
+        iiib["C10"] = "Risiko BIS Pertama"
+        iiib["F10"] = "BIS-1a"
+        iiib["H10"] = "Mitigasi pertama"
+        iiib.merge_cells("B10:B11")
+        iiib.merge_cells("C10:C11")
+        iiib["F11"] = "BIS-1b"
+        iiib["H11"] = "Mitigasi kedua"
+        iiib["B12"] = "TOTAL"
+        iiib["C12"] = "TOTAL"
+
+        stream = BytesIO()
+        workbook.save(stream)
+        return SimpleUploadedFile(
+            "bis_mei_2026.xlsx",
+            stream.getvalue(),
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+
+    def test_bis_header_layout_parses_codes_merges_and_diagnostics(self):
+        report = self._report("BIS HEADER PARSER")
+        for number, name in (
+            (1, "Risiko BIS Pertama"),
+            (2, "Risiko BIS Kedua"),
+        ):
+            risk_event = self._risk_item(
+                report,
+                no_item=number,
+                no_risiko=number,
+                peristiwa_risiko=name,
+            )
+            MonthlyRiskReportItem.objects.create(
+                report=report, risk_event=risk_event
+            )
+        self.assertEqual(extract_risk_number(1), 1)
+        self.assertEqual(extract_risk_number(1.0), 1)
+        self.assertEqual(extract_risk_number("1."), 1)
+        self.assertEqual(extract_risk_number("01"), 1)
+        self.assertEqual(extract_risk_number("BID BIS-02-a"), 2)
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            upload = self._bis_header_workbook()
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=upload,
+                original_filename=upload.name,
+                file_sha256="b" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            batch.refresh_from_db()
+
+        summary = batch.analysis_summary
+        self.assertEqual(summary["source_risks"], 2)
+        self.assertEqual(summary["source_treatments"], 2)
+        self.assertEqual(summary["source_total"], 4)
+        self.assertEqual(summary["parser_diagnostics"]["III.A"]["anchor"], "A11")
+        self.assertEqual(
+            summary["parser_diagnostics"]["III.A"]["columns"]["risk_number"],
+            {"index": 2, "letter": "B"},
+        )
+        self.assertEqual(
+            summary["parser_diagnostics"]["III.A"]["skip_reasons"],
+            {"total_or_footer": 1},
+        )
+        self.assertEqual(
+            summary["parser_diagnostics"]["III.B"]["accepted_rows"], 2
+        )
+        self.assertEqual(
+            summary["parser_diagnostics"]["III.B"]["skip_reasons"],
+            {"total_or_footer": 1},
+        )
+        self.assertEqual(batch.rows.count(), 4)
+        first_row = batch.rows.order_by("pk").first()
+        self.assertEqual(first_row.raw_data["source_row"], 11)
+        self.assertEqual(
+            first_row.raw_data["source_columns"]["risk_number"]["letter"],
+            "B",
+        )
+
+    def test_bis_scope_uses_17_profile_items_and_audits_continuations(self):
+        report = self._report("BID BIS")
+        for number in range(1, 18):
+            risk_event = self._risk_item(
+                report,
+                no_item=number,
+                no_risiko=number,
+                no_penyebab_risiko="a",
+                peristiwa_risiko=f"Risiko BIS {number}",
+            )
+            MonthlyRiskReportItem.objects.create(
+                report=report, risk_event=risk_event
+            )
+
+        workbook = Workbook()
+        iiia = workbook.active
+        iiia.title = "III.A"
+        iiia["B4"], iiia["C4"] = "Kode Risiko", "Peristiwa Risiko"
+        iiia["A11"] = "Start pengisian"
+        iiia["B11"], iiia["C11"] = "1-A.2-KEU-1", "Risiko KEU"
+        for number in range(1, 18):
+            row = 23 + number
+            iiia.cell(row, 2, f"BID BIS-{number}-a")
+            iiia.cell(row, 3, f"Risiko BIS {number}")
+        iiia["B41"], iiia["C41"] = "BID BIS--e", "Risiko kode salah"
+        iiia["B42"], iiia["C42"] = "TOTAL", "TOTAL"
+
+        iiib = workbook.create_sheet("III.B")
+        iiib["B4"], iiib["C4"] = "No Risiko", "Nama Peristiwa Risiko"
+        iiib["F4"], iiib["H4"] = "Kode Penyebab", "Rencana Perlakuan"
+        iiib["A10"] = "Start pengisian"
+        iiib["B10"], iiib["C10"] = "1-A.2-KEU-1", "Risiko KEU"
+        iiib["F10"], iiib["H10"] = "KEU-1-a", "Mitigasi KEU"
+        for number in range(1, 18):
+            row = 31 + number
+            iiib.cell(row, 2, f"BID BIS-{number}-a")
+            iiib.cell(row, 3, f"Risiko BIS {number}")
+            iiib.cell(row, 6, f"BIS-{number}-a")
+            iiib.cell(row, 8, f"Mitigasi BIS {number}")
+        # Merged parent cells reproduce the continuation layout.
+        iiib.merge_cells("B32:B33")
+        iiib.merge_cells("C32:C33")
+        iiib["F33"], iiib["H33"] = "BIS-1-a", "Mitigasi lanjutan BIS 1"
+
+        stream = BytesIO()
+        workbook.save(stream)
+        payload = stream.getvalue()
+        upload = SimpleUploadedFile("bis-actual-layout.xlsx", payload)
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=upload,
+                original_filename=upload.name,
+                file_sha256="8" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            batch.refresh_from_db()
+            second_upload = SimpleUploadedFile(
+                "bis-actual-layout.xlsx", payload
+            )
+            second_batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=second_upload,
+                original_filename=second_upload.name,
+                file_sha256="9" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(second_batch)
+
+        summary = batch.analysis_summary
+        self.assertEqual(summary["target_risks"], 17)
+        self.assertEqual(summary["matched_risks"], 17)
+        self.assertEqual(summary["outside_target_profile"], 2)
+        self.assertEqual(summary["malformed"], 1)
+        self.assertEqual(summary["continuation_rows"], 1)
+        self.assertEqual(
+            summary["parser_diagnostics"]["III.B"]["context_reasons"],
+            {"inherited_parent_context": 1},
+        )
+        self.assertEqual(
+            batch.rows.filter(
+                match_method="outside_target_profile",
+                user_decision="skip",
+            ).count(),
+            2,
+        )
+        malformed = batch.rows.get(match_method="malformed_code")
+        self.assertEqual(malformed.risk_code, "BID BIS--e")
+        self.assertEqual(malformed.raw_data["source_row"], 41)
+        self.assertEqual(malformed.raw_data["source_risk_code"], "BID BIS--e")
+        self.assertIsNone(malformed.raw_data["source_risk_sequence"])
+        self.assertEqual(report.items.count(), 17)
+        self.assertEqual(second_batch.analysis_summary["matched_risks"], 17)
+
+    def test_missing_required_bis_headers_has_specific_error(self):
+        report = self._report("BIS MISSING HEADER")
+        workbook = Workbook()
+        workbook.active.title = "III.A"
+        workbook["III.A"]["A10"] = "Start pengisian"
+        workbook["III.A"]["D10"] = "BID BIS-1-a"
+        workbook["III.A"]["E10"] = "Risiko tanpa header"
+        workbook.create_sheet("III.B")
+        workbook["III.B"]["A10"] = "Start pengisian"
+        stream = BytesIO()
+        workbook.save(stream)
+        upload = SimpleUploadedFile("missing-bis-header.xlsx", stream.getvalue())
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=upload,
+                original_filename=upload.name,
+                file_sha256="7" * 64,
+                uploaded_by=self.admin_user,
+            )
+            with self.assertRaisesMessage(
+                ValidationError,
+                "Kolom Nomor Risiko dan Peristiwa Risiko tidak ditemukan pada sheet III.A.",
+            ):
+                analyze_import_batch(batch)
+
     def test_parser_uses_anchor_and_counts_15_risks_plus_22_treatments(self):
         report = self._report("SPI EMPTY IMPORT")
         with tempfile.TemporaryDirectory() as media_root, self.settings(
@@ -532,6 +771,18 @@ class MonthlyRiskReportAdminTests(TestCase):
             normalize_treatment_code("SPI14b"),
         )
 
+    def test_canonical_bis_codes_preserve_cause_suffix(self):
+        equivalent = {
+            normalize_risk_code(value)
+            for value in ("BID BIS-1-a", "bid bis 1 a", "BID-BIS-1-A")
+        }
+        self.assertEqual(equivalent, {"BIDBIS1A"})
+        self.assertEqual(normalize_cause_code("BIS - 1 - a"), "BIS1A")
+        self.assertNotEqual(
+            normalize_risk_code("BID BIS-1-a"),
+            normalize_risk_code("BID BIS-1-b"),
+        )
+
     def test_treatment_matching_uses_parent_number_and_normalized_code(self):
         report = self._report("SPI TREATMENT MATCH")
         risk_five = self._risk_item(
@@ -647,6 +898,78 @@ class MonthlyRiskReportAdminTests(TestCase):
             initialize_monthly_report_structure_from_previous(report)
 
         self.assertFalse(report.items.exists())
+
+    def test_profile_initialization_is_primary_idempotent_and_recovers_failed_batch(self):
+        report = self._report("BIS PROFILE INITIALIZATION")
+        for number, name in (
+            (1, "Risiko BIS Pertama"),
+            (2, "Risiko BIS Kedua"),
+        ):
+            self._risk_item(
+                report,
+                no_item=number,
+                no_risiko=number,
+                peristiwa_risiko=name,
+            )
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            upload = self._bis_header_workbook()
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=upload,
+                original_filename=upload.name,
+                file_sha256="6" * 64,
+                uploaded_by=self.admin_user,
+                status=MonthlyRiskReportImportBatch.STATUS_FAILED,
+                error_message="Parser lama gagal.",
+            )
+            self.client.force_login(self.admin_user)
+            upload_url = reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreport_import_profile",
+                args=[report.pk],
+            )
+            review_url = reverse(
+                "risk_admin:"
+                "monthly_report_monthlyriskreport_import_profile_review",
+                args=[report.pk, batch.pk],
+            )
+            upload_response = self.client.get(upload_url)
+            review_response = self.client.get(review_url)
+            self.assertContains(
+                upload_response, "Ambil Struktur dari Profil Risiko"
+            )
+            self.assertContains(
+                review_response, "Ambil Struktur dari Profil Risiko"
+            )
+
+            response = self.client.post(
+                review_url,
+                {"action": "initialize_profile"},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        report.refresh_from_db()
+        batch.refresh_from_db()
+        self.assertEqual(report.status, "draft")
+        self.assertEqual(report.items.count(), 2)
+        self.assertEqual(batch.status, batch.STATUS_REVIEW)
+        self.assertEqual(batch.analysis_summary["source_risks"], 2)
+        self.assertEqual(batch.analysis_summary["source_treatments"], 2)
+        self.assertEqual(batch.rows.count(), 4)
+        self.assertEqual(report.evidence_url, "")
+        self.assertIsNone(report.submitted_at)
+        self.assertIsNone(report.approved_at)
+        self.assertFalse(report.submission_logs.exclude(action="import").exists())
+
+        _, total, created = initialize_monthly_report_structure_from_profile(
+            report
+        )
+        self.assertEqual(total, 2)
+        self.assertEqual(created, 0)
+        self.assertEqual(report.items.count(), 2)
 
     def test_approved_future_reference_is_recommended_and_copies_final_structure(self):
         target = self._report("SPI REFERENCE SELECTOR")
@@ -883,7 +1206,7 @@ class MonthlyRiskReportAdminTests(TestCase):
     def test_apply_rolls_back_all_rows_when_a_critical_save_fails(self):
         from unittest.mock import patch
 
-        report = self._report("SPI ATOMIC IMPORT")
+        report = self._report("BID BIS")
         risk_event = self._risk_item(
             report,
             no_item=1,
