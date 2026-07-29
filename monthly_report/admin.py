@@ -56,6 +56,7 @@ from risk.services.kpmr_automation import month_to_quarter
 from .notifications import send_monthly_report_notification
 from .services import (
     duplicate_approved_report_to_next_month,
+    initialize_monthly_report_structure_from_profile,
     initialize_monthly_report_structure_from_reference,
     refresh_monthly_report_summary,
     structure_reference_reports,
@@ -838,6 +839,26 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
     def import_profile_view(self, request, object_id):
         report = self._import_report(request, object_id)
         form = MonthlyRiskReportImportForm(request.POST or None, request.FILES or None)
+        if (
+            request.method == "POST"
+            and request.POST.get("action") == "initialize_profile"
+        ):
+            try:
+                profile, total, created = (
+                    initialize_monthly_report_structure_from_profile(report)
+                )
+            except ValidationError as exc:
+                self.message_user(
+                    request, "; ".join(exc.messages), level=messages.ERROR
+                )
+            else:
+                self.message_user(
+                    request,
+                    f"Struktur Profil Risiko {profile.judul}: {total} item "
+                    f"tersedia ({created} item dibuat).",
+                    level=messages.SUCCESS,
+                )
+            return redirect(request.path)
         if request.method == "POST" and form.is_valid():
             source_file = form.cleaned_data["source_file"]
             digest = file_sha256(source_file)
@@ -886,6 +907,12 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "opts": self.model._meta,
             "report": report,
             "form": form,
+            "profile": report.reassessment,
+            "profile_item_count": report.reassessment.item.count(),
+            "profile_status": getattr(
+                report.reassessment, "status", "Status tidak tersedia"
+            ),
+            "target_is_empty": not report.items.exists(),
             "batches": report.import_batches.select_related("uploaded_by").order_by("-created_at")[:10],
             "cancel_url": reverse(
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change", args=[report.pk]
@@ -905,6 +932,33 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         if batch is None:
             raise Http404("Batch import tidak ditemukan.")
         rows = list(batch.rows.select_related("matched_report_item__risk_event").order_by("pk"))
+        if (
+            request.method == "POST"
+            and request.POST.get("action") == "initialize_profile"
+        ):
+            try:
+                profile, total, created = (
+                    initialize_monthly_report_structure_from_profile(report)
+                )
+                analyze_import_batch(batch)
+            except ValidationError as exc:
+                self.message_user(
+                    request, "; ".join(exc.messages), level=messages.ERROR
+                )
+            except Exception as exc:
+                self.message_user(
+                    request,
+                    f"Struktur telah diperiksa, tetapi analisis file gagal: {exc}",
+                    level=messages.ERROR,
+                )
+            else:
+                self.message_user(
+                    request,
+                    f"Struktur Profil Risiko {profile.judul}: {total} item "
+                    f"tersedia ({created} item dibuat); analisis dijalankan ulang.",
+                    level=messages.SUCCESS,
+                )
+            return redirect(request.path)
         if request.method == "POST" and batch.status == batch.STATUS_REVIEW:
             if request.POST.get("action") == "copy_structure":
                 try:
@@ -998,6 +1052,12 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "reference_reports": reference_reports,
             "recommended_reference": recommended_reference,
             "target_only_items": target_only_items,
+            "profile": report.reassessment,
+            "profile_item_count": report.reassessment.item.count(),
+            "profile_status": getattr(
+                report.reassessment, "status", "Status tidak tersedia"
+            ),
+            "target_is_empty": not report.items.exists(),
             "can_apply": can_apply,
             "cancel_url": reverse(
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change", args=[report.pk]

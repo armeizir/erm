@@ -5,6 +5,27 @@
 <div id="content-main">
   <h2>{{ report.display_profile_name }} - {{ report.periode.nama_periode }}</h2>
   <div class="module aligned">
+    {% if target_is_empty and report.status == "draft" %}
+      <div style="padding:16px;background:#eef5fb;border-left:4px solid #417690;margin-bottom:18px;">
+        <h3>Ambil Struktur dari Profil Risiko</h3>
+        <p>
+          <strong>Profil:</strong> {{ profile.judul }}<br>
+          <strong>Status:</strong> {{ profile_status }}<br>
+          <strong>Periode berlaku:</strong> {{ profile.tahun }}<br>
+          <strong>Jumlah item:</strong> {{ profile_item_count }}
+        </p>
+        {% if profile_status == "Status tidak tersedia" %}
+          <p class="warning">Status Approved/aktif belum tersedia pada master Profil Risiko. Verifikasi profil sebelum melanjutkan.</p>
+        {% endif %}
+        <form method="post">
+          {% csrf_token %}
+          <button class="button" name="action" value="initialize_profile"
+                  onclick="return confirm('Ambil struktur dari Profil Risiko terkait?');">
+            Ambil Struktur dari Profil Risiko
+          </button>
+        </form>
+      </div>
+    {% endif %}
     <div style="padding:16px; background:#fff8e5; border-left:4px solid #e6a700; margin-bottom:18px;">
       Data belum langsung masuk ke laporan. Sistem akan mencocokkan kode risiko, memvalidasi nilai,
       dan menampilkan hasil analisis untuk dikonfirmasi terlebih dahulu.
