@@ -37,7 +37,7 @@ IMPORTABLE_FIELDS = (
     "realisasi_threshold_kri",
     "realisasi_threshold_kri_skor",
 )
-IMPORT_PARSER_VERSION = 3
+IMPORT_PARSER_VERSION = 4
 FIELD_LABELS = {
     "realisasi_asumsi_dampak": "Asumsi perhitungan dampak",
     "realisasi_nilai_dampak": "Nilai dampak",
@@ -155,8 +155,28 @@ def find_header_columns(worksheet, anchor_row):
     return columns, sorted(header_rows)
 
 
+def _normalize_business_code(value):
+    text = _text(value).replace("–", "-").replace("—", "-").upper()
+    return re.sub(r"[^A-Z0-9]+", "", text)
+
+
+def normalize_risk_code(value):
+    """Canonical comparison key without discarding meaningful suffixes."""
+    return _normalize_business_code(value)
+
+
+def normalize_cause_code(value):
+    return _normalize_business_code(value)
+
+
 def normalize_treatment_code(value):
-    return re.sub(r"[\s-]+", "", _text(value)).upper()
+    # Backward-compatible public name used by existing imports/tests.
+    return normalize_cause_code(value)
+
+
+def is_malformed_risk_code(value):
+    text = _text(value).replace("–", "-").replace("—", "-")
+    return bool(not text or re.search(r"-\s*-", text))
 
 
 def _positive_integer(value):
@@ -188,6 +208,18 @@ def extract_risk_number(value):
         return None
     number = int(match.group(1))
     return number if number > 0 else None
+
+
+def _profile_item_codes(item):
+    unit_name = _text(item.summary.unit_bisnis.name)
+    number = item.no_risiko
+    cause = _text(item.no_penyebab_risiko)
+    values = {
+        item.kode_penyebab_risiko,
+        f"{unit_name}-{number}-{cause}",
+        f"{unit_name} {number} {cause}",
+    }
+    return {normalize_risk_code(value) for value in values if _text(value)}
 
 
 def find_start_anchor(worksheet):
@@ -390,6 +422,8 @@ def _parser_diagnostic(anchor_coordinate, header_rows, columns):
         "accepted_rows": 0,
         "skipped_rows": 0,
         "skip_reasons": {},
+        "context_reasons": {},
+        "continuation_rows": 0,
         "skipped": [],
     }
 
@@ -474,13 +508,11 @@ def _parse_workbook(batch, include_diagnostics=False):
         if _is_total_or_footer(code, event):
             _record_skip(diagnostic, row_number, "total_or_footer")
             continue
-        no_risiko = extract_risk_number(code)
-        if no_risiko is None:
-            _record_skip(diagnostic, row_number, "invalid_risk_number")
-            continue
         if not _text(event):
             _record_skip(diagnostic, row_number, "missing_risk_event")
             continue
+        no_risiko = extract_risk_number(code)
+        malformed = is_malformed_risk_code(code)
 
         def schema_score(schema):
             _, impact_scale, _, probability_scale, _, _ = schema
@@ -507,14 +539,22 @@ def _parse_workbook(batch, include_diagnostics=False):
                 "source_sheet": "III.A",
                 "source_row": row_number,
                 "risk_code": _text(code),
+                "source_risk_code": _text(code),
+                "source_risk_sequence": no_risiko,
+                "source_risk_event": _text(event),
                 "risk_event_text": _text(event),
                 "no_risiko": no_risiko,
                 "cause": "",
-                "normalized_code": "",
+                "normalized_code": normalize_risk_code(code),
+                "scope_hint": "malformed_code" if malformed else "",
                 "raw_data": {
                     "source_sheet": "III.A",
                     "source_row": row_number,
                     "source_columns": diagnostic["columns"],
+                    "original_code": _text(code),
+                    "sequence_warning": (
+                        "sequence_not_extracted" if no_risiko is None else ""
+                    ),
                 },
                 "proposed_data": {
                     "realisasi_asumsi_dampak": _safe_import_text(
@@ -614,15 +654,29 @@ def _parse_workbook(batch, include_diagnostics=False):
         no_risiko = explicit_number or code_number or last_number
         event = _text(raw_event) or last_event
         code = _text(raw_code) or last_code or _text(raw_number)
-        if raw_number not in (None, "") and explicit_number is None:
-            _record_skip(diagnostic, row_number, "invalid_risk_number")
-            continue
-        if no_risiko is None:
-            _record_skip(diagnostic, row_number, "invalid_risk_number")
-            continue
+        continuation = not _text(raw_number) and not _text(raw_event)
+        context_reason = ""
+        if continuation:
+            diagnostic["continuation_rows"] += 1
+            if last_event or last_number:
+                context_reason = "inherited_parent_context"
+            elif raw_code:
+                context_reason = "derived_parent_from_code"
+            else:
+                _record_skip(diagnostic, row_number, "missing_parent_context")
+                continue
         if not event:
-            _record_skip(diagnostic, row_number, "missing_risk_event")
-            continue
+            # Cause-only rows can still be resolved deterministically against
+            # the canonical target profile during matching.
+            if raw_code:
+                context_reason = "derived_parent_from_code"
+            else:
+                _record_skip(diagnostic, row_number, "missing_parent_context")
+                continue
+        if context_reason:
+            diagnostic["context_reasons"][context_reason] = (
+                diagnostic["context_reasons"].get(context_reason, 0) + 1
+            )
         if not (
             _text(treatment) or _text(actual_treatment) or _text(raw_event)
         ):
@@ -636,15 +690,24 @@ def _parse_workbook(batch, include_diagnostics=False):
                 "source_sheet": "III.B",
                 "source_row": row_number,
                 "risk_code": _text(code),
+                "source_risk_code": _text(code),
+                "source_risk_sequence": no_risiko,
+                "source_risk_event": event,
                 "risk_event_text": event,
                 "no_risiko": no_risiko,
                 "cause": cause,
-                "normalized_code": normalize_treatment_code(code),
+                "normalized_code": normalize_cause_code(code),
+                "scope_hint": (
+                    "malformed_code" if is_malformed_risk_code(code) else ""
+                ),
                 "raw_data": {
                     "source_sheet": "III.B",
                     "source_row": row_number,
-                    "normalized_treatment_code": normalize_treatment_code(code),
+                    "normalized_treatment_code": normalize_cause_code(code),
                     "source_columns": diagnostic["columns"],
+                    "parent_context": context_reason,
+                    "continuation_row": continuation,
+                    "original_code": _text(code),
                 },
                 "proposed_data": {
                     "realisasi_rencana_perlakuan": _safe_import_text(
@@ -706,45 +769,83 @@ def _parse_workbook(batch, include_diagnostics=False):
 
 
 def _match_item(report, entry):
-    items = list(report.items.select_related("risk_event"))
+    items = list(
+        report.items.select_related(
+            "risk_event", "risk_event__summary__unit_bisnis"
+        )
+    )
     if not items:
         return None, "target_report_empty", Decimal("0"), []
+    if entry.get("scope_hint") == "malformed_code":
+        source_name = _normalize(entry.get("risk_event_text"))
+        likely = [
+            item.pk
+            for item in items
+            if source_name
+            and _normalize(item.risk_event.peristiwa_risiko) == source_name
+        ]
+        return None, "malformed_code", Decimal("0"), likely
+
+    normalized_code = normalize_risk_code(
+        entry.get("risk_code") or entry.get("normalized_code")
+    )
+    if normalized_code:
+        exact_code = [
+            item
+            for item in items
+            if normalized_code in _profile_item_codes(item.risk_event)
+        ]
+        if len(exact_code) == 1:
+            return exact_code[0], "matched_target_profile", Decimal("100"), []
+        if len(exact_code) > 1:
+            return (
+                None,
+                "ambiguous_target_profile",
+                Decimal("0"),
+                [item.pk for item in exact_code],
+            )
+        unit_name = _text(report.reassessment.unit_bisnis.name)
+        unit_key = normalize_risk_code(unit_name)
+        unit_short_key = normalize_risk_code(unit_name.split()[-1]) if unit_name else ""
+        contains_letters = bool(re.search(r"[A-Z]", normalized_code))
+        if (
+            entry.get("source_sheet")
+            and unit_key
+            and contains_letters
+            and not normalized_code.startswith(unit_key)
+            and not (
+                unit_short_key
+                and normalized_code.startswith(unit_short_key)
+            )
+        ):
+            return None, "outside_target_profile", Decimal("0"), []
+
     same_number = [
         item
         for item in items
         if entry["no_risiko"] is not None
         and item.risk_event.no_risiko == entry["no_risiko"]
     ]
-    normalized_code = entry.get("normalized_code")
     if normalized_code:
         exact_code = [
             item
             for item in same_number
-            if normalize_treatment_code(
-                f"SPI{item.risk_event.no_risiko}"
-                f"{item.risk_event.no_penyebab_risiko or ''}"
-            ) == normalized_code
-            or normalize_treatment_code(
+            if normalize_cause_code(
                 f"{item.risk_event.no_risiko}"
                 f"{item.risk_event.no_penyebab_risiko or ''}"
             ) == normalized_code
-            or normalize_treatment_code(item.risk_event.no_penyebab_risiko)
-            == normalized_code
-            or normalize_treatment_code(item.risk_event.no_penyebab_risiko)
-            == normalize_treatment_code(entry["cause"])
+            or normalized_code.endswith(
+                normalize_cause_code(
+                    f"{item.risk_event.no_risiko}"
+                    f"{item.risk_event.no_penyebab_risiko or ''}"
+                )
+            )
         ]
         if len(exact_code) == 1:
             return exact_code[0], "exact_risk_number_and_code", Decimal("100"), []
     if len(same_number) == 1:
         item = same_number[0]
         return item, "exact_risk_number", Decimal("100"), []
-    if len(same_number) > 1 and entry.get("source_sheet") == "III.A":
-        return (
-            same_number[0],
-            "exact_risk_number_primary",
-            Decimal("100"),
-            [item.pk for item in same_number[1:]],
-        )
     source_event = _normalize(entry["risk_event_text"])
     same_name = [
         item
@@ -754,9 +855,17 @@ def _match_item(report, entry):
     ]
     if len(same_name) == 1:
         return same_name[0], "unique_normalized_name", Decimal("85"), []
+    if len(same_number) > 1 and entry.get("source_sheet") == "III.A":
+        return (
+            None,
+            "ambiguous_target_profile",
+            Decimal("0"),
+            [item.pk for item in same_number],
+        )
     if len(same_number) > 1 or len(same_name) > 1:
         candidates = sorted({item.pk for item in same_number + same_name})
         return None, "ambiguous", Decimal("0"), candidates
+
     return None, "unmatched", Decimal("0"), []
 
 
@@ -776,7 +885,22 @@ def _validate_entry(entry, item, method, confidence, candidates):
         issues.append("Realisasi biaya tidak boleh negatif.")
         fatal = True
     if not item:
-        if method == "ambiguous":
+        if method == "outside_target_profile":
+            issues.append(
+                "Baris berada di luar Profil Risiko target dan akan diabaikan."
+            )
+            return MonthlyRiskReportImportRow.LEVEL_GREEN, issues
+        if method == "malformed_code":
+            candidate_text = (
+                ", kandidat target: " + ", ".join(str(value) for value in candidates)
+                if candidates
+                else ""
+            )
+            issues.append(
+                "Kode risiko malformed; perlu konfirmasi manual"
+                f"{candidate_text}."
+            )
+        elif method in {"ambiguous", "ambiguous_target_profile"}:
             issues.append(
                 "Pencocokan ambigu; kandidat target: "
                 + ", ".join(str(value) for value in candidates)
@@ -892,6 +1016,12 @@ def analyze_import_batch(batch):
         "parser_diagnostics": parser_diagnostics,
         "matched": 0,
         "ambiguous": 0,
+        "outside_target_profile": 0,
+        "malformed": 0,
+        "unmatched": 0,
+        "continuation_rows": parser_diagnostics.get("III.B", {}).get(
+            "continuation_rows", 0
+        ),
         "invalid": 0,
         "skipped": 0,
     }
@@ -953,17 +1083,32 @@ def analyze_import_batch(batch):
                 raw_data={
                     **entry["raw_data"],
                     "parser_version": IMPORT_PARSER_VERSION,
+                    "source_risk_code": entry.get("source_risk_code", ""),
+                    "source_risk_sequence": entry.get("source_risk_sequence"),
+                    "source_risk_event": entry.get("source_risk_event", ""),
                     "normalized_risk_name": _normalize(entry["risk_event_text"]),
                     "ambiguity_candidates": candidates,
                 },
                 proposed_data=proposed,
-                user_decision="import" if level == "green" else "pending",
+                user_decision=(
+                    "skip"
+                    if method == "outside_target_profile"
+                    else "import"
+                    if level == "green"
+                    else "pending"
+                ),
             )
         )
         if item:
             summary["matched"] += 1
-        if method == "ambiguous":
+        if method in {"ambiguous", "ambiguous_target_profile"}:
             summary["ambiguous"] += 1
+        if method == "outside_target_profile":
+            summary["outside_target_profile"] += 1
+        if method == "malformed_code":
+            summary["malformed"] += 1
+        if method == "unmatched":
+            summary["unmatched"] += 1
         if level == MonthlyRiskReportImportRow.LEVEL_RED:
             summary["invalid"] += 1
     matched_risk_ids = {

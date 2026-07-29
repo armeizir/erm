@@ -54,6 +54,8 @@ from .import_services import (
     apply_import_batch,
     batch_analysis_is_current,
     extract_risk_number,
+    normalize_cause_code,
+    normalize_risk_code,
     normalize_treatment_code,
 )
 from .notifications import send_monthly_report_notification
@@ -501,6 +503,103 @@ class MonthlyRiskReportAdminTests(TestCase):
             "B",
         )
 
+    def test_bis_scope_uses_17_profile_items_and_audits_continuations(self):
+        report = self._report("BID BIS")
+        for number in range(1, 18):
+            risk_event = self._risk_item(
+                report,
+                no_item=number,
+                no_risiko=number,
+                no_penyebab_risiko="a",
+                peristiwa_risiko=f"Risiko BIS {number}",
+            )
+            MonthlyRiskReportItem.objects.create(
+                report=report, risk_event=risk_event
+            )
+
+        workbook = Workbook()
+        iiia = workbook.active
+        iiia.title = "III.A"
+        iiia["B4"], iiia["C4"] = "Kode Risiko", "Peristiwa Risiko"
+        iiia["A11"] = "Start pengisian"
+        iiia["B11"], iiia["C11"] = "1-A.2-KEU-1", "Risiko KEU"
+        for number in range(1, 18):
+            row = 23 + number
+            iiia.cell(row, 2, f"BID BIS-{number}-a")
+            iiia.cell(row, 3, f"Risiko BIS {number}")
+        iiia["B41"], iiia["C41"] = "BID BIS--e", "Risiko kode salah"
+        iiia["B42"], iiia["C42"] = "TOTAL", "TOTAL"
+
+        iiib = workbook.create_sheet("III.B")
+        iiib["B4"], iiib["C4"] = "No Risiko", "Nama Peristiwa Risiko"
+        iiib["F4"], iiib["H4"] = "Kode Penyebab", "Rencana Perlakuan"
+        iiib["A10"] = "Start pengisian"
+        iiib["B10"], iiib["C10"] = "1-A.2-KEU-1", "Risiko KEU"
+        iiib["F10"], iiib["H10"] = "KEU-1-a", "Mitigasi KEU"
+        for number in range(1, 18):
+            row = 31 + number
+            iiib.cell(row, 2, f"BID BIS-{number}-a")
+            iiib.cell(row, 3, f"Risiko BIS {number}")
+            iiib.cell(row, 6, f"BIS-{number}-a")
+            iiib.cell(row, 8, f"Mitigasi BIS {number}")
+        # Merged parent cells reproduce the continuation layout.
+        iiib.merge_cells("B32:B33")
+        iiib.merge_cells("C32:C33")
+        iiib["F33"], iiib["H33"] = "BIS-1-a", "Mitigasi lanjutan BIS 1"
+
+        stream = BytesIO()
+        workbook.save(stream)
+        payload = stream.getvalue()
+        upload = SimpleUploadedFile("bis-actual-layout.xlsx", payload)
+        with tempfile.TemporaryDirectory() as media_root, self.settings(
+            MEDIA_ROOT=media_root
+        ):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=upload,
+                original_filename=upload.name,
+                file_sha256="8" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            batch.refresh_from_db()
+            second_upload = SimpleUploadedFile(
+                "bis-actual-layout.xlsx", payload
+            )
+            second_batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=second_upload,
+                original_filename=second_upload.name,
+                file_sha256="9" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(second_batch)
+
+        summary = batch.analysis_summary
+        self.assertEqual(summary["target_risks"], 17)
+        self.assertEqual(summary["matched_risks"], 17)
+        self.assertEqual(summary["outside_target_profile"], 2)
+        self.assertEqual(summary["malformed"], 1)
+        self.assertEqual(summary["continuation_rows"], 1)
+        self.assertEqual(
+            summary["parser_diagnostics"]["III.B"]["context_reasons"],
+            {"inherited_parent_context": 1},
+        )
+        self.assertEqual(
+            batch.rows.filter(
+                match_method="outside_target_profile",
+                user_decision="skip",
+            ).count(),
+            2,
+        )
+        malformed = batch.rows.get(match_method="malformed_code")
+        self.assertEqual(malformed.risk_code, "BID BIS--e")
+        self.assertEqual(malformed.raw_data["source_row"], 41)
+        self.assertEqual(malformed.raw_data["source_risk_code"], "BID BIS--e")
+        self.assertIsNone(malformed.raw_data["source_risk_sequence"])
+        self.assertEqual(report.items.count(), 17)
+        self.assertEqual(second_batch.analysis_summary["matched_risks"], 17)
+
     def test_missing_required_bis_headers_has_specific_error(self):
         report = self._report("BIS MISSING HEADER")
         workbook = Workbook()
@@ -670,6 +769,18 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertNotEqual(
             normalize_treatment_code("SPI-14a"),
             normalize_treatment_code("SPI14b"),
+        )
+
+    def test_canonical_bis_codes_preserve_cause_suffix(self):
+        equivalent = {
+            normalize_risk_code(value)
+            for value in ("BID BIS-1-a", "bid bis 1 a", "BID-BIS-1-A")
+        }
+        self.assertEqual(equivalent, {"BIDBIS1A"})
+        self.assertEqual(normalize_cause_code("BIS - 1 - a"), "BIS1A")
+        self.assertNotEqual(
+            normalize_risk_code("BID BIS-1-a"),
+            normalize_risk_code("BID BIS-1-b"),
         )
 
     def test_treatment_matching_uses_parent_number_and_normalized_code(self):
@@ -1095,7 +1206,7 @@ class MonthlyRiskReportAdminTests(TestCase):
     def test_apply_rolls_back_all_rows_when_a_critical_save_fails(self):
         from unittest.mock import patch
 
-        report = self._report("SPI ATOMIC IMPORT")
+        report = self._report("BID BIS")
         risk_event = self._risk_item(
             report,
             no_item=1,
