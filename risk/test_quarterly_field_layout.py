@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 
 from risk.admin import (
+    QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS,
     REASSESSMENT_ITEM_FIELDS,
     REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS,
     ReAssessmentItemAdmin,
@@ -36,7 +37,7 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
             *(f"skala_probabilitas_q{quarter}" for quarter in range(1, 5)),
             *(f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)),
             *(f"skala_risiko_q{quarter}" for quarter in range(1, 5)),
-            *(f"level_nilai_risiko_q{quarter}" for quarter in range(1, 5)),
+            *QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS,
         )
         positions = [REASSESSMENT_ITEM_FIELDS.index(field) for field in expected]
         self.assertEqual(positions, sorted(positions))

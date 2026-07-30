@@ -55,6 +55,30 @@ RISK_LEVEL_CHOICES = tuple(
     (level.workbook_label, level.display_label) for _, _, level in RISK_LEVELS
 )
 
+_LEVEL_BY_NORMALIZED_LABEL = {}
+for _, _, _level in RISK_LEVELS:
+    for _label in (_level.code, _level.workbook_label, _level.display_label):
+        _LEVEL_BY_NORMALIZED_LABEL[
+            " ".join(
+                str(_label)
+                .strip()
+                .replace("_", " ")
+                .replace("-", " ")
+                .casefold()
+                .split()
+            )
+        ] = _level
+
+# Legacy labels stored before the official five-level terminology was applied.
+_LEVEL_BY_NORMALIZED_LABEL.update(
+    {
+        "sedang": next(level for _, _, level in RISK_LEVELS if level.code == "MODERATE"),
+        "tinggi": next(level for _, _, level in RISK_LEVELS if level.code == "HIGH"),
+        "ekstrem": next(level for _, _, level in RISK_LEVELS if level.code == "HIGH"),
+        "extreme": next(level for _, _, level in RISK_LEVELS if level.code == "HIGH"),
+    }
+)
+
 
 def normalize_risk_scale(value):
     if value is None or value == "":
@@ -84,6 +108,42 @@ def classify_risk_level(risk_scale):
         if lower <= scale <= upper:
             return level
     raise AssertionError("Validated risk scale was not classified.")
+
+
+def normalize_level_label(value):
+    """Resolve stored canonical, workbook, Indonesian, and legacy labels."""
+    if value is None or not str(value).strip():
+        return None
+    normalized = " ".join(
+        str(value)
+        .strip()
+        .replace("_", " ")
+        .replace("-", " ")
+        .casefold()
+        .split()
+    )
+    return _LEVEL_BY_NORMALIZED_LABEL.get(normalized)
+
+
+def resolve_item_quarterly_risk_level(item, quarter):
+    """Read the correct persisted field, then fall back to the quarter's scale."""
+    stored = getattr(item, f"level_nilai_risiko_q{quarter}", None)
+    level = normalize_level_label(stored)
+    if level:
+        return level
+
+    scale = getattr(item, f"skala_risiko_q{quarter}", None)
+    if scale in (None, ""):
+        return None
+    try:
+        return classify_risk_level(scale)
+    except ValidationError:
+        return None
+
+
+def get_quarterly_risk_level_display(item, quarter):
+    level = resolve_item_quarterly_risk_level(item, quarter)
+    return level.display_label if level else "-"
 
 
 def calculate_item_quarterly_risk_levels(item):

@@ -37,6 +37,7 @@
                 `[name$="skala_risiko_q${quarter}"], .field-skala_risiko_q${quarter} .readonly`
             );
             const level = container.querySelector(
+                `.field-level_risiko_q${quarter}_display .readonly, ` +
                 `.field-level_nilai_risiko_q${quarter} .readonly`
             );
             if (scale && level) decorate(level, classify(scale.value || scale.textContent));

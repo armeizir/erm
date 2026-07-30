@@ -93,6 +93,7 @@ from .models import (
 )
 from riskproject.admin_site import risk_admin_site
 from risk.access_policy import organizational_groups_for_user
+from risk.services.risk_level import resolve_item_quarterly_risk_level
 
 
 
@@ -2541,6 +2542,41 @@ class RKMItemAdmin(admin.ModelAdmin):
 # RE-ASSESSMENT
 # =========================================================
 
+class QuarterlyRiskLevelDisplayMixin:
+    def _quarterly_risk_level_display(self, obj, quarter):
+        if not obj:
+            return "-"
+        level = resolve_item_quarterly_risk_level(obj, quarter)
+        if not level:
+            return "-"
+        return format_html(
+            '<span class="risk-level-badge {}">{}</span>',
+            level.css_class,
+            level.display_label,
+        )
+
+    def level_risiko_q1_display(self, obj):
+        return self._quarterly_risk_level_display(obj, 1)
+
+    def level_risiko_q2_display(self, obj):
+        return self._quarterly_risk_level_display(obj, 2)
+
+    def level_risiko_q3_display(self, obj):
+        return self._quarterly_risk_level_display(obj, 3)
+
+    def level_risiko_q4_display(self, obj):
+        return self._quarterly_risk_level_display(obj, 4)
+
+    level_risiko_q1_display.short_description = "Level Risiko Q1"
+    level_risiko_q2_display.short_description = "Level Risiko Q2"
+    level_risiko_q3_display.short_description = "Level Risiko Q3"
+    level_risiko_q4_display.short_description = "Level Risiko Q4"
+
+
+QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS = tuple(
+    f"level_risiko_q{quarter}_display" for quarter in range(1, 5)
+)
+
 REASSESSMENT_ITEM_IDENTITY_FIELDS = (
     "summary",
     "km_item",
@@ -2598,7 +2634,7 @@ REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS = (
     ),
     (
         "LEVEL RISIKO",
-        tuple(f"level_nilai_risiko_q{quarter}" for quarter in range(1, 5)),
+        QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS,
     ),
 )
 
@@ -2625,16 +2661,14 @@ REASSESSMENT_ITEM_FIELDS = (
 )
 
 
-class ReAssessmentItemInline(admin.TabularInline):
+class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline):
     model = ReAssessmentItem
     extra = 0
     ordering = ("no_item",)
     fields = REASSESSMENT_ITEM_FIELDS
     readonly_fields = ("kode_penyebab_risiko",) + tuple(
         f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
-    ) + tuple(
-        f"level_nilai_risiko_q{quarter}" for quarter in range(1, 5)
-    )
+    ) + QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS
 
     class Media:
         css = {
@@ -3002,7 +3036,7 @@ class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
 
 
 @admin.register(ReAssessmentItem)
-class ReAssessmentItemAdmin(admin.ModelAdmin):
+class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
     fieldsets = (
         (
             None,
@@ -3047,10 +3081,7 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
         "skala_risiko_q2",
         "skala_risiko_q3",
         "skala_risiko_q4",
-        "level_nilai_risiko_q1",
-        "level_nilai_risiko_q2",
-        "level_nilai_risiko_q3",
-        "level_nilai_risiko_q4",
+        *QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS,
     )
     list_display = (
         "summary",
