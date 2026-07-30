@@ -2630,7 +2630,7 @@ class ReAssessmentItemInline(admin.TabularInline):
     extra = 0
     ordering = ("no_item",)
     fields = REASSESSMENT_ITEM_FIELDS
-    readonly_fields = tuple(
+    readonly_fields = ("kode_penyebab_risiko",) + tuple(
         f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
     ) + tuple(
         f"level_nilai_risiko_q{quarter}" for quarter in range(1, 5)
