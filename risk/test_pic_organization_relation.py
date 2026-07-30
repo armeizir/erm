@@ -3,7 +3,7 @@ from io import StringIO
 
 from django.contrib.admin import AdminSite
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase
@@ -25,7 +25,7 @@ from risk.models import (
     ReAssessmentItem,
     ReAssessmentSummary,
 )
-from risk.services.pic import resolve_import_pic
+from risk.services.pic import effective_assignments, resolve_import_pic
 
 
 class PICOnlyForm(ReAssessmentItemTimelineForm):
@@ -220,6 +220,29 @@ class PICOrganizationRelationTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("penugasan dan user aktif", str(form.errors))
 
+
+    def test_historical_include_never_leaks_assignment_from_other_organization(self):
+        assignments = effective_assignments(
+            self.organization,
+            on_date=date(2026, 6, 1),
+            include_assignment_ids=(self.other_assignment.pk,),
+        )
+        self.assertNotIn(self.other_assignment, assignments)
+
+    def test_model_rejects_inactive_new_assignment(self):
+        self.item.pic_organization_unit = self.organization
+        self.item.pic_user_assignment = self.inactive_assignment
+        with self.assertRaises(ValidationError) as context:
+            self.item.full_clean()
+        self.assertIn("penugasan dan user aktif", str(context.exception))
+
+    def test_model_rejects_inactive_user_new_assignment(self):
+        self.item.pic_organization_unit = self.organization
+        self.item.pic_user_assignment = self.inactive_user_assignment
+        with self.assertRaises(ValidationError) as context:
+            self.item.full_clean()
+        self.assertIn("penugasan dan user aktif", str(context.exception))
+
     def test_assignment_is_optional(self):
         form = self.form(
             {"pic_organization_unit": self.organization.pk}
@@ -331,12 +354,32 @@ class PICOrganizationRelationTests(TestCase):
         self.assertIsNone(assignment)
         self.assertEqual(OrganizationUnit.objects.count(), before)
 
+
+    def test_endpoint_rejects_non_get_requests(self):
+        request = RequestFactory().post(
+            "/admin/risk/reassessmentitem/pic-assignments/",
+        )
+        request.user = self.user
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        response = ReAssessmentItemAdmin(
+            ReAssessmentItem,
+            AdminSite(),
+        ).pic_assignments_view(request)
+        self.assertEqual(response.status_code, 405)
+
     def test_endpoint_does_not_expose_other_organization(self):
         request_user = get_user_model().objects.create_user(
             username="scoped.user",
             is_staff=True,
         )
         request_user.groups.add(self.unit_group)
+        request_user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="risk",
+                codename="view_reassessmentitem",
+            )
+        )
         request = RequestFactory().get(
             "/admin/risk/reassessmentitem/pic-assignments/",
             {"organization_unit": self.other_organization.pk},

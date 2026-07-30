@@ -31,23 +31,36 @@
         const url = new URL(endpoint, window.location.origin);
         url.searchParams.set("organization_unit", organizationSelect.value);
         const summarySelect = relatedElement(organizationSelect, "summary");
-        if (summarySelect && summarySelect.value) {
-            url.searchParams.set("summary", summarySelect.value);
+        const summaryId = summarySelect && summarySelect.value
+            ? summarySelect.value
+            : assignmentSelect.dataset.summaryId;
+        if (summaryId) {
+            url.searchParams.set("summary", summaryId);
         }
 
-        const response = await fetch(url, {
-            credentials: "same-origin",
-            headers: {"X-Requested-With": "XMLHttpRequest"}
-        });
-        if (!response.ok) {
-            return;
+        assignmentSelect.disabled = true;
+        try {
+            const response = await fetch(url, {
+                credentials: "same-origin",
+                headers: {"X-Requested-With": "XMLHttpRequest"}
+            });
+            if (!response.ok) {
+                return;
+            }
+            const payload = await response.json();
+            payload.results.forEach(function (result) {
+                assignmentSelect.add(
+                    new Option(
+                        result.text,
+                        result.id,
+                        false,
+                        String(result.id) === selectedAssignment
+                    )
+                );
+            });
+        } finally {
+            assignmentSelect.disabled = false;
         }
-        const payload = await response.json();
-        payload.results.forEach(function (result) {
-            assignmentSelect.add(
-                new Option(result.text, result.id, false, String(result.id) === selectedAssignment)
-            );
-        });
     }
 
     document.addEventListener("change", function (event) {

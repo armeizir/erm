@@ -2128,19 +2128,34 @@ class ReAssessmentItem(models.Model):
     def clean(self):
         super().clean()
         errors = {}
-        if self.pic_user_assignment_id and not self.pic_organization_unit_id:
-            errors["pic_organization_unit"] = (
-                "PIC Organisasi wajib dipilih jika PIC Pelaksana diisi."
+        if self.pic_user_assignment_id:
+            from .services.pic import (
+                assignment_validation_error,
+                profile_reference_date,
             )
-        elif (
-            self.pic_user_assignment_id
-            and self.pic_user_assignment.organization_unit_id
-            != self.pic_organization_unit_id
-        ):
-            errors["pic_user_assignment"] = (
-                "PIC Pelaksana tidak memiliki penugasan pada "
-                f"PIC Organisasi {self.pic_organization_unit.name}."
+
+            previous_assignment_id = None
+            if self.pk:
+                previous_assignment_id = (
+                    type(self).objects.filter(pk=self.pk)
+                    .values_list("pic_user_assignment_id", flat=True)
+                    .first()
+                )
+            validation_error = assignment_validation_error(
+                self.pic_user_assignment,
+                self.pic_organization_unit,
+                on_date=profile_reference_date(self.summary),
+                allow_historical=(
+                    previous_assignment_id == self.pic_user_assignment_id
+                ),
             )
+            if validation_error:
+                target_field = (
+                    "pic_organization_unit"
+                    if not self.pic_organization_unit_id
+                    else "pic_user_assignment"
+                )
+                errors[target_field] = validation_error
 
         if getattr(self, "km_item_id", None) and self.summary_id:
             if self.km_item.kontrak_id != self.summary.kontrak_manajemen_id:

@@ -68,16 +68,26 @@ def effective_assignments(
     permitted_organizations=None,
     include_assignment_ids=(),
 ):
+    """Return assignments that are valid for one organization and date.
+
+    ``include_assignment_ids`` is only intended to keep an already selected
+    historical assignment visible while editing. It must never broaden the
+    queryset to assignments from another organization.
+    """
     on_date = on_date or timezone.localdate()
-    query = Q(
-        organization_unit=organization_unit,
+    active_on_date = Q(
         aktif=True,
         user__is_active=True,
         tanggal_mulai__lte=on_date,
     ) & (Q(tanggal_selesai__isnull=True) | Q(tanggal_selesai__gte=on_date))
+
+    selectable = active_on_date
     if include_assignment_ids:
-        query |= Q(pk__in=include_assignment_ids)
-    queryset = OrganizationUnitUserAssignment.objects.filter(query)
+        selectable |= Q(pk__in=tuple(include_assignment_ids))
+
+    queryset = OrganizationUnitUserAssignment.objects.filter(
+        organization_unit=organization_unit,
+    ).filter(selectable)
     if permitted_organizations is not None:
         queryset = queryset.filter(
             organization_unit__in=permitted_organizations
@@ -90,6 +100,42 @@ def effective_assignments(
         "user__username",
         "pk",
     )
+
+
+def assignment_validation_error(
+    assignment,
+    organization_unit,
+    on_date=None,
+    *,
+    allow_historical=False,
+):
+    """Return a user-facing validation message, or ``None`` when valid."""
+    if assignment is None:
+        return None
+    if organization_unit is None:
+        return "PIC Organisasi wajib dipilih jika PIC Pelaksana diisi."
+    if assignment.organization_unit_id != organization_unit.pk:
+        return (
+            "PIC Pelaksana tidak memiliki penugasan aktif pada "
+            f"PIC Organisasi {organization_unit.name}."
+        )
+
+    # An assignment already stored on a historical record remains selectable
+    # even after it is closed or the user becomes inactive. This preserves the
+    # historical PIC without allowing a new record to choose that assignment.
+    if allow_historical:
+        return None
+
+    if not assignment.aktif or not assignment.user.is_active:
+        return "PIC Pelaksana harus berasal dari penugasan dan user aktif."
+
+    on_date = on_date or timezone.localdate()
+    if assignment.tanggal_mulai > on_date or (
+        assignment.tanggal_selesai
+        and assignment.tanggal_selesai < on_date
+    ):
+        return "PIC Pelaksana tidak aktif pada periode Profil Risiko."
+    return None
 
 
 def assignment_label(assignment, on_date=None):

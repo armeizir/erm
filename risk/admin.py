@@ -98,6 +98,7 @@ from risk.access_policy import organizational_groups_for_user
 from risk.services.risk_level import resolve_item_quarterly_risk_level
 from risk.services.pic import (
     assignment_label,
+    assignment_validation_error,
     effective_assignments,
     owner_organization_unit,
     permitted_organization_units,
@@ -2779,9 +2780,13 @@ class ReAssessmentItemTimelineForm(forms.ModelForm):
 
         assignment_field = self.fields["pic_user_assignment"]
         assignment_field.widget.attrs["class"] = "pic-user-assignment"
-        assignment_field.widget.attrs[
-            "data-endpoint"
-        ] = "/admin/risk/reassessmentitem/pic-assignments/"
+        # ReAssessmentItemAdmin/ReAssessmentItemInline inject the URL for
+        # their own AdminSite namespace. Keep the standalone form independent
+        # from a hard-coded /admin/ path.
+        assignment_field.widget.attrs.setdefault("data-endpoint", "")
+        assignment_field.widget.attrs["data-summary-id"] = (
+            summary.pk if summary and summary.pk else ""
+        )
         if selected_organization_id:
             try:
                 organization = OrganizationUnit.objects.get(
@@ -2819,7 +2824,6 @@ class ReAssessmentItemTimelineForm(forms.ModelForm):
                 cleaned_data["pic_organization_unit"] = owner
 
         organization = cleaned_data.get("pic_organization_unit")
-        assignment = cleaned_data.get("pic_user_assignment")
         raw_assignment_id = (
             self.data.get(self.add_prefix("pic_user_assignment"))
             if self.is_bound
@@ -2840,38 +2844,16 @@ class ReAssessmentItemTimelineForm(forms.ModelForm):
             == getattr(self.instance, "pic_user_assignment_id", None)
         )
 
-        if (
-            candidate
-            and organization
-            and candidate.organization_unit_id != organization.pk
-        ):
-            self._errors.pop("pic_user_assignment", None)
-            self.add_error(
-                "pic_user_assignment",
-                "PIC Pelaksana tidak memiliki penugasan aktif pada "
-                f"PIC Organisasi {organization.name}.",
+        if candidate:
+            validation_error = assignment_validation_error(
+                candidate,
+                organization,
+                on_date=profile_reference_date(summary),
+                allow_historical=is_existing_assignment,
             )
-        elif candidate and not is_existing_assignment and (
-            not candidate.aktif or not candidate.user.is_active
-        ):
-            self._errors.pop("pic_user_assignment", None)
-            self.add_error(
-                "pic_user_assignment",
-                "PIC Pelaksana harus berasal dari penugasan dan user aktif.",
-            )
-        elif assignment and organization and not is_existing_assignment:
-            reference_date = profile_reference_date(summary)
-            if (
-                assignment.tanggal_mulai > reference_date
-                or (
-                    assignment.tanggal_selesai
-                    and assignment.tanggal_selesai < reference_date
-                )
-            ):
-                self.add_error(
-                    "pic_user_assignment",
-                    "PIC Pelaksana tidak aktif pada periode Profil Risiko.",
-                )
+            if validation_error:
+                self._errors.pop("pic_user_assignment", None)
+                self.add_error("pic_user_assignment", validation_error)
         return cleaned_data
 
     def save(self, commit=True):
@@ -2940,6 +2922,18 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
             "risk/js/monthly_timeline.js",
             "risk/js/pic_assignment.js",
         )
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        assignment_field = formset.form.base_fields.get("pic_user_assignment")
+        if assignment_field:
+            assignment_field.widget.attrs["data-endpoint"] = reverse(
+                f"{self.admin_site.name}:risk_reassessmentitem_pic_assignments"
+            )
+            assignment_field.widget.attrs["data-summary-id"] = (
+                obj.pk if obj and obj.pk else ""
+            )
+        return formset
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "pic_organization_unit":
@@ -3408,6 +3402,18 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
     )
     inlines = [ProfilRisikoKorporatSumberByReassessmentInline]
 
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        assignment_field = form.base_fields.get("pic_user_assignment")
+        if assignment_field:
+            assignment_field.widget.attrs["data-endpoint"] = reverse(
+                f"{self.admin_site.name}:risk_reassessmentitem_pic_assignments"
+            )
+            assignment_field.widget.attrs["data-summary-id"] = (
+                obj.summary_id if obj and obj.summary_id else ""
+            )
+        return form
+
     def get_urls(self):
         return [
             path(
@@ -3418,6 +3424,11 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
         ] + super().get_urls()
 
     def pic_assignments_view(self, request):
+        if request.method != "GET":
+            return HttpResponseNotAllowed(["GET"])
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+
         organization_id = request.GET.get("organization_unit")
         organization = permitted_organization_units(request.user).filter(
             pk=organization_id
@@ -3425,9 +3436,12 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
         if not organization:
             return JsonResponse({"results": []})
 
-        summary = ReAssessmentSummary.objects.filter(
-            pk=request.GET.get("summary")
-        ).first()
+        summaries = ReAssessmentSummary.objects.all()
+        if not request.user.is_superuser:
+            summaries = summaries.filter(
+                unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+            )
+        summary = summaries.filter(pk=request.GET.get("summary")).first()
         assignments = effective_assignments(
             organization,
             on_date=profile_reference_date(summary),
