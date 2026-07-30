@@ -2547,10 +2547,16 @@ class ReAssessmentItemInline(admin.TabularInline):
     ordering = ("no_item",)
     readonly_fields = tuple(
         f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
+    ) + tuple(
+        f"level_nilai_risiko_q{quarter}" for quarter in range(1, 5)
     )
 
     class Media:
-        js = ("risk/js/reassessment_exposure.js",)
+        css = {"all": ("risk/css/risk_level.css",)}
+        js = (
+            "risk/js/reassessment_exposure.js",
+            "risk/js/reassessment_risk_level.js",
+        )
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "km_item":
@@ -3049,7 +3055,11 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     inlines = [ProfilRisikoKorporatSumberByReassessmentInline]
 
     class Media:
-        js = ("risk/js/reassessment_exposure.js",)
+        css = {"all": ("risk/css/risk_level.css",)}
+        js = (
+            "risk/js/reassessment_exposure.js",
+            "risk/js/reassessment_risk_level.js",
+        )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

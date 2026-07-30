@@ -10,6 +10,10 @@ from django.utils.text import Truncator, slugify
 
 from .crypto import decrypt_secret, encrypt_secret, is_encrypted_secret
 from .services.risk_exposure import assign_item_quarterly_exposures
+from .services.risk_level import (
+    RISK_LEVEL_CHOICES,
+    assign_item_quarterly_risk_levels,
+)
 
 
 # =========================================================
@@ -1974,25 +1978,33 @@ class ReAssessmentItem(models.Model):
         max_length=100,
         null=True,
         blank=True,
+        choices=RISK_LEVEL_CHOICES,
         verbose_name="Level Risiko Q1",
+        help_text="Dihitung otomatis dari Skala Risiko Q1–Q4 berdasarkan matriks heatmap.",
     )
     level_nilai_risiko_q2 = models.CharField(
         max_length=100,
         null=True,
         blank=True,
+        choices=RISK_LEVEL_CHOICES,
         verbose_name="Level Risiko Q2",
+        help_text="Dihitung otomatis dari Skala Risiko Q1–Q4 berdasarkan matriks heatmap.",
     )
     level_nilai_risiko_q3 = models.CharField(
         max_length=100,
         null=True,
         blank=True,
+        choices=RISK_LEVEL_CHOICES,
         verbose_name="Level Risiko Q3",
+        help_text="Dihitung otomatis dari Skala Risiko Q1–Q4 berdasarkan matriks heatmap.",
     )
     level_nilai_risiko_q4 = models.CharField(
         max_length=100,
         null=True,
         blank=True,
+        choices=RISK_LEVEL_CHOICES,
         verbose_name="Level Risiko Q4",
+        help_text="Dihitung otomatis dari Skala Risiko Q1–Q4 berdasarkan matriks heatmap.",
     )
 
     opsi_perlakuan_risiko = models.ForeignKey(
@@ -2130,7 +2142,6 @@ class ReAssessmentItem(models.Model):
             )
 
         setattr(self, f"skala_risiko_q{quarter}", str(cell.skor))
-        setattr(self, f"level_nilai_risiko_q{quarter}", cell.level_risiko.nama)
 
     @property
     def kode_penyebab_risiko(self):
@@ -2173,11 +2184,16 @@ class ReAssessmentItem(models.Model):
 
         for q in range(1, 5):
             self._assign_matrix_result(q)
+        assign_item_quarterly_risk_levels(self)
 
         self.full_clean()
         if kwargs.get("update_fields") is not None:
             kwargs["update_fields"] = set(kwargs["update_fields"]) | {
                 f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
+            } | {
+                f"skala_risiko_q{quarter}" for quarter in range(1, 5)
+            } | {
+                f"level_nilai_risiko_q{quarter}" for quarter in range(1, 5)
             }
         super().save(*args, **kwargs)
 
