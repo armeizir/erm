@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 
 from risk.admin import (
+    QUARTERLY_EXPOSURE_DISPLAY_FIELDS,
     QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS,
     REASSESSMENT_ITEM_FIELDS,
     REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS,
@@ -35,7 +36,7 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
     def test_required_quarterly_order_is_explicit_for_admin_and_inline(self):
         expected = (
             *(f"skala_probabilitas_q{quarter}" for quarter in range(1, 5)),
-            *(f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)),
+            *QUARTERLY_EXPOSURE_DISPLAY_FIELDS,
             *(f"skala_risiko_q{quarter}" for quarter in range(1, 5)),
             *QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS,
         )
@@ -45,11 +46,13 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
             REASSESSMENT_ITEM_FIELDS[
                 REASSESSMENT_ITEM_FIELDS.index("skala_probabilitas_q4") + 1
             ],
-            "eksposur_risiko_q1",
+            "eksposur_risiko_q1_display",
         )
         self.assertEqual(
             REASSESSMENT_ITEM_FIELDS[
-                REASSESSMENT_ITEM_FIELDS.index("eksposur_risiko_q4") + 1
+                REASSESSMENT_ITEM_FIELDS.index(
+                    "eksposur_risiko_q4_display"
+                ) + 1
             ],
             "skala_risiko_q1",
         )
@@ -75,13 +78,16 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
         self.assertEqual(add_fields, REASSESSMENT_ITEM_FIELDS)
         self.assertEqual(change_fields, REASSESSMENT_ITEM_FIELDS)
         for quarter in range(1, 5):
-            self.assertIn(f"eksposur_risiko_q{quarter}", add_fields)
+            self.assertIn(
+                f"eksposur_risiko_q{quarter}_display",
+                add_fields,
+            )
 
     def test_exposure_has_dedicated_four_quarter_fieldset(self):
         groups = dict(REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS)
         self.assertEqual(
             groups["EKSPOSUR RISIKO"],
-            tuple(f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)),
+            QUARTERLY_EXPOSURE_DISPLAY_FIELDS,
         )
         exposure_fieldset = next(
             options
@@ -107,9 +113,43 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
         inline = ReAssessmentItemInline(ReAssessmentSummary, AdminSite())
         for quarter in range(1, 5):
             field = f"eksposur_risiko_q{quarter}"
+            display_field = f"{field}_display"
             self.assertIn(field, readonly)
+            self.assertIn(display_field, readonly)
             self.assertIn(field, inline.readonly_fields)
+            self.assertIn(display_field, inline.readonly_fields)
             self.assertNotIn(field, form_class.base_fields)
+
+    def test_exposure_is_formatted_as_indonesian_rupiah(self):
+        item = SimpleNamespace(
+            eksposur_risiko_q1=Decimal("346141693939.00"),
+            eksposur_risiko_q2=Decimal("194704702840.50"),
+            eksposur_risiko_q3=Decimal("73014263565.19"),
+            eksposur_risiko_q4=Decimal("38334759926.63"),
+        )
+        self.assertEqual(
+            self.model_admin.eksposur_risiko_q1_display(item),
+            "Rp 346.141.693.939,00",
+        )
+        self.assertEqual(
+            self.model_admin.eksposur_risiko_q2_display(item),
+            "Rp 194.704.702.840,50",
+        )
+        self.assertEqual(
+            self.model_admin.eksposur_risiko_q3_display(item),
+            "Rp 73.014.263.565,19",
+        )
+        self.assertEqual(
+            self.model_admin.eksposur_risiko_q4_display(item),
+            "Rp 38.334.759.926,63",
+        )
+
+    def test_empty_exposure_is_displayed_as_dash(self):
+        item = SimpleNamespace(eksposur_risiko_q1=None)
+        self.assertEqual(
+            self.model_admin.eksposur_risiko_q1_display(item),
+            "-",
+        )
 
     def test_summary_inline_formset_accepts_computed_cause_code(self):
         inline = ReAssessmentItemInline(ReAssessmentSummary, AdminSite())

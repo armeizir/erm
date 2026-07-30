@@ -2543,6 +2543,33 @@ class RKMItemAdmin(admin.ModelAdmin):
 # =========================================================
 
 class QuarterlyRiskLevelDisplayMixin:
+    @staticmethod
+    def _format_rupiah(value):
+        if value is None:
+            return "-"
+        formatted = f"{Decimal(value):,.2f}"
+        integer, decimal = formatted.rsplit(".", 1)
+        return f"Rp {integer.replace(',', '.')},{decimal}"
+
+    def _quarterly_exposure_display(self, obj, quarter):
+        if not obj:
+            return "-"
+        return self._format_rupiah(
+            getattr(obj, f"eksposur_risiko_q{quarter}", None)
+        )
+
+    def eksposur_risiko_q1_display(self, obj):
+        return self._quarterly_exposure_display(obj, 1)
+
+    def eksposur_risiko_q2_display(self, obj):
+        return self._quarterly_exposure_display(obj, 2)
+
+    def eksposur_risiko_q3_display(self, obj):
+        return self._quarterly_exposure_display(obj, 3)
+
+    def eksposur_risiko_q4_display(self, obj):
+        return self._quarterly_exposure_display(obj, 4)
+
     def _quarterly_risk_level_display(self, obj, quarter):
         if not obj:
             return "-"
@@ -2571,8 +2598,15 @@ class QuarterlyRiskLevelDisplayMixin:
     level_risiko_q2_display.short_description = "Level Risiko Q2"
     level_risiko_q3_display.short_description = "Level Risiko Q3"
     level_risiko_q4_display.short_description = "Level Risiko Q4"
+    eksposur_risiko_q1_display.short_description = "Eksposur Risiko Q1"
+    eksposur_risiko_q2_display.short_description = "Eksposur Risiko Q2"
+    eksposur_risiko_q3_display.short_description = "Eksposur Risiko Q3"
+    eksposur_risiko_q4_display.short_description = "Eksposur Risiko Q4"
 
 
+QUARTERLY_EXPOSURE_DISPLAY_FIELDS = tuple(
+    f"eksposur_risiko_q{quarter}_display" for quarter in range(1, 5)
+)
 QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS = tuple(
     f"level_risiko_q{quarter}_display" for quarter in range(1, 5)
 )
@@ -2626,7 +2660,7 @@ REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS = (
     ),
     (
         "EKSPOSUR RISIKO",
-        tuple(f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)),
+        QUARTERLY_EXPOSURE_DISPLAY_FIELDS,
     ),
     (
         "SKALA RISIKO",
@@ -2727,7 +2761,7 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
     fields = REASSESSMENT_ITEM_FIELDS
     readonly_fields = ("kode_penyebab_risiko",) + tuple(
         f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
-    ) + QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS
+    ) + QUARTERLY_EXPOSURE_DISPLAY_FIELDS + QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS
 
     class Media:
         css = {
@@ -3150,6 +3184,7 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
         "skala_risiko_q2",
         "skala_risiko_q3",
         "skala_risiko_q4",
+        *QUARTERLY_EXPOSURE_DISPLAY_FIELDS,
         *QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS,
     )
     list_display = (
