@@ -26,6 +26,8 @@ from risk.models import (
 from risk.services.risk_level import (
     assign_item_quarterly_risk_levels,
     classify_risk_level,
+    get_quarterly_risk_level_display,
+    normalize_level_label,
 )
 
 
@@ -86,6 +88,51 @@ class RiskLevelDomainTests(TestCase):
         assign_item_quarterly_risk_levels(item)
         self.assertIsNone(item.level_nilai_risiko_q1)
 
+    def test_existing_label_variations_are_normalized_for_display(self):
+        cases = {
+            "High": ("HIGH", "Tinggi"),
+            "Moderate To High": ("MODERATE_TO_HIGH", "Moderat ke Tinggi"),
+            "Moderate to High": ("MODERATE_TO_HIGH", "Moderat ke Tinggi"),
+            "Low To Moderate": ("LOW_TO_MODERATE", "Rendah ke Moderat"),
+            "Low to Moderate": ("LOW_TO_MODERATE", "Rendah ke Moderat"),
+            "Low": ("LOW", "Rendah"),
+        }
+        for stored, expected in cases.items():
+            with self.subTest(stored=stored):
+                level = normalize_level_label(stored)
+                self.assertEqual((level.code, level.display_label), expected)
+
+    def test_display_reads_each_correct_quarter_and_falls_back_to_scale(self):
+        item = SimpleNamespace(
+            level_nilai_risiko_q1="High",
+            level_nilai_risiko_q2="Moderate to High",
+            level_nilai_risiko_q3="Low to Moderate",
+            level_nilai_risiko_q4="Low",
+            skala_risiko_q1="1",
+            skala_risiko_q2="1",
+            skala_risiko_q3="1",
+            skala_risiko_q4="1",
+        )
+        self.assertEqual(get_quarterly_risk_level_display(item, 1), "Tinggi")
+        self.assertEqual(
+            get_quarterly_risk_level_display(item, 2),
+            "Moderat ke Tinggi",
+        )
+        self.assertEqual(
+            get_quarterly_risk_level_display(item, 3),
+            "Rendah ke Moderat",
+        )
+        self.assertEqual(get_quarterly_risk_level_display(item, 4), "Rendah")
+
+        item.level_nilai_risiko_q2 = None
+        item.skala_risiko_q2 = "19"
+        self.assertEqual(
+            get_quarterly_risk_level_display(item, 2),
+            "Moderat ke Tinggi",
+        )
+        item.skala_risiko_q2 = None
+        self.assertEqual(get_quarterly_risk_level_display(item, 2), "-")
+
 
 class QuarterlyRiskLevelIntegrationTests(TestCase):
     def setUp(self):
@@ -136,13 +183,59 @@ class QuarterlyRiskLevelIntegrationTests(TestCase):
         readonly = model_admin.get_readonly_fields(request)
         inline = ReAssessmentItemInline(ReAssessmentSummary, AdminSite())
         for quarter in range(1, 5):
-            self.assertIn(f"level_nilai_risiko_q{quarter}", readonly)
+            display_field = f"level_risiko_q{quarter}_display"
+            self.assertIn(display_field, readonly)
             self.assertIn(
-                f"level_nilai_risiko_q{quarter}", inline.readonly_fields
+                display_field, inline.readonly_fields
             )
             self.assertNotIn(
                 f"skala_risiko_q{quarter}", inline.readonly_fields
             )
+
+    def test_readonly_display_uses_saved_values_without_writing_database(self):
+        item = self.item()
+        ReAssessmentItem.objects.filter(pk=item.pk).update(
+            skala_risiko_q1="24",
+            level_nilai_risiko_q1="High",
+            skala_risiko_q2="19",
+            level_nilai_risiko_q2="Moderate to High",
+            skala_risiko_q3="14",
+            level_nilai_risiko_q3="Moderate",
+            skala_risiko_q4="6",
+            level_nilai_risiko_q4="Low to Moderate",
+        )
+        item.refresh_from_db()
+        before = {
+            field: getattr(item, field)
+            for quarter in range(1, 5)
+            for field in (
+                f"skala_risiko_q{quarter}",
+                f"level_nilai_risiko_q{quarter}",
+            )
+        }
+        model_admin = ReAssessmentItemAdmin(ReAssessmentItem, AdminSite())
+
+        rendered = [
+            str(getattr(model_admin, f"level_risiko_q{quarter}_display")(item))
+            for quarter in range(1, 5)
+        ]
+
+        self.assertIn("Tinggi", rendered[0])
+        self.assertIn("Moderat ke Tinggi", rendered[1])
+        self.assertIn("Moderat", rendered[2])
+        self.assertIn("Rendah ke Moderat", rendered[3])
+        item.refresh_from_db()
+        self.assertEqual(
+            {
+                field: getattr(item, field)
+                for quarter in range(1, 5)
+                for field in (
+                    f"skala_risiko_q{quarter}",
+                    f"level_nilai_risiko_q{quarter}",
+                )
+            },
+            before,
+        )
 
     def test_model_save_ignores_stale_level_when_scale_source_is_blank(self):
         item = self.item()
