@@ -110,6 +110,18 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
             self.assertIn(field, inline.readonly_fields)
             self.assertNotIn(field, form_class.base_fields)
 
+    def test_summary_inline_formset_accepts_computed_cause_code(self):
+        inline = ReAssessmentItemInline(ReAssessmentSummary, AdminSite())
+        self.assertIn("kode_penyebab_risiko", inline.fields)
+        self.assertIn("kode_penyebab_risiko", inline.readonly_fields)
+
+        formset = inline.get_formset(self.request, obj=None)
+
+        self.assertNotIn(
+            "kode_penyebab_risiko",
+            formset.form.base_fields,
+        )
+
     def test_layout_does_not_change_exposure_calculation(self):
         cases = (
             (Decimal("34614169393900"), Decimal("1"), Decimal("346141693939.00")),
