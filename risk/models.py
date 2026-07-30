@@ -2062,6 +2062,27 @@ class ReAssessmentItem(models.Model):
         blank=True,
         verbose_name="PIC",
     )
+    pic_organization_unit = models.ForeignKey(
+        "masterdata.OrganizationUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="risk_treatment_items",
+        verbose_name="PIC Organisasi",
+        help_text=(
+            "Unit organisasi yang bertanggung jawab atas pelaksanaan "
+            "perlakuan risiko."
+        ),
+    )
+    pic_user_assignment = models.ForeignKey(
+        "masterdata.OrganizationUnitUserAssignment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="risk_treatment_items",
+        verbose_name="PIC Pelaksana",
+        help_text="Pengguna aktif yang ditugaskan pada PIC Organisasi.",
+    )
 
     timeline_1 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 1")
     timeline_2 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 2")
@@ -2076,6 +2097,23 @@ class ReAssessmentItem(models.Model):
     timeline_11 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 11")
     timeline_12 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 12")
 
+    @property
+    def pic_organization_display(self):
+        if self.pic_organization_unit_id:
+            return self.pic_organization_unit.name
+        return self.pic or "Belum ditentukan"
+
+    @property
+    def pic_user_display(self):
+        if not self.pic_user_assignment_id:
+            return "Belum ditentukan"
+        user = self.pic_user_assignment.user
+        return user.get_full_name().strip() or user.username
+
+    @property
+    def pic_display(self):
+        return f"{self.pic_organization_display} — {self.pic_user_display}"
+
     class Meta:
         verbose_name = "Item Risiko Unit/Bidang"
         verbose_name_plural = "TRANSAKSI UNIT - Item Risiko Bidang/Unit Bisnis"
@@ -2088,7 +2126,22 @@ class ReAssessmentItem(models.Model):
         ]
 
     def clean(self):
+        super().clean()
         errors = {}
+        if self.pic_user_assignment_id and not self.pic_organization_unit_id:
+            errors["pic_organization_unit"] = (
+                "PIC Organisasi wajib dipilih jika PIC Pelaksana diisi."
+            )
+        elif (
+            self.pic_user_assignment_id
+            and self.pic_user_assignment.organization_unit_id
+            != self.pic_organization_unit_id
+        ):
+            errors["pic_user_assignment"] = (
+                "PIC Pelaksana tidak memiliki penugasan pada "
+                f"PIC Organisasi {self.pic_organization_unit.name}."
+            )
+
         if getattr(self, "km_item_id", None) and self.summary_id:
             if self.km_item.kontrak_id != self.summary.kontrak_manajemen_id:
                 errors["km_item"] = (

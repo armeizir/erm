@@ -1485,7 +1485,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                     "realized_plan": item.realisasi_rencana_perlakuan,
                     "realized_output": item.realisasi_output_perlakuan,
                     "absorbed_cost": _percent(item.persentase_serapan_biaya),
-                    "pic": item.realisasi_pic or risk.pic,
+                    "pic": item.realisasi_pic or risk.pic_display,
                     "status": item.get_status_rencana_perlakuan_display() or "",
                     "status_explanation": item.penjelasan_status_rencana or "",
                     "progress": _percent(item.progress_pelaksanaan_percent),
