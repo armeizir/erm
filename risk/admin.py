@@ -2638,6 +2638,63 @@ REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS = (
     ),
 )
 
+REASSESSMENT_TIMELINE_FIELDS = tuple(
+    f"timeline_{month}" for month in range(1, 13)
+)
+REASSESSMENT_TIMELINE_MONTHS = (
+    ("Q1", (("1", "Januari"), ("2", "Februari"), ("3", "Maret"))),
+    ("Q2", (("4", "April"), ("5", "Mei"), ("6", "Juni"))),
+    ("Q3", (("7", "Juli"), ("8", "Agustus"), ("9", "September"))),
+    (
+        "Q4",
+        (("10", "Oktober"), ("11", "November"), ("12", "Desember")),
+    ),
+)
+
+
+class MonthlyTimelineWidget(forms.CheckboxSelectMultiple):
+    template_name = "risk/widgets/monthly_timeline.html"
+
+
+class ReAssessmentItemTimelineForm(forms.ModelForm):
+    monthly_timeline = forms.MultipleChoiceField(
+        label="Timeline Pelaksanaan Rencana Perlakuan",
+        choices=REASSESSMENT_TIMELINE_MONTHS,
+        required=False,
+        widget=MonthlyTimelineWidget(
+            attrs={"class": "monthly-timeline-checkbox"}
+        ),
+        help_text="Centang bulan pelaksanaan rencana perlakuan risiko.",
+    )
+
+    class Meta:
+        model = ReAssessmentItem
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance:
+            self.initial["monthly_timeline"] = [
+                str(month)
+                for month in range(1, 13)
+                if getattr(self.instance, f"timeline_{month}", 0) == 1
+            ]
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        selected_months = set(self.cleaned_data.get("monthly_timeline", ()))
+        for month, field_name in enumerate(
+            REASSESSMENT_TIMELINE_FIELDS,
+            start=1,
+        ):
+            setattr(instance, field_name, 1 if str(month) in selected_months else 0)
+
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
+
 REASSESSMENT_ITEM_TREATMENT_FIELDS = (
     "opsi_perlakuan_risiko",
     "jenis_rencana_perlakuan_risiko",
@@ -2648,7 +2705,7 @@ REASSESSMENT_ITEM_TREATMENT_FIELDS = (
     "prk",
     "jenis_program_dalam_rkap",
     "pic",
-) + tuple(f"timeline_{month}" for month in range(1, 13))
+)
 
 REASSESSMENT_ITEM_FIELDS = (
     REASSESSMENT_ITEM_IDENTITY_FIELDS
@@ -2658,11 +2715,13 @@ REASSESSMENT_ITEM_FIELDS = (
         for field in fields
     )
     + REASSESSMENT_ITEM_TREATMENT_FIELDS
+    + ("monthly_timeline",)
 )
 
 
 class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline):
     model = ReAssessmentItem
+    form = ReAssessmentItemTimelineForm
     extra = 0
     ordering = ("no_item",)
     fields = REASSESSMENT_ITEM_FIELDS
@@ -2675,11 +2734,13 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
             "all": (
                 "risk/css/risk_level.css",
                 "risk/css/reassessment_quarterly_fields.css",
+                "risk/css/monthly_timeline.css",
             )
         }
         js = (
             "risk/js/reassessment_exposure.js",
             "risk/js/reassessment_risk_level.js",
+            "risk/js/monthly_timeline.js",
         )
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
@@ -3037,6 +3098,7 @@ class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
 
 @admin.register(ReAssessmentItem)
 class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
+    form = ReAssessmentItemTimelineForm
     fieldsets = (
         (
             None,
@@ -3065,9 +3127,16 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
             for title, fields in REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS
         ),
         (
-            "PERLAKUAN RISIKO DAN TIMELINE",
+            "PERLAKUAN RISIKO",
             {
                 "fields": REASSESSMENT_ITEM_TREATMENT_FIELDS,
+            },
+        ),
+        (
+            "TIMELINE PELAKSANAAN RENCANA PERLAKUAN",
+            {
+                "classes": ("monthly-timeline-fieldset",),
+                "fields": ("monthly_timeline",),
             },
         ),
     )
@@ -3136,11 +3205,13 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
             "all": (
                 "risk/css/risk_level.css",
                 "risk/css/reassessment_quarterly_fields.css",
+                "risk/css/monthly_timeline.css",
             )
         }
         js = (
             "risk/js/reassessment_exposure.js",
             "risk/js/reassessment_risk_level.js",
+            "risk/js/monthly_timeline.js",
         )
 
     def get_queryset(self, request):

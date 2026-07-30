@@ -1,0 +1,19 @@
+<fieldset class="monthly-timeline">
+  <legend>Timeline Pelaksanaan Rencana Perlakuan</legend>
+  <div class="monthly-timeline-quarters">
+    {% for group_name, group_options, group_index in widget.optgroups %}
+      <fieldset class="monthly-quarter-group">
+        <legend>{{ group_name }}</legend>
+        {% for option in group_options %}
+          <div class="monthly-checkbox-item">
+            {% include option.template_name with widget=option %}
+          </div>
+        {% endfor %}
+      </fieldset>
+    {% endfor %}
+  </div>
+  <div class="monthly-timeline-actions">
+    <button type="button" class="button monthly-select-all">Pilih Semua</button>
+    <button type="button" class="button monthly-clear-all">Kosongkan Semua</button>
+  </div>
+</fieldset>
