@@ -2541,10 +2541,95 @@ class RKMItemAdmin(admin.ModelAdmin):
 # RE-ASSESSMENT
 # =========================================================
 
+REASSESSMENT_ITEM_IDENTITY_FIELDS = (
+    "summary",
+    "km_item",
+    "no_item",
+    "taksonomi_t3",
+    "sasaran_kbumn",
+    "kategori_risiko",
+    "no_risiko",
+    "peristiwa_risiko",
+    "deskripsi_peristiwa_risiko",
+    "no_penyebab_risiko",
+    "kode_penyebab_risiko",
+    "penyebab_risiko",
+    "key_risk_indicators",
+    "unit_satuan_kri",
+    "threshold_aman",
+    "threshold_hati_hati",
+    "threshold_bahaya",
+    "jenis_existing_control",
+    "existing_control",
+    "penilaian_efektivitas_kontrol",
+    "kategori_dampak",
+    "deskripsi_dampak",
+    "perkiraan_waktu_terpapar_risiko",
+    "asumsi_perhitungan_dampak",
+    "nilai_dampak",
+    "nilai_probabilitas",
+    "skala_probabilitas",
+)
+
+REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS = (
+    (
+        "NILAI DAMPAK",
+        tuple(f"nilai_dampak_q{quarter}" for quarter in range(1, 5)),
+    ),
+    (
+        "SKALA DAMPAK",
+        tuple(f"skala_dampak_q{quarter}" for quarter in range(1, 5)),
+    ),
+    (
+        "NILAI PROBABILITAS",
+        tuple(f"nilai_probabilitas_q{quarter}" for quarter in range(1, 5)),
+    ),
+    (
+        "SKALA PROBABILITAS",
+        tuple(f"skala_probabilitas_q{quarter}" for quarter in range(1, 5)),
+    ),
+    (
+        "EKSPOSUR RISIKO",
+        tuple(f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)),
+    ),
+    (
+        "SKALA RISIKO",
+        tuple(f"skala_risiko_q{quarter}" for quarter in range(1, 5)),
+    ),
+    (
+        "LEVEL RISIKO",
+        tuple(f"level_nilai_risiko_q{quarter}" for quarter in range(1, 5)),
+    ),
+)
+
+REASSESSMENT_ITEM_TREATMENT_FIELDS = (
+    "opsi_perlakuan_risiko",
+    "jenis_rencana_perlakuan_risiko",
+    "rencana_perlakuan_risiko",
+    "output_perlakuan_risiko",
+    "biaya_perlakuan_risiko",
+    "pos_anggaran",
+    "prk",
+    "jenis_program_dalam_rkap",
+    "pic",
+) + tuple(f"timeline_{month}" for month in range(1, 13))
+
+REASSESSMENT_ITEM_FIELDS = (
+    REASSESSMENT_ITEM_IDENTITY_FIELDS
+    + tuple(
+        field
+        for _, fields in REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS
+        for field in fields
+    )
+    + REASSESSMENT_ITEM_TREATMENT_FIELDS
+)
+
+
 class ReAssessmentItemInline(admin.TabularInline):
     model = ReAssessmentItem
     extra = 0
     ordering = ("no_item",)
+    fields = REASSESSMENT_ITEM_FIELDS
     readonly_fields = tuple(
         f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
     ) + tuple(
@@ -2552,7 +2637,12 @@ class ReAssessmentItemInline(admin.TabularInline):
     )
 
     class Media:
-        css = {"all": ("risk/css/risk_level.css",)}
+        css = {
+            "all": (
+                "risk/css/risk_level.css",
+                "risk/css/reassessment_quarterly_fields.css",
+            )
+        }
         js = (
             "risk/js/reassessment_exposure.js",
             "risk/js/reassessment_risk_level.js",
@@ -2913,83 +3003,39 @@ class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
 
 @admin.register(ReAssessmentItem)
 class ReAssessmentItemAdmin(admin.ModelAdmin):
-    fields = (
-        "summary",
-        "km_item",
-        "no_item",
-        "taksonomi_t3",
-        "sasaran_kbumn",
-        "kategori_risiko",
-        "no_risiko",
-        "peristiwa_risiko",
-        "deskripsi_peristiwa_risiko",
-        "no_penyebab_risiko",
-        "kode_penyebab_risiko",
-        "penyebab_risiko",
-        "key_risk_indicators",
-        "unit_satuan_kri",
-        "threshold_aman",
-        "threshold_hati_hati",
-        "threshold_bahaya",
-        "jenis_existing_control",
-        "existing_control",
-        "penilaian_efektivitas_kontrol",
-        "kategori_dampak",
-        "deskripsi_dampak",
-        "perkiraan_waktu_terpapar_risiko",
-        "asumsi_perhitungan_dampak",
-        "nilai_dampak",
-        "nilai_dampak_q1",
-        "nilai_dampak_q2",
-        "nilai_dampak_q3",
-        "nilai_dampak_q4",
-        "skala_dampak_q1",
-        "skala_dampak_q2",
-        "skala_dampak_q3",
-        "skala_dampak_q4",
-        "nilai_probabilitas",
-        "nilai_probabilitas_q1",
-        "nilai_probabilitas_q2",
-        "nilai_probabilitas_q3",
-        "nilai_probabilitas_q4",
-        "skala_probabilitas",
-        "skala_probabilitas_q1",
-        "skala_probabilitas_q2",
-        "skala_probabilitas_q3",
-        "skala_probabilitas_q4",
-        "eksposur_risiko_q1",
-        "eksposur_risiko_q2",
-        "eksposur_risiko_q3",
-        "eksposur_risiko_q4",
-        "skala_risiko_q1",
-        "skala_risiko_q2",
-        "skala_risiko_q3",
-        "skala_risiko_q4",
-        "level_nilai_risiko_q1",
-        "level_nilai_risiko_q2",
-        "level_nilai_risiko_q3",
-        "level_nilai_risiko_q4",
-        "opsi_perlakuan_risiko",
-        "jenis_rencana_perlakuan_risiko",
-        "rencana_perlakuan_risiko",
-        "output_perlakuan_risiko",
-        "biaya_perlakuan_risiko",
-        "pos_anggaran",
-        "prk",
-        "jenis_program_dalam_rkap",
-        "pic",
-        "timeline_1",
-        "timeline_2",
-        "timeline_3",
-        "timeline_4",
-        "timeline_5",
-        "timeline_6",
-        "timeline_7",
-        "timeline_8",
-        "timeline_9",
-        "timeline_10",
-        "timeline_11",
-        "timeline_12",
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": REASSESSMENT_ITEM_IDENTITY_FIELDS,
+            },
+        ),
+        *tuple(
+            (
+                title,
+                {
+                    "classes": (
+                        "quarterly-field-group",
+                        "quarterly-exposure-group",
+                    )
+                    if title == "EKSPOSUR RISIKO"
+                    else ("quarterly-field-group",),
+                    "fields": (fields,),
+                    "description": (
+                        "Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas."
+                        if title == "EKSPOSUR RISIKO"
+                        else None
+                    ),
+                },
+            )
+            for title, fields in REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS
+        ),
+        (
+            "PERLAKUAN RISIKO DAN TIMELINE",
+            {
+                "fields": REASSESSMENT_ITEM_TREATMENT_FIELDS,
+            },
+        ),
     )
     readonly_fields = (
         "kode_penyebab_risiko",
@@ -3055,7 +3101,12 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     inlines = [ProfilRisikoKorporatSumberByReassessmentInline]
 
     class Media:
-        css = {"all": ("risk/css/risk_level.css",)}
+        css = {
+            "all": (
+                "risk/css/risk_level.css",
+                "risk/css/reassessment_quarterly_fields.css",
+            )
+        }
         js = (
             "risk/js/reassessment_exposure.js",
             "risk/js/reassessment_risk_level.js",

@@ -1,0 +1,62 @@
+.quarterly-field-group .form-row > div {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+}
+
+.quarterly-field-group .form-row .fieldBox {
+    box-sizing: border-box;
+    margin: 0;
+    min-width: 0;
+}
+
+.quarterly-field-group .form-row label {
+    box-sizing: border-box;
+    display: block;
+    float: none;
+    padding: 0 0 0.35rem;
+    width: auto;
+}
+
+.quarterly-field-group .form-row input,
+.quarterly-field-group .form-row select {
+    box-sizing: border-box;
+    max-width: 100%;
+    width: 100%;
+}
+
+.quarterly-readonly-value,
+.quarterly-field-group .readonly {
+    box-sizing: border-box;
+    display: block;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    width: 100%;
+}
+
+.quarterly-exposure-group .readonly {
+    font-variant-numeric: tabular-nums;
+}
+
+.inline-group .tabular {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.inline-group .tabular table {
+    min-width: 100%;
+    width: max-content;
+}
+
+@media (max-width: 1024px) {
+    .quarterly-field-group .form-row > div {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .quarterly-field-group .form-row > div {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
