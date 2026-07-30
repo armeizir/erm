@@ -2545,6 +2545,12 @@ class ReAssessmentItemInline(admin.TabularInline):
     model = ReAssessmentItem
     extra = 0
     ordering = ("no_item",)
+    readonly_fields = tuple(
+        f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
+    )
+
+    class Media:
+        js = ("risk/js/reassessment_exposure.js",)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "km_item":
@@ -2702,6 +2708,13 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
     def paragraph_pdf(self, text, style):
         return Paragraph(escape(str(text or "")), style)
 
+    @staticmethod
+    def format_decimal_id(value):
+        if value is None:
+            return ""
+        western = f"{value:,.2f}"
+        return western.translate(str.maketrans({",": ".", ".": ","}))
+
     def pdf_view(self, request, summary_id):
         summary = get_object_or_404(
             ReAssessmentSummary.objects.select_related(
@@ -2825,7 +2838,8 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
                 prefix = item.km_item.master_bagian.kode_bagian if item.km_item.master_bagian_id else ""
                 km_label = f"{prefix}{item.km_item.no_urut} - {item.km_item.indikator_kinerja_kunci}"
             q_values = [
-                f"{getattr(item, f'level_nilai_risiko_q{q}') or ''}\n{getattr(item, f'eksposur_risiko_q{q}') or ''}"
+                f"{getattr(item, f'level_nilai_risiko_q{q}') or ''}\n"
+                f"{self.format_decimal_id(getattr(item, f'eksposur_risiko_q{q}'))}"
                 for q in range(1, 5)
             ]
             treatment = "\n".join(filter(None, [item.rencana_perlakuan_risiko, item.output_perlakuan_risiko]))
@@ -2973,11 +2987,6 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "kode_penyebab_risiko",
-        "nilai_dampak_q1",
-        "nilai_probabilitas_q1",
-        "nilai_probabilitas_q2",
-        "nilai_probabilitas_q3",
-        "nilai_probabilitas_q4",
         "eksposur_risiko_q1",
         "eksposur_risiko_q2",
         "eksposur_risiko_q3",
@@ -3038,6 +3047,9 @@ class ReAssessmentItemAdmin(admin.ModelAdmin):
         "jenis_program_dalam_rkap",
     )
     inlines = [ProfilRisikoKorporatSumberByReassessmentInline]
+
+    class Media:
+        js = ("risk/js/reassessment_exposure.js",)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

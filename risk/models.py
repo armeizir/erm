@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.utils.text import Truncator, slugify
 
 from .crypto import decrypt_secret, encrypt_secret, is_encrypted_secret
+from .services.risk_exposure import assign_item_quarterly_exposures
 
 
 # =========================================================
@@ -1917,6 +1918,7 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Eksposur Risiko Q1",
+        help_text="Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
     )
     eksposur_risiko_q2 = models.DecimalField(
         max_digits=18,
@@ -1924,6 +1926,7 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Eksposur Risiko Q2",
+        help_text="Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
     )
     eksposur_risiko_q3 = models.DecimalField(
         max_digits=18,
@@ -1931,6 +1934,7 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Eksposur Risiko Q3",
+        help_text="Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
     )
     eksposur_risiko_q4 = models.DecimalField(
         max_digits=18,
@@ -1938,6 +1942,7 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Eksposur Risiko Q4",
+        help_text="Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
     )
 
     skala_risiko_q1 = models.CharField(
@@ -2071,22 +2076,33 @@ class ReAssessmentItem(models.Model):
         ]
 
     def clean(self):
+        errors = {}
         if getattr(self, "km_item_id", None) and self.summary_id:
             if self.km_item.kontrak_id != self.summary.kontrak_manajemen_id:
-                raise ValidationError(
+                errors["km_item"] = (
                     "KM Item harus berasal dari Kontrak Manajemen yang sama dengan Summary."
                 )
 
         if self.summary and self.summary.rkm:
             if self.summary.rkm.unit_bisnis_id != self.unit_bisnis_id:
-                raise ValidationError(
+                errors["unit_bisnis"] = (
                     "Unit bisnis Profil Risiko harus sama dengan unit bisnis RKM."
                 )
 
             if self.summary.rkm.kontrak_manajemen_id != self.summary.kontrak_manajemen_id:
-                raise ValidationError(
+                errors["summary"] = (
                     "Kontrak Manajemen Profil Risiko harus sama dengan Kontrak Manajemen pada RKM."
                 )
+
+        for quarter in range(1, 5):
+            probability = getattr(self, f"nilai_probabilitas_q{quarter}")
+            if probability is not None and not Decimal("0") <= probability <= Decimal("100"):
+                errors[f"nilai_probabilitas_q{quarter}"] = (
+                    f"Nilai Probabilitas Q{quarter} harus berada antara 0% dan 100%."
+                )
+
+        if errors:
+            raise ValidationError(errors)
         
     def _get_active_matrix(self):
         if self.summary and self.summary.risk_matrix_id:
@@ -2139,7 +2155,10 @@ class ReAssessmentItem(models.Model):
         if self.nilai_dampak is not None and self.nilai_dampak_q1 is None:
             self.nilai_dampak_q1 = self.nilai_dampak
 
-        if self.nilai_probabilitas is not None:
+        if self.nilai_probabilitas is not None and all(
+            getattr(self, f"nilai_probabilitas_q{quarter}") is None
+            for quarter in range(1, 5)
+        ):
             q1 = self.nilai_probabilitas
             q2 = (q1 * Decimal("0.75")).quantize(Decimal("0.01"))
             q3 = (q2 * Decimal("0.75")).quantize(Decimal("0.01"))
@@ -2150,38 +2169,16 @@ class ReAssessmentItem(models.Model):
             self.nilai_probabilitas_q3 = q3
             self.nilai_probabilitas_q4 = q4
 
-        if self.nilai_dampak_q1 is not None and self.nilai_probabilitas_q1 is not None:
-            self.eksposur_risiko_q1 = (
-                self.nilai_dampak_q1 * (self.nilai_probabilitas_q1 / Decimal("100"))
-            ).quantize(Decimal("0.01"))
-        else:
-            self.eksposur_risiko_q1 = None
-
-        if self.nilai_dampak_q2 is not None and self.nilai_probabilitas_q2 is not None:
-            self.eksposur_risiko_q2 = (
-                self.nilai_dampak_q2 * (self.nilai_probabilitas_q2 / Decimal("100"))
-            ).quantize(Decimal("0.01"))
-        else:
-            self.eksposur_risiko_q2 = None
-
-        if self.nilai_dampak_q3 is not None and self.nilai_probabilitas_q3 is not None:
-            self.eksposur_risiko_q3 = (
-                self.nilai_dampak_q3 * (self.nilai_probabilitas_q3 / Decimal("100"))
-            ).quantize(Decimal("0.01"))
-        else:
-            self.eksposur_risiko_q3 = None
-
-        if self.nilai_dampak_q4 is not None and self.nilai_probabilitas_q4 is not None:
-            self.eksposur_risiko_q4 = (
-                self.nilai_dampak_q4 * (self.nilai_probabilitas_q4 / Decimal("100"))
-            ).quantize(Decimal("0.01"))
-        else:
-            self.eksposur_risiko_q4 = None
+        assign_item_quarterly_exposures(self)
 
         for q in range(1, 5):
             self._assign_matrix_result(q)
 
         self.full_clean()
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
+            }
         super().save(*args, **kwargs)
 
     @property
