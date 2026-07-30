@@ -1,0 +1,78 @@
+.monthly-timeline {
+    border: 1px solid var(--border-color, #d8d8d8);
+    border-radius: 0.35rem;
+    box-sizing: border-box;
+    margin: 0;
+    min-width: 0;
+    padding: 0.75rem;
+}
+
+.monthly-timeline > legend {
+    font-weight: 600;
+    padding: 0 0.35rem;
+}
+
+.monthly-timeline-quarters {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.monthly-quarter-group {
+    border: 1px solid var(--border-color, #d8d8d8);
+    border-radius: 0.3rem;
+    box-sizing: border-box;
+    margin: 0;
+    min-width: 0;
+    padding: 0.6rem;
+}
+
+.monthly-quarter-group > legend {
+    font-weight: 700;
+    padding: 0 0.25rem;
+}
+
+.monthly-checkbox-item {
+    margin: 0.35rem 0;
+}
+
+.monthly-checkbox-item label {
+    align-items: center;
+    display: inline-flex;
+    float: none;
+    gap: 0.4rem;
+    padding: 0;
+    width: auto;
+}
+
+.monthly-checkbox-item input[type="checkbox"] {
+    margin: 0;
+    width: auto;
+}
+
+.monthly-timeline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.inline-group .field-monthly_timeline {
+    min-width: 44rem;
+}
+
+@media (max-width: 1024px) {
+    .monthly-timeline-quarters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .monthly-timeline-quarters {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .inline-group .field-monthly_timeline {
+        min-width: 18rem;
+    }
+}
