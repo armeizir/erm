@@ -1,4 +1,7 @@
 from django import forms
+from io import BytesIO
+
+from openpyxl import load_workbook
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -7,7 +10,7 @@ from django.test import RequestFactory
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 
-from risk.admin import CustomUserAdmin
+from risk.admin import CustomUserAdmin, ReAssessmentSummaryAdmin
 from risk.models import (
     BagianKontrakManajemen,
     ItemKontrakManajemen,
@@ -24,6 +27,7 @@ from risk.models import (
     KPMRSummary,
 )
 from risk.views import _fallback_level_from_score, _fallback_matrix_score
+from risk.services.reassessment_excel import profile_workbook_template_path
 
 
 class RiskMatrixReferenceTests(SimpleTestCase):
@@ -464,9 +468,16 @@ class RKMPDFAdminTests(TestCase):
         self.assertEqual(item.jumlah_realisasi, "81")
         self.assertEqual(str(item.persen_capaian), "101.25")
 
-    def test_superuser_can_download_unit_risk_profile_pdf(self):
+    def test_superuser_can_download_unit_risk_profile_excel(self):
+        model_admin = ReAssessmentSummaryAdmin(ReAssessmentSummary, AdminSite())
+        self.assertIn("excel_button", model_admin.list_display)
+        self.assertNotIn("pdf_button", model_admin.list_display)
+
         User = get_user_model()
-        admin_user = User.objects.create_superuser(username="admin-profile", password="secret")
+        admin_user = User.objects.create_superuser(
+            username="admin-profile",
+            password="secret",
+        )
         unit = Group.objects.create(name="UB PROFILE")
         template = MasterTemplateKM.objects.create(tahun=2026, nama="Template Profil 2026")
         master_bagian = MasterBagianKM.objects.create(
@@ -510,18 +521,48 @@ class RKMPDFAdminTests(TestCase):
             peristiwa_risiko="Target tidak tercapai",
             deskripsi_peristiwa_risiko="Deskripsi risiko",
             penyebab_risiko="Penyebab",
+            asumsi_perhitungan_dampak="Asumsi dampak",
             rencana_perlakuan_risiko="Mitigasi",
             output_perlakuan_risiko="Output",
             pic="PIC",
+            timeline_1=1,
         )
 
         client = Client(HTTP_HOST="127.0.0.1")
         client.force_login(admin_user)
-        response = client.get(reverse("admin:risk_reassessmentsummary_pdf", args=[summary.pk]))
+        response = client.get(
+            reverse("admin:risk_reassessmentsummary_excel", args=[summary.pk])
+        )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "application/pdf")
-        self.assertTrue(response.content.startswith(b"%PDF"))
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn(
+            "Profil_Risiko_UB_PROFILE_2026.xlsx",
+            response["Content-Disposition"],
+        )
+        self.assertTrue(response.content.startswith(b"PK"))
+
+        exported = load_workbook(BytesIO(response.content), data_only=False)
+        official = load_workbook(profile_workbook_template_path(), data_only=False)
+
+        self.assertEqual(exported.sheetnames, official.sheetnames)
+        self.assertEqual(
+            exported["Halaman Judul"]["E9"].value,
+            official["Halaman Judul"]["E9"].value,
+        )
+        self.assertEqual(
+            exported["Profil Risiko"]["A2"].style_id,
+            official["Profil Risiko"]["A2"].style_id,
+        )
+        self.assertEqual(exported["Profil Risiko"]["J7"].value, "Target tidak tercapai")
+        self.assertEqual(exported["Profil Risiko"]["N7"].value, "Penyebab")
+        self.assertEqual(exported["Rencana Perlakuan Risiko"]["J7"].value, "Mitigasi")
+        self.assertEqual(exported["Rencana Perlakuan Risiko"]["R7"].value, 1)
+        self.assertEqual(exported["SUMMARY"]["M10"].value, "Target tidak tercapai")
+        self.assertEqual(exported["LAP REAL III.A"]["B11"].value, "Asumsi dampak")
 
     def test_kpmr_generation_uses_unique_sequence_for_duplicate_profile_item_numbers(self):
         unit = Group.objects.create(name="UB KPMR")
