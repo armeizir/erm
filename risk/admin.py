@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
 
-from django.http import HttpResponse, HttpResponseNotAllowed
+from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import Image, SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -17,7 +17,9 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.styles import ParagraphStyle
 from masterdata.models import (
     MasterBUMN,
+    OrganizationUnit,
     OrganizationUnitAccessGroup,
+    OrganizationUnitUserAssignment,
     TahunBuku,
     PeriodeLaporan,
 )
@@ -94,6 +96,14 @@ from .models import (
 from riskproject.admin_site import risk_admin_site
 from risk.access_policy import organizational_groups_for_user
 from risk.services.risk_level import resolve_item_quarterly_risk_level
+from risk.services.pic import (
+    assignment_label,
+    assignment_validation_error,
+    effective_assignments,
+    owner_organization_unit,
+    permitted_organization_units,
+    profile_reference_date,
+)
 
 
 
@@ -2543,6 +2553,10 @@ class RKMItemAdmin(admin.ModelAdmin):
 # =========================================================
 
 class QuarterlyRiskLevelDisplayMixin:
+    @admin.display(description="PIC Legacy (Free Text)")
+    def legacy_pic_display(self, obj):
+        return getattr(obj, "pic", None) or "-"
+
     @staticmethod
     def _format_rupiah(value):
         if value is None:
@@ -2690,7 +2704,22 @@ class MonthlyTimelineWidget(forms.CheckboxSelectMultiple):
     template_name = "risk/widgets/monthly_timeline.html"
 
 
+class PICAssignmentChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        return assignment_label(obj)
+
+
 class ReAssessmentItemTimelineForm(forms.ModelForm):
+    use_owner_organization = forms.BooleanField(
+        required=False,
+        label="Gunakan Unit Pemilik Risiko sebagai PIC",
+    )
+    pic_user_assignment = PICAssignmentChoiceField(
+        queryset=OrganizationUnitUserAssignment.objects.none(),
+        required=False,
+        label="PIC Pelaksana",
+        help_text="Pengguna aktif yang ditugaskan pada PIC Organisasi.",
+    )
     monthly_timeline = forms.MultipleChoiceField(
         label="Timeline Pelaksanaan Rencana Perlakuan",
         choices=REASSESSMENT_TIMELINE_MONTHS,
@@ -2707,12 +2736,125 @@ class ReAssessmentItemTimelineForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        summary = getattr(self.instance, "summary", None)
+        owner = owner_organization_unit(summary)
+        existing_organization_id = getattr(
+            self.instance,
+            "pic_organization_unit_id",
+            None,
+        )
+        existing_assignment_id = getattr(
+            self.instance,
+            "pic_user_assignment_id",
+            None,
+        )
+        organization_field = self.fields.get("pic_organization_unit")
+        if organization_field:
+            active_organizations = organization_field.queryset.filter(aktif=True)
+            if existing_organization_id:
+                active_organizations = OrganizationUnit.objects.filter(
+                    models.Q(pk=existing_organization_id)
+                    | models.Q(pk__in=active_organizations)
+                )
+            organization_field.queryset = active_organizations.distinct().order_by(
+                "name",
+                "code",
+            )
+            organization_field.widget.attrs[
+                "data-owner-organization-id"
+            ] = owner.pk if owner else ""
+
+        if not self.is_bound and not existing_organization_id and owner:
+            self.initial["pic_organization_unit"] = owner.pk
+            self.initial["use_owner_organization"] = True
+        elif owner and existing_organization_id == owner.pk:
+            self.initial["use_owner_organization"] = True
+
+        selected_organization_id = existing_organization_id
+        if self.is_bound:
+            selected_organization_id = self.data.get(
+                self.add_prefix("pic_organization_unit")
+            )
+            if self.data.get(self.add_prefix("use_owner_organization")) and owner:
+                selected_organization_id = owner.pk
+
+        assignment_field = self.fields["pic_user_assignment"]
+        assignment_field.widget.attrs["class"] = "pic-user-assignment"
+        # ReAssessmentItemAdmin/ReAssessmentItemInline inject the URL for
+        # their own AdminSite namespace. Keep the standalone form independent
+        # from a hard-coded /admin/ path.
+        assignment_field.widget.attrs.setdefault("data-endpoint", "")
+        assignment_field.widget.attrs["data-summary-id"] = (
+            summary.pk if summary and summary.pk else ""
+        )
+        if selected_organization_id:
+            try:
+                organization = OrganizationUnit.objects.get(
+                    pk=selected_organization_id
+                )
+            except (OrganizationUnit.DoesNotExist, TypeError, ValueError):
+                organization = None
+            if organization:
+                assignment_field.queryset = effective_assignments(
+                    organization,
+                    on_date=profile_reference_date(summary),
+                    include_assignment_ids=(
+                        (existing_assignment_id,) if existing_assignment_id else ()
+                    ),
+                )
+
         if self.instance:
             self.initial["monthly_timeline"] = [
                 str(month)
                 for month in range(1, 13)
                 if getattr(self.instance, f"timeline_{month}", 0) == 1
             ]
+
+    def clean(self):
+        cleaned_data = super().clean()
+        summary = getattr(self.instance, "summary", None)
+        owner = owner_organization_unit(summary)
+        if cleaned_data.get("use_owner_organization"):
+            if not owner:
+                self.add_error(
+                    "pic_organization_unit",
+                    "Organization Unit pemilik Profil Risiko belum dipetakan.",
+                )
+            else:
+                cleaned_data["pic_organization_unit"] = owner
+
+        organization = cleaned_data.get("pic_organization_unit")
+        raw_assignment_id = (
+            self.data.get(self.add_prefix("pic_user_assignment"))
+            if self.is_bound
+            else None
+        )
+        candidate = None
+        if raw_assignment_id:
+            candidate = (
+                OrganizationUnitUserAssignment.objects.filter(
+                    pk=raw_assignment_id
+                )
+                .select_related("user", "organization_unit")
+                .first()
+            )
+        is_existing_assignment = bool(
+            candidate
+            and candidate.pk
+            == getattr(self.instance, "pic_user_assignment_id", None)
+        )
+
+        if candidate:
+            validation_error = assignment_validation_error(
+                candidate,
+                organization,
+                on_date=profile_reference_date(summary),
+                allow_historical=is_existing_assignment,
+            )
+            if validation_error:
+                self._errors.pop("pic_user_assignment", None)
+                self.add_error("pic_user_assignment", validation_error)
+        return cleaned_data
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -2738,7 +2880,10 @@ REASSESSMENT_ITEM_TREATMENT_FIELDS = (
     "pos_anggaran",
     "prk",
     "jenis_program_dalam_rkap",
-    "pic",
+    "use_owner_organization",
+    "pic_organization_unit",
+    "pic_user_assignment",
+    "legacy_pic_display",
 )
 
 REASSESSMENT_ITEM_FIELDS = (
@@ -2759,7 +2904,7 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
     extra = 0
     ordering = ("no_item",)
     fields = REASSESSMENT_ITEM_FIELDS
-    readonly_fields = ("kode_penyebab_risiko",) + tuple(
+    readonly_fields = ("kode_penyebab_risiko", "legacy_pic_display") + tuple(
         f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
     ) + QUARTERLY_EXPOSURE_DISPLAY_FIELDS + QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS
 
@@ -2775,9 +2920,25 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
             "risk/js/reassessment_exposure.js",
             "risk/js/reassessment_risk_level.js",
             "risk/js/monthly_timeline.js",
+            "risk/js/pic_assignment.js",
         )
 
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        assignment_field = formset.form.base_fields.get("pic_user_assignment")
+        if assignment_field:
+            assignment_field.widget.attrs["data-endpoint"] = reverse(
+                f"{self.admin_site.name}:risk_reassessmentitem_pic_assignments"
+            )
+            assignment_field.widget.attrs["data-summary-id"] = (
+                obj.pk if obj and obj.pk else ""
+            )
+        return formset
+
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "pic_organization_unit":
+            kwargs["queryset"] = permitted_organization_units(request.user)
+
         if db_field.name == "km_item":
             summary_id = request.POST.get("summary") or request.GET.get("summary")
 
@@ -3054,7 +3215,12 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
 
         items = (
             summary.item
-            .select_related("km_item", "km_item__master_bagian")
+            .select_related(
+                "km_item",
+                "km_item__master_bagian",
+                "pic_organization_unit",
+                "pic_user_assignment__user",
+            )
             .order_by("no_item", "no_risiko", "no_penyebab_risiko", "id")
         )
         for item in items:
@@ -3081,7 +3247,7 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
                 self.paragraph_pdf(q_values[2], normal_center),
                 self.paragraph_pdf(q_values[3], normal_center),
                 self.paragraph_pdf(treatment, normal),
-                self.paragraph_pdf(item.pic, normal),
+                self.paragraph_pdf(item.pic_display, normal),
             ])
 
         table = Table(
@@ -3176,6 +3342,7 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
     )
     readonly_fields = (
         "kode_penyebab_risiko",
+        "legacy_pic_display",
         "eksposur_risiko_q1",
         "eksposur_risiko_q2",
         "eksposur_risiko_q3",
@@ -3235,6 +3402,65 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
     )
     inlines = [ProfilRisikoKorporatSumberByReassessmentInline]
 
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        assignment_field = form.base_fields.get("pic_user_assignment")
+        if assignment_field:
+            assignment_field.widget.attrs["data-endpoint"] = reverse(
+                f"{self.admin_site.name}:risk_reassessmentitem_pic_assignments"
+            )
+            assignment_field.widget.attrs["data-summary-id"] = (
+                obj.summary_id if obj and obj.summary_id else ""
+            )
+        return form
+
+    def get_urls(self):
+        return [
+            path(
+                "pic-assignments/",
+                self.admin_site.admin_view(self.pic_assignments_view),
+                name="risk_reassessmentitem_pic_assignments",
+            ),
+        ] + super().get_urls()
+
+    def pic_assignments_view(self, request):
+        if request.method != "GET":
+            return HttpResponseNotAllowed(["GET"])
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+
+        organization_id = request.GET.get("organization_unit")
+        organization = permitted_organization_units(request.user).filter(
+            pk=organization_id
+        ).first()
+        if not organization:
+            return JsonResponse({"results": []})
+
+        summaries = ReAssessmentSummary.objects.all()
+        if not request.user.is_superuser:
+            summaries = summaries.filter(
+                unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+            )
+        summary = summaries.filter(pk=request.GET.get("summary")).first()
+        assignments = effective_assignments(
+            organization,
+            on_date=profile_reference_date(summary),
+        )
+        return JsonResponse(
+            {
+                "results": [
+                    {
+                        "id": assignment.pk,
+                        "text": assignment_label(
+                            assignment,
+                            on_date=profile_reference_date(summary),
+                        ),
+                    }
+                    for assignment in assignments
+                ]
+            }
+        )
+
     class Media:
         css = {
             "all": (
@@ -3247,6 +3473,7 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
             "risk/js/reassessment_exposure.js",
             "risk/js/reassessment_risk_level.js",
             "risk/js/monthly_timeline.js",
+            "risk/js/pic_assignment.js",
         )
 
     def get_queryset(self, request):
@@ -3287,6 +3514,19 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
     jumlah_relasi_korporat.short_description = "Relasi Korporat"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "pic_organization_unit":
+            object_id = request.resolver_match.kwargs.get("object_id")
+            existing_ids = ()
+            if object_id:
+                existing_ids = tuple(
+                    ReAssessmentItem.objects.filter(pk=object_id)
+                    .values_list("pic_organization_unit_id", flat=True)
+                )
+            kwargs["queryset"] = permitted_organization_units(
+                request.user,
+                include_inactive_ids=existing_ids,
+            )
+
         if not request.user.is_superuser and db_field.name == "summary":
             kwargs["queryset"] = ReAssessmentSummary.objects.filter(
                 unit_bisnis__in=assigned_unit_businesses_for_user(request.user)

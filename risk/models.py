@@ -2062,6 +2062,27 @@ class ReAssessmentItem(models.Model):
         blank=True,
         verbose_name="PIC",
     )
+    pic_organization_unit = models.ForeignKey(
+        "masterdata.OrganizationUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="risk_treatment_items",
+        verbose_name="PIC Organisasi",
+        help_text=(
+            "Unit organisasi yang bertanggung jawab atas pelaksanaan "
+            "perlakuan risiko."
+        ),
+    )
+    pic_user_assignment = models.ForeignKey(
+        "masterdata.OrganizationUnitUserAssignment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="risk_treatment_items",
+        verbose_name="PIC Pelaksana",
+        help_text="Pengguna aktif yang ditugaskan pada PIC Organisasi.",
+    )
 
     timeline_1 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 1")
     timeline_2 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 2")
@@ -2076,6 +2097,23 @@ class ReAssessmentItem(models.Model):
     timeline_11 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 11")
     timeline_12 = models.PositiveSmallIntegerField(default=0, verbose_name="Bulan 12")
 
+    @property
+    def pic_organization_display(self):
+        if self.pic_organization_unit_id:
+            return self.pic_organization_unit.name
+        return self.pic or "Belum ditentukan"
+
+    @property
+    def pic_user_display(self):
+        if not self.pic_user_assignment_id:
+            return "Belum ditentukan"
+        user = self.pic_user_assignment.user
+        return user.get_full_name().strip() or user.username
+
+    @property
+    def pic_display(self):
+        return f"{self.pic_organization_display} — {self.pic_user_display}"
+
     class Meta:
         verbose_name = "Item Risiko Unit/Bidang"
         verbose_name_plural = "TRANSAKSI UNIT - Item Risiko Bidang/Unit Bisnis"
@@ -2088,7 +2126,37 @@ class ReAssessmentItem(models.Model):
         ]
 
     def clean(self):
+        super().clean()
         errors = {}
+        if self.pic_user_assignment_id:
+            from .services.pic import (
+                assignment_validation_error,
+                profile_reference_date,
+            )
+
+            previous_assignment_id = None
+            if self.pk:
+                previous_assignment_id = (
+                    type(self).objects.filter(pk=self.pk)
+                    .values_list("pic_user_assignment_id", flat=True)
+                    .first()
+                )
+            validation_error = assignment_validation_error(
+                self.pic_user_assignment,
+                self.pic_organization_unit,
+                on_date=profile_reference_date(self.summary),
+                allow_historical=(
+                    previous_assignment_id == self.pic_user_assignment_id
+                ),
+            )
+            if validation_error:
+                target_field = (
+                    "pic_organization_unit"
+                    if not self.pic_organization_unit_id
+                    else "pic_user_assignment"
+                )
+                errors[target_field] = validation_error
+
         if getattr(self, "km_item_id", None) and self.summary_id:
             if self.km_item.kontrak_id != self.summary.kontrak_manajemen_id:
                 errors["km_item"] = (
