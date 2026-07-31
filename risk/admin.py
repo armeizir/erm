@@ -104,6 +104,11 @@ from risk.services.pic import (
     permitted_organization_units,
     profile_reference_date,
 )
+from risk.services.reassessment_excel import (
+    ProfileWorkbookError,
+    build_reassessment_profile_workbook,
+    profile_workbook_filename,
+)
 
 
 
@@ -2978,7 +2983,7 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         "kontrak_manajemen",
         "rkm",
         "dibuat_pada",
-        "pdf_button",
+        "excel_button",
     )
 
     list_filter = ("tahun", "unit_bisnis")
@@ -3007,6 +3012,11 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
+                "<int:summary_id>/excel/",
+                self.admin_site.admin_view(self.excel_view),
+                name="risk_reassessmentsummary_excel",
+            ),
+            path(
                 "<int:summary_id>/pdf/",
                 self.admin_site.admin_view(self.pdf_view),
                 name="risk_reassessmentsummary_pdf",
@@ -3014,11 +3024,17 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         ]
         return custom_urls + urls
 
-    def pdf_button(self, obj):
-        url = reverse("admin:risk_reassessmentsummary_pdf", args=[obj.pk])
-        return format_html('<a class="button" href="{}" target="_blank">PDF Profil Risiko</a>', url)
+    def excel_button(self, obj):
+        url = reverse(
+            f"{self.admin_site.name}:risk_reassessmentsummary_excel",
+            args=[obj.pk],
+        )
+        return format_html(
+            '<a class="button" href="{}">Excel Profil Risiko</a>',
+            url,
+        )
 
-    pdf_button.short_description = "Laporan"
+    excel_button.short_description = "Laporan"
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -3100,6 +3116,41 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
             return ""
         western = f"{value:,.2f}"
         return western.translate(str.maketrans({",": ".", ".": ","}))
+
+    def excel_view(self, request, summary_id):
+        summary = get_object_or_404(
+            ReAssessmentSummary.objects.select_related(
+                "unit_bisnis",
+                "kontrak_manajemen",
+                "rkm",
+                "risk_matrix",
+            ),
+            pk=summary_id,
+        )
+        if not user_can_access_unit(request, summary.unit_bisnis_id):
+            raise PermissionDenied
+
+        try:
+            workbook = build_reassessment_profile_workbook(summary)
+        except ProfileWorkbookError as exc:
+            return HttpResponse(
+                str(exc),
+                status=422,
+                content_type="text/plain; charset=utf-8",
+            )
+
+        response = HttpResponse(
+            workbook,
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="{profile_workbook_filename(summary)}"'
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
     def pdf_view(self, request, summary_id):
         summary = get_object_or_404(
