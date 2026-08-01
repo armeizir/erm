@@ -13,7 +13,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from masterdata.models import (
     OrganizationUnit,
@@ -1275,7 +1275,61 @@ class MonthlyRiskReportAdminTests(TestCase):
             ("reassessment",),
         )
         self.assertIn("web_button", MonthlyRiskReportAdmin.list_display)
+        self.assertIn("excel_button", MonthlyRiskReportAdmin.list_display)
         self.assertNotIn("pdf_button", MonthlyRiskReportAdmin.list_display)
+
+    def test_monthly_report_excel_export_uses_official_template_and_kpmr_sheet(self):
+        report = self._report("BID XLSX")
+        risk_event = self._risk_item(
+            report,
+            no_item=1,
+            no_risiko=1,
+            no_penyebab_risiko="a",
+            peristiwa_risiko="Risiko ekspor Excel",
+        )
+        risk_event.key_risk_indicators = "KRI ekspor"
+        risk_event.unit_satuan_kri = "%"
+        risk_event.threshold_aman = ">= 95%"
+        risk_event.threshold_hati_hati = "90%-94%"
+        risk_event.threshold_bahaya = "< 90%"
+        risk_event.timeline_2 = 1
+        risk_event.save()
+        MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            realisasi_nilai_dampak=Decimal("1000"),
+            realisasi_nilai_probabilitas=Decimal("50"),
+            realisasi_rencana_perlakuan="Realisasi mitigasi",
+            realisasi_output_perlakuan="Output mitigasi",
+            realisasi_biaya_perlakuan=Decimal("100"),
+            progress_pelaksanaan_percent=Decimal("100"),
+            realisasi_threshold_kri="3. Hijau",
+            realisasi_threshold_kri_skor="100",
+            status_rencana_perlakuan="continue",
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(
+            reverse(
+                "risk_admin:monthly_report_monthlyriskreport_excel",
+                args=[report.pk],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn(".xlsx", response["Content-Disposition"])
+        workbook = load_workbook(BytesIO(response.content), data_only=False)
+        self.assertIn("III.A", workbook.sheetnames)
+        self.assertIn("III.B", workbook.sheetnames)
+        self.assertIn("KPMR", workbook.sheetnames)
+        self.assertEqual(workbook["III.B"]["B11"].value, 1)
+        self.assertEqual(workbook["III.B"]["C11"].value, "Risiko ekspor Excel")
+        self.assertEqual(workbook["III.B"]["AO11"].value, "3. Hijau")
+        self.assertEqual(workbook["KPMR"]["I7"].value, "=H8+H12+H18+(30%*(H22+H25+H28+H31))")
 
     def test_monthly_report_preparer_is_automatic_for_report_unit(self):
         User = get_user_model()
