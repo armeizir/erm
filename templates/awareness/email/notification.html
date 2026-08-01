@@ -23,6 +23,61 @@
           <tr>
             <td style="padding:34px 42px 18px;">
               <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#111827;"><strong>Yth. Bapak dan Ibu,</strong></p>
+              {% if is_closed %}
+              <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#333333;">
+                Terima kasih atas partisipasi Bapak/Ibu dalam <strong>{{ campaign.title }}</strong>.
+                Periode awareness <strong>{{ period_text }}</strong> telah berakhir dan pengisian sudah ditutup.
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 24px;">
+                <tr>
+                  <td style="border-left:4px solid #169c43;background:#eaf7ee;padding:16px 20px;font-size:15px;line-height:1.45;color:#14532d;">
+                    <strong>Terima kasih telah berpartisipasi.</strong><br>
+                    Berikut ringkasan hasil pemahaman pegawai per group.
+                  </td>
+                </tr>
+              </table>
+              <h2 style="font-size:17px;line-height:1.35;margin:28px 0 10px;color:#111827;">Hasil Pemahaman per Group</h2>
+              <div style="height:2px;background:#0b70b7;margin:0 0 14px;"></div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 26px;font-size:13px;color:#333333;">
+                <thead>
+                  <tr>
+                    <th align="left" style="background:#0b70b7;color:#ffffff;padding:10px;border:1px solid #0b70b7;">GROUP</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:10px;border:1px solid #0b70b7;">RESPONDEN</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:10px;border:1px solid #0b70b7;">RATA-RATA</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:10px;border:1px solid #0b70b7;">LULUS</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:10px;border:1px solid #0b70b7;">PASS RATE</th>
+                    <th align="center" style="background:#0b70b7;color:#ffffff;padding:10px;border:1px solid #0b70b7;">PEMAHAMAN</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in result_rows %}
+                  <tr>
+                    <td style="padding:10px;border:1px solid #e8edf3;">{{ row.unit }}</td>
+                    <td align="center" style="padding:10px;border:1px solid #e8edf3;">{{ row.respondent_count }}</td>
+                    <td align="center" style="padding:10px;border:1px solid #e8edf3;">{{ row.average_score|default:"-" }}</td>
+                    <td align="center" style="padding:10px;border:1px solid #e8edf3;">{{ row.passed_count }}</td>
+                    <td align="center" style="padding:10px;border:1px solid #e8edf3;">{{ row.pass_rate }}%</td>
+                    <td align="center" style="padding:10px;border:1px solid #e8edf3;font-weight:700;">{{ row.understanding }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="6" style="padding:12px;border:1px solid #e8edf3;text-align:center;">Belum ada hasil responden.</td></tr>
+                  {% endfor %}
+                  <tr>
+                    <td style="padding:11px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">TOTAL</td>
+                    <td align="center" style="padding:11px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">{{ result_total.respondent_count }}</td>
+                    <td align="center" style="padding:11px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">{{ result_total.average_score|default:"-" }}</td>
+                    <td align="center" style="padding:11px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">{{ result_total.passed_count }}</td>
+                    <td align="center" style="padding:11px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">{{ result_total.pass_rate }}%</td>
+                    <td align="center" style="padding:11px;border:1px solid #0b70b7;background:#0b70b7;color:#ffffff;font-weight:700;">{{ result_total.understanding }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p style="margin:0 0 24px;text-align:center;">
+                <a href="{{ participants_url }}" style="display:inline-block;background:#e5edf5;color:#0b70b7;text-decoration:none;font-weight:700;font-size:14px;padding:11px 24px;border-radius:6px;">
+                  Lihat Pengisi Awareness
+                </a>
+              </p>
+              {% else %}
               <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#333333;">
                 Dalam rangka meningkatkan awareness pegawai terkait {{ email_subheading|lower }} di lingkungan
                 <strong>PT PLN Batam</strong>, kami mohon kesediaan Bapak/Ibu untuk berpartisipasi dalam
@@ -89,6 +144,7 @@
                 Jika tombol tidak dapat dibuka, salin tautan berikut ke browser:
               </p>
               <p style="margin:0;font-size:13px;line-height:1.5;color:#64748b;word-break:break-all;">{{ material_url }}</p>
+              {% endif %}
             </td>
           </tr>
           <tr>
