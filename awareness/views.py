@@ -14,6 +14,7 @@ from .models import AwarenessAnswer, AwarenessAttempt, AwarenessCampaign
 
 def _active_campaigns():
     today = timezone.localdate()
+    AwarenessCampaign.close_expired(at=today)
     return AwarenessCampaign.objects.filter(
         is_active=True,
         start_date__lte=today,

@@ -21,7 +21,11 @@ from .models import (
     AwarenessQuestion,
     AwarenessUnitTarget,
 )
-from .notifications import awareness_progress_rows, send_awareness_notification
+from .notifications import (
+    awareness_group_result_rows,
+    awareness_progress_rows,
+    send_awareness_notification,
+)
 
 
 class StaffAwarenessAdminMixin:
@@ -76,7 +80,7 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         "end_date",
         "passing_score",
         "max_attempts",
-        "is_active",
+        "effective_status",
     )
     search_fields = ("title", "description", "topic")
     list_filter = ("topic", "is_active", "start_date", "end_date")
@@ -108,6 +112,14 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         if not obj.created_by_id:
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
+
+    def get_queryset(self, request):
+        AwarenessCampaign.close_expired()
+        return super().get_queryset(request)
+
+    @admin.display(description="Status", boolean=True)
+    def effective_status(self, obj):
+        return obj.is_currently_active()
 
     def get_list_display(self, request):
         fields = list(super().get_list_display(request))
@@ -166,7 +178,8 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
     @admin.display(description="Notifikasi")
     def send_test_link(self, obj):
         url = reverse(f"{self.admin_site.name}:awareness_campaign_send_test", args=[obj.pk])
-        return format_html('<a class="button" href="{}">Kirim Report</a>', url)
+        label = "Kirim Ucapan & Hasil" if obj.has_ended() else "Kirim Report"
+        return format_html('<a class="button" href="{}">{}</a>', url, label)
 
     def send_test_view(self, request, campaign_id):
         if not self._can_send_test_notification(request):
@@ -181,19 +194,24 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
                 messages.ERROR,
             )
             return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
+        notification_label = (
+            "Ucapan terima kasih dan hasil awareness"
+            if campaign.has_ended()
+            else "Report awareness"
+        )
         try:
             sent = send_awareness_notification(campaign, [recipient], request=request)
         except (OSError, SMTPException) as exc:
             self.message_user(
                 request,
-                f"Report awareness gagal dikirim ke {recipient}: {exc}",
+                f"{notification_label} gagal dikirim ke {recipient}: {exc}",
                 messages.ERROR,
             )
             return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
         if sent:
-            self.message_user(request, f"Report awareness terkirim ke {recipient}.", messages.SUCCESS)
+            self.message_user(request, f"{notification_label} terkirim ke {recipient}.", messages.SUCCESS)
         else:
-            self.message_user(request, f"Report awareness gagal dikirim ke {recipient}.", messages.ERROR)
+            self.message_user(request, f"{notification_label} gagal dikirim ke {recipient}.", messages.ERROR)
         return redirect(reverse(f"{self.admin_site.name}:awareness_awarenesscampaign_changelist"))
 
     def _user_unit_label(self, user):
@@ -220,10 +238,12 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
         participant_count = len(attempted_user_ids)
         active_user_count = active_users.count()
         progress = awareness_progress_rows(campaign)
+        group_results = awareness_group_result_rows(campaign)
         return {
             **self.admin_site.each_context(request),
             "title": f"Report Awareness - {campaign.title}",
             "campaign": campaign,
+            "is_closed": campaign.has_ended(),
             "attempts": attempts,
             "not_attempted_users": not_attempted_users,
             "active_user_count": active_user_count,
@@ -234,12 +254,20 @@ class AwarenessCampaignAdmin(StaffAwarenessAdminMixin, admin.ModelAdmin):
             "completion_rate": (participant_count / active_user_count * 100) if active_user_count else 0,
             "progress_rows": progress["rows"],
             "progress_total": progress["total"],
+            "result_rows": group_results["rows"],
+            "result_total": group_results["total"],
         }
 
     def _report_context(self, request):
+        today = timezone.localdate()
+        AwarenessCampaign.close_expired(at=today)
         attempts = AwarenessAttempt.objects.select_related("campaign", "user")
         submitted = attempts.exclude(status=AwarenessAttempt.STATUS_IN_PROGRESS)
-        active_campaigns = AwarenessCampaign.objects.filter(is_active=True).count()
+        active_campaigns = AwarenessCampaign.objects.filter(
+            is_active=True,
+            start_date__lte=today,
+            end_date__gte=today,
+        ).count()
         total_participants = submitted.values("user_id").distinct().count()
         passed_count = submitted.filter(status=AwarenessAttempt.STATUS_PASSED).count()
         failed_count = submitted.filter(status=AwarenessAttempt.STATUS_FAILED).count()
