@@ -29,6 +29,7 @@ MONTH_NAMES = {
 
 def active_awareness_campaigns(at=None):
     at = at or timezone.localdate()
+    AwarenessCampaign.close_expired(at=at)
     return AwarenessCampaign.objects.filter(
         is_active=True,
         start_date__lte=at,
@@ -83,6 +84,8 @@ def campaign_period_text(campaign):
 
 def campaign_subject(campaign):
     month_label = f"{MONTH_NAMES[campaign.start_date.month]} {campaign.start_date.year}"
+    if campaign.has_ended():
+        return f"Terima Kasih atas Partisipasi {campaign.title}"
     return f"Pelaksanaan {campaign.title} Bulan {month_label}"
 
 
@@ -201,16 +204,114 @@ def awareness_progress_rows(campaign):
     }
 
 
+
+def _understanding_label(average_score):
+    if average_score is None:
+        return "Belum Ada Data"
+    if average_score >= 85:
+        return "Sangat Baik"
+    if average_score >= 70:
+        return "Baik"
+    if average_score >= 60:
+        return "Cukup"
+    return "Perlu Ditingkatkan"
+
+
+def awareness_group_result_rows(campaign):
+    """Summarise the latest completed result of each user by organisation group."""
+    User = get_user_model()
+    completed = (
+        AwarenessAttempt.objects.filter(
+            campaign=campaign,
+            status__in=[
+                AwarenessAttempt.STATUS_PASSED,
+                AwarenessAttempt.STATUS_FAILED,
+            ],
+        )
+        .select_related("user")
+        .order_by("user_id", "-submitted_at", "-started_at", "-attempt_number")
+    )
+
+    latest_by_user = {}
+    for attempt in completed:
+        latest_by_user.setdefault(attempt.user_id, attempt)
+
+    unit_targets = list(campaign.unit_targets.filter(is_active=True).order_by("order", "unit_name"))
+    if unit_targets:
+        units = [(target.unit_name, target.unit_name) for target in unit_targets]
+    else:
+        units = [
+            (group.name, group.name)
+            for group in Group.objects.exclude(name__startswith="ROLE -").order_by("name")
+        ]
+
+    rows = []
+    for unit_label, group_name in units:
+        member_ids = set(
+            User.objects.filter(is_active=True, groups__name__iexact=group_name)
+            .values_list("id", flat=True)
+        )
+        attempts = [latest_by_user[user_id] for user_id in member_ids if user_id in latest_by_user]
+        respondent_count = len(attempts)
+        scores = [float(attempt.score or 0) for attempt in attempts]
+        average_score = round(sum(scores) / respondent_count, 2) if respondent_count else None
+        passed_count = sum(
+            1 for attempt in attempts if attempt.status == AwarenessAttempt.STATUS_PASSED
+        )
+        failed_count = sum(
+            1 for attempt in attempts if attempt.status == AwarenessAttempt.STATUS_FAILED
+        )
+        pass_rate = round((passed_count / respondent_count) * 100) if respondent_count else 0
+
+        rows.append({
+            "unit": unit_label,
+            "respondent_count": respondent_count,
+            "average_score": average_score,
+            "passed_count": passed_count,
+            "failed_count": failed_count,
+            "pass_rate": pass_rate,
+            "understanding": _understanding_label(average_score),
+        })
+
+    total_attempts = list(latest_by_user.values())
+    total_respondents = len(total_attempts)
+    total_scores = [float(attempt.score or 0) for attempt in total_attempts]
+    total_average_score = (
+        round(sum(total_scores) / total_respondents, 2) if total_respondents else None
+    )
+    total_passed = sum(
+        1 for attempt in total_attempts if attempt.status == AwarenessAttempt.STATUS_PASSED
+    )
+    total_failed = sum(
+        1 for attempt in total_attempts if attempt.status == AwarenessAttempt.STATUS_FAILED
+    )
+    total_pass_rate = round((total_passed / total_respondents) * 100) if total_respondents else 0
+
+    return {
+        "rows": rows,
+        "total": {
+            "respondent_count": total_respondents,
+            "average_score": total_average_score,
+            "passed_count": total_passed,
+            "failed_count": total_failed,
+            "pass_rate": total_pass_rate,
+            "understanding": _understanding_label(total_average_score),
+        },
+    }
+
 def send_awareness_notification(campaign, recipients, request=None, base_url=None):
     recipients = [email for email in recipients if email]
     if not recipients:
         return 0
 
     app_setting = AppSetting.get_solo()
+    is_closed = campaign.has_ended()
     progress = awareness_progress_rows(campaign)
+    group_results = awareness_group_result_rows(campaign)
     context = {
         "campaign": campaign,
         "app_setting": app_setting,
+        "is_closed": is_closed,
         "material_url": campaign_material_url(campaign, request=request, base_url=base_url),
         "participants_url": campaign_participants_url(campaign, request=request, base_url=base_url),
         "period_text": campaign_period_text(campaign),
@@ -219,6 +320,8 @@ def send_awareness_notification(campaign, recipients, request=None, base_url=Non
         "email_subheading": campaign.email_subheading,
         "progress_rows": progress["rows"],
         "progress_total": progress["total"],
+        "result_rows": group_results["rows"],
+        "result_total": group_results["total"],
         "footer_year": campaign.start_date.year,
     }
     subject = campaign_subject(campaign)

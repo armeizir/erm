@@ -87,6 +87,16 @@ class AwarenessCampaign(models.Model):
     def question_count(self):
         return self.questions.filter(is_active=True).count()
 
+    @classmethod
+    def close_expired(cls, at=None):
+        """Persist the inactive state for campaigns whose period has ended."""
+        at = at or timezone.localdate()
+        return cls.objects.filter(is_active=True, end_date__lt=at).update(is_active=False)
+
+    def has_ended(self, at=None):
+        at = at or timezone.localdate()
+        return bool(self.end_date and self.end_date < at)
+
     def is_currently_active(self, at=None):
         at = at or timezone.localdate()
         return bool(self.is_active and self.start_date <= at <= self.end_date)
@@ -227,9 +237,15 @@ class AwarenessAttempt(models.Model):
         return self.status in {self.STATUS_PASSED, self.STATUS_FAILED, self.STATUS_EXPIRED, self.STATUS_SUBMITTED}
 
     def is_expired(self, at=None):
-        if not self.campaign.time_limit_minutes or self.status != self.STATUS_IN_PROGRESS:
+        if self.status != self.STATUS_IN_PROGRESS:
             return False
+
         at = at or timezone.now()
+        if not self.campaign.is_currently_active(at=timezone.localdate(at)):
+            return True
+
+        if not self.campaign.time_limit_minutes:
+            return False
         return at > self.started_at + timedelta(minutes=self.campaign.time_limit_minutes)
 
     def mark_expired_if_needed(self):

@@ -1,7 +1,7 @@
 {% extends "admin/base_site.html" %}
 {% block content %}
 <div id="content-main">
-  <h1>Report Awareness</h1>
+  <h1>{% if is_closed %}Hasil Awareness{% else %}Report Awareness{% endif %}</h1>
   <p style="margin:0 0 18px;color:#5f6b7a;">{{ campaign.title }}</p>
 
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:22px;">
@@ -14,11 +14,51 @@
   </div>
 
   <p style="margin:0 0 18px;">
-    <a class="button" href="{% url 'risk_admin:awareness_campaign_send_test' campaign.pk %}">Kirim Report Awareness</a>
+    <a class="button" href="{% url 'risk_admin:awareness_campaign_send_test' campaign.pk %}">{% if is_closed %}Kirim Ucapan &amp; Hasil{% else %}Kirim Report Awareness{% endif %}</a>
     <a class="button" href="{% url 'risk_admin:awareness_campaign_export_xlsx' campaign.pk %}">Export XLSX</a>
     <a class="button" href="{% url 'risk_admin:awareness_awarenesscampaign_changelist' %}">Kembali</a>
   </p>
 
+  {% if is_closed %}
+  <h2>Hasil Pemahaman per Group</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Group</th>
+        <th>Responden</th>
+        <th>Rata-rata Skor</th>
+        <th>Lulus</th>
+        <th>Tidak Lulus</th>
+        <th>Pass Rate</th>
+        <th>Pemahaman</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in result_rows %}
+        <tr>
+          <td>{{ row.unit }}</td>
+          <td>{{ row.respondent_count }}</td>
+          <td>{{ row.average_score|default:"-" }}</td>
+          <td>{{ row.passed_count }}</td>
+          <td>{{ row.failed_count }}</td>
+          <td>{{ row.pass_rate }}%</td>
+          <td><strong>{{ row.understanding }}</strong></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7">Belum ada hasil responden.</td></tr>
+      {% endfor %}
+      <tr style="background:#0b70b7;color:#fff;font-weight:700;">
+        <td>TOTAL</td>
+        <td>{{ result_total.respondent_count }}</td>
+        <td>{{ result_total.average_score|default:"-" }}</td>
+        <td>{{ result_total.passed_count }}</td>
+        <td>{{ result_total.failed_count }}</td>
+        <td>{{ result_total.pass_rate }}%</td>
+        <td>{{ result_total.understanding }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
   <h2>Progress Responden per Bidang / Unit</h2>
   <table>
     <thead>
@@ -51,6 +91,7 @@
       </tr>
     </tbody>
   </table>
+  {% endif %}
 
   <h2>Responden</h2>
   <table>
@@ -78,6 +119,7 @@
     </tbody>
   </table>
 
+  {% if not is_closed %}
   <h2>Belum Mengisi</h2>
   <table>
     <thead>
@@ -99,5 +141,6 @@
       {% endfor %}
     </tbody>
   </table>
+  {% endif %}
 </div>
 {% endblock %}

@@ -1,3 +1,20 @@
+{% if is_closed %}
+Yth. Bapak dan Ibu,
+
+Terima kasih atas partisipasi Bapak/Ibu dalam {{ campaign.title }}. Periode awareness {{ period_text }} telah berakhir dan pengisian sudah ditutup.
+
+Hasil pemahaman per group:
+{% for row in result_rows %}- {{ row.unit }}: {{ row.respondent_count }} responden, rata-rata {{ row.average_score|default:"-" }}, lulus {{ row.passed_count }}, tidak lulus {{ row.failed_count }}, pass rate {{ row.pass_rate }}%, kategori {{ row.understanding }}
+{% empty %}- Belum ada hasil responden.
+{% endfor %}
+TOTAL: {{ result_total.respondent_count }} responden, rata-rata {{ result_total.average_score|default:"-" }}, lulus {{ result_total.passed_count }}, tidak lulus {{ result_total.failed_count }}, pass rate {{ result_total.pass_rate }}%, kategori {{ result_total.understanding }}
+
+Daftar pengisi awareness dan group:
+{{ participants_url }}
+
+Terima kasih atas kontribusi Bapak/Ibu dalam meningkatkan pemahaman manajemen risiko di lingkungan PT PLN Batam.
+{{ app_setting.nama_aplikasi|default:"Manajemen Risiko PLN Batam" }}
+{% else %}
 Yth. Bapak dan Ibu,
 
 Dalam rangka meningkatkan awareness pegawai terkait {{ email_subheading|lower }} di lingkungan PT PLN Batam, kami mohon kesediaan Bapak/Ibu untuk berpartisipasi dalam {{ campaign.title }} Bulan {{ month_year|upper }}.
@@ -18,3 +35,4 @@ Daftar pengisi awareness dan group:
 
 Terima kasih atas partisipasi Bapak/Ibu.
 {{ app_setting.nama_aplikasi|default:"Manajemen Risiko PLN Batam" }}
+{% endif %}
