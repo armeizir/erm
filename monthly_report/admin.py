@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
+from django.http import HttpResponse
 from django.http import HttpResponseRedirect
 from django.http import JsonResponse
 from django.shortcuts import redirect
@@ -19,6 +20,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from riskproject.admin_site import risk_admin_site
+from .excel_reports import XLSX_CONTENT_TYPE, build_monthly_risk_report_excel
 from .pdf_reports import (
     _display_number_map,
     _money,
@@ -726,6 +728,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "flow_action_button",
         "notification_button",
         "web_button",
+        "excel_button",
         "import_profile_button",
         "duplicate_next_month_button",
     ]
@@ -748,6 +751,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "<path:object_id>/web/",
                 self.admin_site.admin_view(self.web_report_view),
                 name="monthly_report_monthlyriskreport_web",
+            ),
+            path(
+                "<path:object_id>/excel/",
+                self.admin_site.admin_view(self.excel_report_view),
+                name="monthly_report_monthlyriskreport_excel",
             ),
             path(
                 "<path:object_id>/send-notification/",
@@ -1120,15 +1128,36 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
     @admin.display(description="Bulan Berikutnya")
     def duplicate_next_month_button(self, obj):
-        if not obj or obj.status != "approved":
+        if (
+            not obj
+            or obj.status != "approved"
+            or not obj.periode_id
+            or not obj.reassessment_id
+        ):
             return "-"
-        if obj.copied_reports.exists():
-            copied = obj.copied_reports.order_by("periode__tanggal_mulai", "pk").first()
+
+        current_date = obj.periode.tanggal_mulai
+        month_index = current_date.year * 12 + current_date.month
+        next_year, zero_based_month = divmod(month_index, 12)
+        next_month = zero_based_month + 1
+
+        next_report = (
+            self.model.objects.filter(
+                reassessment_id=obj.reassessment_id,
+                periode__tanggal_mulai__year=next_year,
+                periode__tanggal_mulai__month=next_month,
+            )
+            .order_by("-versi", "-pk")
+            .first()
+        )
+
+        if next_report:
             url = reverse(
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
-                args=[copied.pk],
+                args=[next_report.pk],
             )
             return format_html('<a href="{}">Sudah dibuat</a>', url)
+
         url = reverse(
             f"{self.admin_site.name}:monthly_report_monthlyriskreport_duplicate_next_month",
             args=[obj.pk],
@@ -1428,6 +1457,31 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             args=[obj.pk],
         )
         return format_html('<a class="button" href="{}" target="_blank">Lihat</a>', url)
+
+    @admin.display(description="Excel")
+    def excel_button(self, obj):
+        if not obj or not obj.pk or obj.status != "approved":
+            return "-"
+        url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_excel",
+            args=[obj.pk],
+        )
+        return format_html('<a class="button" href="{}">Download XLSX</a>', url)
+
+    def excel_report_view(self, request, object_id):
+        report = self.get_object(request, object_id)
+        if report is None:
+            raise Http404("Monthly risk report tidak ditemukan.")
+        if not self.has_view_permission(request, report):
+            raise PermissionDenied("Anda tidak memiliki izin melihat laporan ini.")
+        if report.status != "approved":
+            raise PermissionDenied("Laporan Excel hanya dapat diunduh setelah berstatus Approved.")
+
+        output, filename = build_monthly_risk_report_excel(report)
+        response = HttpResponse(output.getvalue(), content_type=XLSX_CONTENT_TYPE)
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
     def _monthly_report_web_context(self, request, report):
         items = _ordered_items(report)
