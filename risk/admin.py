@@ -31,6 +31,7 @@ from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import urlparse
 from xml.sax.saxutils import escape
 
 from openpyxl import Workbook, load_workbook
@@ -1458,7 +1459,55 @@ class KnowledgeBaseArticleForm(forms.ModelForm):
         widgets = {
             "ringkasan": forms.Textarea(attrs={"rows": 3}),
             "konten": forms.Textarea(attrs={"class": "kb-rich-editor", "rows": 24}),
+            "video_youtube_url": forms.URLInput(
+                attrs={"style": "width:100%;"}
+            ),
         }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        video_url = (cleaned_data.get("video_youtube_url") or "").strip()
+        placement = cleaned_data.get("tutorial_placement") or ""
+        status = cleaned_data.get("status")
+
+        if placement and not video_url:
+            self.add_error(
+                "video_youtube_url",
+                "URL Video YouTube wajib diisi ketika penempatan tutorial dipilih.",
+            )
+
+        if video_url:
+            parsed = urlparse(video_url)
+            hostname = (parsed.hostname or "").lower().rstrip(".")
+            is_youtube = (
+                hostname == "youtu.be"
+                or hostname == "youtube.com"
+                or hostname.endswith(".youtube.com")
+                or hostname == "youtube-nocookie.com"
+                or hostname.endswith(".youtube-nocookie.com")
+            )
+            if parsed.scheme not in {"http", "https"} or not is_youtube:
+                self.add_error(
+                    "video_youtube_url",
+                    "Gunakan URL video dari youtube.com atau youtu.be.",
+                )
+
+        if (
+            placement
+            and status == KnowledgeBaseArticle.STATUS_PUBLISHED
+        ):
+            existing = KnowledgeBaseArticle.objects.filter(
+                status=KnowledgeBaseArticle.STATUS_PUBLISHED,
+                tutorial_placement=placement,
+            ).exclude(pk=self.instance.pk)
+            if existing.exists():
+                self.add_error(
+                    "tutorial_placement",
+                    "Sudah ada artikel Published untuk penempatan tutorial ini. "
+                    "Arsipkan atau ubah artikel tersebut terlebih dahulu.",
+                )
+
+        return cleaned_data
 
 
 @admin.register(KnowledgeBaseCategory)
@@ -1488,11 +1537,18 @@ class KnowledgeBaseArticleAdmin(admin.ModelAdmin):
         "kategori",
         "audience",
         "status",
+        "tutorial_placement",
         "dibuat_oleh",
         "dipublikasikan_pada",
         "diperbarui_pada",
     )
-    list_filter = ("status", "audience", "kategori", "dipublikasikan_pada")
+    list_filter = (
+        "status",
+        "tutorial_placement",
+        "audience",
+        "kategori",
+        "dipublikasikan_pada",
+    )
     search_fields = ("judul", "ringkasan", "konten", "tags")
     prepopulated_fields = {"slug": ("judul",)}
     autocomplete_fields = ("kategori", "dibuat_oleh", "diperbarui_oleh")
@@ -1517,6 +1573,16 @@ class KnowledgeBaseArticleAdmin(admin.ModelAdmin):
                 "konten",
                 "lampiran",
             )
+        }),
+        ("Tutorial Video", {
+            "fields": (
+                "video_youtube_url",
+                "tutorial_placement",
+            ),
+            "description": (
+                "Video hanya tampil pada email jika artikel berstatus Published, "
+                "URL YouTube terisi, dan penempatan tutorial dipilih."
+            ),
         }),
         ("Publikasi", {
             "fields": (

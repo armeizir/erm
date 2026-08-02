@@ -29,6 +29,8 @@ from risk.models import (
     KontrakManajemen,
     KPMRIndikatorResmi,
     KPMRPeriode,
+    KnowledgeBaseArticle,
+    KnowledgeBaseCategory,
     MasterBagianKM,
     MasterTemplateKM,
     MasterSkalaDampak,
@@ -2339,6 +2341,94 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(mail.outbox[-1].subject, "Test Notifikasi ERM")
         self.assertIn("[MODE UJI COBA]", mail.outbox[-1].body)
         self.assertIn("Periksa tampilan email ini.", mail.outbox[-1].body)
+
+    def test_notification_email_includes_published_youtube_tutorial(self):
+        category = KnowledgeBaseCategory.objects.create(
+            nama="Tutorial ERM",
+        )
+        KnowledgeBaseArticle.objects.create(
+            kategori=category,
+            judul="Cara Mengisi Laporan Risiko Bulanan",
+            ringkasan="Panduan singkat pengisian dan pengiriman laporan.",
+            konten="Konten tutorial.",
+            status=KnowledgeBaseArticle.STATUS_PUBLISHED,
+            tutorial_placement=(
+                KnowledgeBaseArticle.TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL
+            ),
+            video_youtube_url="https://youtu.be/tutorial-erm",
+            dipublikasikan_pada=timezone.now(),
+        )
+        report = self._report("INFRA TUTORIAL EMAIL")
+        User = get_user_model()
+        officer = User.objects.create_user(
+            username="tutorial.officer",
+            email="tutorial.officer@example.com",
+        )
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report.reassessment.unit_bisnis,
+            user=officer,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+
+        sent = send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+            delivery_mode="test",
+            test_email_override="admin.test@example.com",
+        )
+
+        self.assertEqual(sent, 1)
+        self.assertIn(
+            "Tutorial Penggunaan: Cara Mengisi Laporan Risiko Bulanan",
+            mail.outbox[-1].body,
+        )
+        self.assertIn(
+            "https://youtu.be/tutorial-erm",
+            mail.outbox[-1].body,
+        )
+        html = mail.outbox[-1].alternatives[0].content
+        self.assertIn("Tutorial Penggunaan", html)
+        self.assertIn("Tonton Video Tutorial", html)
+        self.assertIn("https://youtu.be/tutorial-erm", html)
+
+    def test_notification_email_hides_unpublished_tutorial(self):
+        category = KnowledgeBaseCategory.objects.create(
+            nama="Tutorial Draft",
+        )
+        KnowledgeBaseArticle.objects.create(
+            kategori=category,
+            judul="Tutorial Belum Terbit",
+            konten="Konten tutorial.",
+            status=KnowledgeBaseArticle.STATUS_DRAFT,
+            tutorial_placement=(
+                KnowledgeBaseArticle.TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL
+            ),
+            video_youtube_url="https://youtu.be/tutorial-draft",
+        )
+        report = self._report("INFRA TUTORIAL DRAFT")
+        User = get_user_model()
+        officer = User.objects.create_user(
+            username="tutorial.draft.officer",
+            email="tutorial.draft.officer@example.com",
+        )
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report.reassessment.unit_bisnis,
+            user=officer,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+
+        send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+            delivery_mode="test",
+            test_email_override="admin.test@example.com",
+        )
+
+        self.assertNotIn("Tutorial Belum Terbit", mail.outbox[-1].body)
+        self.assertNotIn(
+            "https://youtu.be/tutorial-draft",
+            mail.outbox[-1].alternatives[0].content,
+        )
 
     def test_notification_final_mode_ignores_global_test_email(self):
         app_setting = AppSetting.get_solo()
