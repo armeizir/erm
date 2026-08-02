@@ -1883,8 +1883,16 @@ class MonthlyRiskReportAdminTests(TestCase):
             base_url="https://erm.plnbatam.com",
         )
         self.assertEqual(mail.outbox[-1].to, [reviewer.email])
-        self.assertEqual(mail.outbox[-1].cc, [])
-        self.assertEqual(mail.outbox[-1].bcc, [pairing.email])
+        self.assertEqual(mail.outbox[-1].cc, [approver.email])
+        self.assertEqual(
+            mail.outbox[-1].bcc,
+            [
+                pairing.email,
+                subunit_head.email,
+                mrk_head.email,
+                director.email,
+            ],
+        )
         self.assertIn("Total KPMR", mail.outbox[-1].body)
 
         report.status = "under_review"
@@ -1894,8 +1902,16 @@ class MonthlyRiskReportAdminTests(TestCase):
             base_url="https://erm.plnbatam.com",
         )
         self.assertEqual(mail.outbox[-1].to, [approver.email])
-        self.assertEqual(mail.outbox[-1].cc, [])
-        self.assertEqual(mail.outbox[-1].bcc, [pairing.email])
+        self.assertEqual(mail.outbox[-1].cc, [reviewer.email])
+        self.assertEqual(
+            mail.outbox[-1].bcc,
+            [
+                pairing.email,
+                subunit_head.email,
+                mrk_head.email,
+                director.email,
+            ],
+        )
         self.assertIn("Total KPMR", mail.outbox[-1].body)
 
         report.status = "approved"
@@ -1908,9 +1924,12 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(mail.outbox[-1].to, [pairing.email])
         self.assertEqual(
             mail.outbox[-1].cc,
+            [reviewer.email, approver.email],
+        )
+        self.assertEqual(
+            mail.outbox[-1].bcc,
             [subunit_head.email, mrk_head.email, director.email],
         )
-        self.assertEqual(mail.outbox[-1].bcc, [])
         self.assertNotIn(unrelated_mrk_user.email, mail.outbox[-1].to)
         self.assertNotIn(unrelated_mrk_user.email, mail.outbox[-1].cc)
         self.assertIn("Total KPMR", mail.outbox[-1].body)
@@ -2284,3 +2303,115 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIn("INFRA-26.p", labels[0])
         self.assertIn("INFRA-11.q", labels[1])
         self.assertNotIn("INFRA-28.q", labels[1])
+
+
+    def test_notification_test_mode_only_uses_explicit_test_email(self):
+        report = self._report("INFRA TEST DELIVERY")
+        User = get_user_model()
+        officer = User.objects.create_user(
+            username="delivery.officer",
+            email="delivery.officer@example.com",
+        )
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report.reassessment.unit_bisnis,
+            user=officer,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+        self._assign_pairing_officer(
+            report,
+            username="delivery.pairing",
+            email="delivery.pairing@example.com",
+        )
+
+        sent = send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+            delivery_mode="test",
+            test_email_override="admin.test@example.com",
+            subject_override="Test Notifikasi ERM",
+            instruction_override="Periksa tampilan email ini.",
+        )
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(mail.outbox[-1].to, ["admin.test@example.com"])
+        self.assertEqual(mail.outbox[-1].cc, [])
+        self.assertEqual(mail.outbox[-1].bcc, [])
+        self.assertEqual(mail.outbox[-1].subject, "Test Notifikasi ERM")
+        self.assertIn("[MODE UJI COBA]", mail.outbox[-1].body)
+        self.assertIn("Periksa tampilan email ini.", mail.outbox[-1].body)
+
+    def test_notification_final_mode_ignores_global_test_email(self):
+        app_setting = AppSetting.get_solo()
+        app_setting.monthly_report_notification_test_email = (
+            "global.test@example.com"
+        )
+        app_setting.save(
+            update_fields=["monthly_report_notification_test_email"]
+        )
+        User = get_user_model()
+        reviewer = User.objects.create_user(
+            username="final.reviewer",
+            email="final.reviewer@example.com",
+        )
+        approver = User.objects.create_user(
+            username="final.approver",
+            email="final.approver@example.com",
+        )
+        report = self._report("INFRA FINAL DELIVERY")
+        report.status = "submitted"
+        report.reviewed_by = reviewer
+        report.approved_by = approver
+        report.save(
+            update_fields=["status", "reviewed_by", "approved_by"]
+        )
+        self._assign_pairing_officer(
+            report,
+            username="final.pairing",
+            email="final.pairing@example.com",
+        )
+
+        sent = send_monthly_report_notification(
+            report,
+            base_url="https://erm.plnbatam.com",
+            delivery_mode="final",
+        )
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(mail.outbox[-1].to, [reviewer.email])
+        self.assertEqual(mail.outbox[-1].cc, [approver.email])
+        self.assertEqual(mail.outbox[-1].bcc, ["final.pairing@example.com"])
+        self.assertNotIn("global.test@example.com", mail.outbox[-1].to)
+        self.assertNotIn("[MODE UJI COBA]", mail.outbox[-1].body)
+
+    def test_notification_configuration_get_does_not_send_email(self):
+        report = self._report("INFRA CONFIG PAGE")
+        User = get_user_model()
+        officer = User.objects.create_user(
+            username="config.officer",
+            email="config.officer@example.com",
+        )
+        PenugasanUnitBisnis.objects.create(
+            unit_bisnis=report.reassessment.unit_bisnis,
+            user=officer,
+            peran=PenugasanUnitBisnis.ROLE_RISK_OFFICER,
+        )
+        self._assign_pairing_officer(
+            report,
+            username="config.pairing",
+            email="config.pairing@example.com",
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(
+            reverse(
+                "risk_admin:monthly_report_monthlyriskreport_send_notification",
+                args=[report.pk],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Konfigurasi Notifikasi")
+        self.assertContains(response, "Kirim Test")
+        self.assertContains(response, "Kirim Notifikasi Final")
+        self.assertContains(response, officer.email)
+        self.assertEqual(len(mail.outbox), 0)

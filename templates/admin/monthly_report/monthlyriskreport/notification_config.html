@@ -1,0 +1,79 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main" style="max-width:980px;">
+  <h1>Konfigurasi Notifikasi</h1>
+  <p style="color:#5f6b7a;margin-bottom:22px;">
+    {{ report.reassessment }} — {{ report.periode.nama_periode }}
+  </p>
+
+  <div class="module" style="padding:18px;margin-bottom:20px;">
+    <h2 style="margin-top:0;">Penerima Final</h2>
+    {% if recipient_error %}
+      <p class="errornote">{{ recipient_error }}</p>
+    {% endif %}
+    <table style="width:100%;">
+      <tr>
+        <th style="width:100px;text-align:left;">TO</th>
+        <td>{% if to_emails %}{{ to_emails|join:", " }}{% else %}-{% endif %}</td>
+      </tr>
+      <tr>
+        <th style="text-align:left;">CC</th>
+        <td>{% if cc_emails %}{{ cc_emails|join:", " }}{% else %}-{% endif %}</td>
+      </tr>
+      <tr>
+        <th style="text-align:left;">BCC</th>
+        <td>{% if bcc_emails %}{{ bcc_emails|join:", " }}{% else %}-{% endif %}</td>
+      </tr>
+    </table>
+    <p class="help" style="margin-top:12px;">
+      Penerima final dihitung dari status laporan, user workflow, dan penugasan organisasi aktif.
+    </p>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <fieldset class="module aligned" style="padding:18px;">
+      {% for field in form %}
+        <div class="form-row{% if field.errors %} errors{% endif %}" style="margin-bottom:18px;">
+          {{ field.errors }}
+          <div>
+            <label for="{{ field.id_for_label }}"{% if field.field.required %} class="required"{% endif %}>
+              {{ field.label }}
+            </label>
+          </div>
+          <div style="margin-top:6px;">{{ field }}</div>
+          {% if field.help_text %}
+            <div class="help" style="margin-top:5px;">{{ field.help_text }}</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </fieldset>
+
+    <div class="module" style="padding:18px;margin-top:20px;">
+      <h2 style="margin-top:0;">Preview Ringkas</h2>
+      <p><strong>Laporan:</strong> {{ report.reassessment }}</p>
+      <p><strong>Periode:</strong> {{ report.periode.nama_periode }}</p>
+      <p><strong>Status:</strong> {{ report.get_status_display }}</p>
+      <p><strong>Tahap:</strong> {{ stage.title }}</p>
+      <p class="help">
+        Kirim Test hanya menuju email uji coba. Kirim Final menggunakan daftar TO/CC/BCC di atas.
+      </p>
+    </div>
+
+    <div class="submit-row">
+      <button type="submit" name="action" value="test" class="button">Kirim Test</button>
+      <button
+        type="submit"
+        name="action"
+        value="send_final"
+        class="default"
+        onclick="return confirm('Kirim notifikasi final ke penerima yang tercantum?');"
+      >
+        Kirim Notifikasi Final
+      </button>
+      <a href="{{ cancel_url }}" class="button cancel-link">Batal</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
