@@ -159,35 +159,60 @@ def _valid_recipient_user_email(user, recipients):
     }
 
 
-def send_monthly_report_notification(
-    report,
-    request=None,
-    base_url=None,
-    correction_note="",
-    approved_transition=False,
-):
-    if report.status == "approved" and not approved_transition:
+def _merge_unique_emails(*email_groups, excluded=()):
+    seen = {
+        (email or "").strip().casefold()
+        for email in excluded
+        if (email or "").strip()
+    }
+    merged = []
+    for group in email_groups:
+        for email in group or []:
+            normalized = (email or "").strip()
+            key = normalized.casefold()
+            if not normalized or key in seen:
+                continue
+            seen.add(key)
+            merged.append(normalized)
+    return merged
+
+
+def _workflow_cc_emails(report):
+    users = [
+        ("Reviewer", report.reviewed_by),
+        ("Approver", report.approved_by),
+    ]
+    missing = [
+        f"{role}: {user.get_username()}"
+        for role, user in users
+        if user is not None and not (user.email or "").strip()
+    ]
+    if missing:
         raise ValidationError(
-            "Notifikasi Approved hanya dikirim saat transisi status menjadi Approved."
+            "Email Reviewer/Approver belum diisi: " + ", ".join(missing)
         )
-    stage = monthly_report_notification_stage(report)
+    return [
+        user.email
+        for _role, user in users
+        if user is not None and (user.email or "").strip()
+    ]
+
+
+def resolve_monthly_report_notification_recipients(
+    report,
+    stage=None,
+    *,
+    delivery_mode="auto",
+    test_email_override="",
+):
+    if delivery_mode not in {"auto", "test", "final"}:
+        raise ValidationError("Mode pengiriman notifikasi tidak dikenal.")
+
+    stage = stage or monthly_report_notification_stage(report)
     if not stage:
-        raise ValidationError("Status laporan tidak memerlukan notifikasi tahap berikutnya.")
-    correction_note = (correction_note or "").strip()
-    if correction_note:
-        if report.status != "revision":
-            raise ValidationError(
-                "Komentar koreksi hanya dapat dikirim untuk laporan berstatus Revision."
-            )
-        stage = {
-            **stage,
-            "title": "Koreksi Laporan Risiko Bulanan",
-            "instruction": (
-                "Laporan dikembalikan oleh reviewer/approver. "
-                "Mohon Prepared by memperbaiki laporan sesuai komentar koreksi, "
-                "kemudian melakukan Submit Ulang."
-            ),
-        }
+        raise ValidationError(
+            "Status laporan tidak memerlukan notifikasi tahap berikutnya."
+        )
 
     app_setting = AppSetting.get_solo()
     recipient_users = stage.get("recipients")
@@ -195,11 +220,26 @@ def send_monthly_report_notification(
     bcc_recipient = stage.get("bcc_recipient")
     cc_recipient_users = stage.get("cc_recipients") or []
     recipient_names = []
-    test_email = "" if stage.get("ignore_test_email") else app_setting.monthly_report_notification_test_email
+
+    if delivery_mode == "test":
+        test_email = (test_email_override or "").strip()
+        if not test_email:
+            raise ValidationError("Email tujuan uji coba wajib diisi.")
+    elif delivery_mode == "final":
+        test_email = ""
+    else:
+        test_email = (
+            ""
+            if stage.get("ignore_test_email")
+            else app_setting.monthly_report_notification_test_email
+        )
+
     bcc_recipients = []
     cc_recipients = []
+    organization_superior_emails = []
     if test_email:
         recipients = [test_email]
+        recipient = None
     else:
         approved_recipients = stage.get("approved_recipients")
         if approved_recipients is not None:
@@ -209,7 +249,7 @@ def send_monthly_report_notification(
                     or "Pairing Officer aktif tidak memiliki email valid."
                 )
             recipients = approved_recipients.to
-            cc_recipients = approved_recipients.cc
+            organization_superior_emails = approved_recipients.cc
             recipient = (
                 approved_recipients.to_users[0]
                 if approved_recipients.to_users
@@ -222,13 +262,22 @@ def send_monthly_report_notification(
             ]
         elif recipient_users is not None:
             if not recipient_users:
-                raise ValidationError("Belum ada Risk Officer aktif pada BID/Unit Bisnis laporan.")
-            users_without_email = [user.get_username() for user in recipient_users if not user.email]
+                raise ValidationError(
+                    "Belum ada Risk Officer aktif pada BID/Unit Bisnis laporan."
+                )
+            users_without_email = [
+                user.get_username()
+                for user in recipient_users
+                if not user.email
+            ]
             if users_without_email:
                 raise ValidationError(
-                    "Email Risk Officer belum diisi: " + ", ".join(users_without_email)
+                    "Email Risk Officer belum diisi: "
+                    + ", ".join(users_without_email)
                 )
-            recipients = list(dict.fromkeys(user.email for user in recipient_users))
+            recipients = list(
+                dict.fromkeys(user.email for user in recipient_users)
+            )
             recipient = recipient_users[0]
             recipient_names = [
                 user.get_full_name().strip() or user.get_username()
@@ -236,63 +285,174 @@ def send_monthly_report_notification(
             ]
         elif not recipient:
             role = stage.get("recipient_role") or f"tahap {stage['title']}"
-            raise ValidationError(f"Penerima {role} untuk laporan ini belum diisi.")
+            raise ValidationError(
+                f"Penerima {role} untuk laporan ini belum diisi."
+            )
         else:
             if not recipient.email:
-                raise ValidationError(f"Email user {recipient.get_username()} belum diisi.")
+                raise ValidationError(
+                    f"Email user {recipient.get_username()} belum diisi."
+                )
             recipients = [recipient.email]
             recipient_names = [
-                recipient.get_full_name().strip() or recipient.get_username()
+                recipient.get_full_name().strip()
+                or recipient.get_username()
             ]
+
         if "bcc_recipient" in stage:
             if not bcc_recipient:
                 role = stage.get("bcc_recipient_role") or "BCC"
-                raise ValidationError(f"Penerima BCC {role} untuk laporan ini belum diisi.")
+                raise ValidationError(
+                    f"Penerima BCC {role} untuk laporan ini belum diisi."
+                )
             if not bcc_recipient.email:
-                raise ValidationError(f"Email user {bcc_recipient.get_username()} belum diisi.")
+                raise ValidationError(
+                    f"Email user {bcc_recipient.get_username()} belum diisi."
+                )
             bcc_recipients = [bcc_recipient.email]
+
         if approved_recipients is None:
             users_without_email = [
-                user.get_username() for user in cc_recipient_users if not user.email
+                user.get_username()
+                for user in cc_recipient_users
+                if not user.email
             ]
             if users_without_email:
                 raise ValidationError(
-                    "Email atasan organisasi belum diisi: " + ", ".join(users_without_email)
+                    "Email penerima CC tahap notifikasi belum diisi: "
+                    + ", ".join(users_without_email)
                 )
-            recipient_emails = set(recipients)
-            cc_recipients = list(
-                dict.fromkeys(
-                    user.email
-                    for user in cc_recipient_users
-                    if user.email not in recipient_emails
-                )
+            cc_recipients = [
+                user.email
+                for user in cc_recipient_users
+                if user.email
+            ]
+            organization_superior_emails = (
+                build_approved_report_recipients(report).cc
             )
 
-    context = {
-        "report": report,
-        "stage": stage,
+        cc_recipients = _merge_unique_emails(
+            cc_recipients,
+            _workflow_cc_emails(report),
+            excluded=recipients,
+        )
+        bcc_recipients = _merge_unique_emails(
+            bcc_recipients,
+            organization_superior_emails,
+            excluded=[*recipients, *cc_recipients],
+        )
+
+    return {
+        "recipients": recipients,
+        "cc_recipients": cc_recipients,
+        "bcc_recipients": bcc_recipients,
         "recipient": recipient,
         "recipient_names": recipient_names,
         "test_email": test_email,
+    }
+
+
+def send_monthly_report_notification(
+    report,
+    request=None,
+    base_url=None,
+    correction_note="",
+    approved_transition=False,
+    delivery_mode="auto",
+    test_email_override="",
+    subject_override="",
+    instruction_override="",
+):
+    if delivery_mode not in {"auto", "test", "final"}:
+        raise ValidationError("Mode pengiriman notifikasi tidak dikenal.")
+    if (
+        report.status == "approved"
+        and not approved_transition
+        and delivery_mode == "auto"
+    ):
+        raise ValidationError(
+            "Notifikasi Approved hanya dikirim saat transisi status menjadi "
+            "Approved."
+        )
+
+    stage = monthly_report_notification_stage(report)
+    if not stage:
+        raise ValidationError(
+            "Status laporan tidak memerlukan notifikasi tahap berikutnya."
+        )
+
+    correction_note = (correction_note or "").strip()
+    if correction_note:
+        if report.status != "revision":
+            raise ValidationError(
+                "Komentar koreksi hanya dapat dikirim untuk laporan "
+                "berstatus Revision."
+            )
+        stage = {
+            **stage,
+            "title": "Koreksi Laporan Risiko Bulanan",
+            "instruction": (
+                "Laporan dikembalikan oleh reviewer/approver. "
+                "Mohon Prepared by memperbaiki laporan sesuai komentar "
+                "koreksi, kemudian melakukan Submit Ulang."
+            ),
+        }
+
+    instruction_override = (instruction_override or "").strip()
+    if instruction_override:
+        stage = {**stage, "instruction": instruction_override}
+
+    delivery = resolve_monthly_report_notification_recipients(
+        report,
+        stage=stage,
+        delivery_mode=delivery_mode,
+        test_email_override=test_email_override,
+    )
+    app_setting = AppSetting.get_solo()
+    context = {
+        "report": report,
+        "stage": stage,
+        "recipient": delivery["recipient"],
+        "recipient_names": delivery["recipient_names"],
+        "test_email": delivery["test_email"],
         "deadline": monthly_report_deadline(report),
-        "deadline_text": format_indonesian_date(monthly_report_deadline(report)),
-        "report_url": monthly_report_admin_url(report, request=request, base_url=base_url),
+        "deadline_text": format_indonesian_date(
+            monthly_report_deadline(report)
+        ),
+        "report_url": monthly_report_admin_url(
+            report,
+            request=request,
+            base_url=base_url,
+        ),
         "app_setting": app_setting,
         "kpmr": calculate_kpmr_for_report(report),
         "correction_note": correction_note,
     }
-    subject = f"{stage['title']} - {report.reassessment} {report.periode.nama_periode}"
-    text_body = render_to_string("monthly_report/email/notification.txt", context)
-    html_body = render_to_string("monthly_report/email/notification.html", context)
-    from_email = app_setting.default_from_email or getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    subject = (
+        (subject_override or "").strip()
+        or f"{stage['title']} - {report.reassessment} "
+        f"{report.periode.nama_periode}"
+    )
+    text_body = render_to_string(
+        "monthly_report/email/notification.txt",
+        context,
+    )
+    html_body = render_to_string(
+        "monthly_report/email/notification.html",
+        context,
+    )
+    from_email = (
+        app_setting.default_from_email
+        or getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    )
 
     message = EmailMultiAlternatives(
         subject,
         text_body,
         from_email,
-        recipients,
-        cc=cc_recipients,
-        bcc=bcc_recipients,
+        delivery["recipients"],
+        cc=delivery["cc_recipients"],
+        bcc=delivery["bcc_recipients"],
         connection=_mail_connection(app_setting),
     )
     message.attach_alternative(html_body, "text/html")

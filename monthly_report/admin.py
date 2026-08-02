@@ -55,7 +55,11 @@ from risk.models import (
 )
 from risk.services.kpmr_automation import calculate_kpmr_for_report
 from risk.services.kpmr_automation import month_to_quarter
-from .notifications import send_monthly_report_notification
+from .notifications import (
+    monthly_report_notification_stage,
+    resolve_monthly_report_notification_recipients,
+    send_monthly_report_notification,
+)
 from .services import (
     duplicate_approved_report_to_next_month,
     initialize_monthly_report_structure_from_profile,
@@ -104,6 +108,31 @@ class MonthlyRiskReportImportForm(forms.Form):
         if not source_file.name.lower().endswith(".xlsx"):
             raise forms.ValidationError("File harus berformat .xlsx.")
         return source_file
+
+
+class MonthlyRiskReportNotificationForm(forms.Form):
+    subject = forms.CharField(
+        label="Subjek email",
+        max_length=255,
+        widget=forms.TextInput(attrs={"style": "width:100%;"}),
+    )
+    instruction = forms.CharField(
+        label="Isi / instruksi email",
+        widget=forms.Textarea(attrs={"rows": 6, "style": "width:100%;"}),
+    )
+    test_email = forms.EmailField(
+        label="Email tujuan uji coba",
+        required=False,
+        help_text=(
+            "Kirim Test hanya dikirim ke alamat ini tanpa CC/BCC "
+            "penerima final."
+        ),
+        widget=forms.EmailInput(attrs={"style": "width:100%;"}),
+    )
+    confirm_final = forms.BooleanField(
+        label="Saya telah memeriksa penerima, subjek, dan isi email",
+        required=False,
+    )
 
 
 def _monthly_level_class(value):
@@ -733,11 +762,33 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "duplicate_next_month_button",
     ]
     list_filter = [MonthlyRiskReportGroupFilter, "status"]
-    actions = ["send_next_notification_action"]
+    actions = []
     search_fields = [
         "reassessment__judul",
         "reassessment__unit_bisnis__name",
     ]
+
+    NOTIFICATION_ADMIN_GROUPS = {
+        "Admin ERM",
+        "ERM Admin",
+        "Risk Admin",
+        "Risk Administrator",
+        "Admin Risiko",
+    }
+
+    def _can_manage_notifications(self, request):
+        user = request.user
+        return bool(
+            user
+            and user.is_active
+            and user.is_staff
+            and (
+                user.is_superuser
+                or user.groups.filter(
+                    name__in=self.NOTIFICATION_ADMIN_GROUPS
+                ).exists()
+            )
+        )
 
     def get_urls(self):
         urls = super().get_urls()
@@ -792,20 +843,19 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
     def get_fields(self, request, obj=None):
         fields = list(super().get_fields(request, obj))
-        if not request.user.is_superuser:
+        if not self._can_manage_notifications(request):
             fields = [field for field in fields if field != "notification_button"]
         return fields
 
     def get_list_display(self, request):
         list_display = list(super().get_list_display(request))
-        if not request.user.is_superuser:
+        if not self._can_manage_notifications(request):
             list_display = [field for field in list_display if field != "notification_button"]
         return list_display
 
     def get_actions(self, request):
         actions = super().get_actions(request)
-        if not request.user.is_superuser:
-            actions.pop("send_next_notification_action", None)
+        actions.pop("send_next_notification_action", None)
         return actions
 
     def get_readonly_fields(self, request, obj=None):
@@ -1283,13 +1333,16 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
     def notification_button(self, obj):
         if not obj or not obj.pk:
             return "-"
-        if obj.status in {"approved", "locked"}:
+        if obj.status not in {"draft", "revision", "submitted", "under_review", "approved"}:
             return "-"
         url = reverse(
             f"{self.admin_site.name}:monthly_report_monthlyriskreport_send_notification",
             args=[obj.pk],
         )
-        return format_html('<a class="button" href="{}">Kirim Notifikasi</a>', url)
+        return format_html(
+            '<a class="button" href="{}">Konfigurasi Notifikasi</a>',
+            url,
+        )
 
     @admin.display(description="Petunjuk Lampiran")
     def petunjuk_lampiran(self, obj):
@@ -1720,11 +1773,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 f"Flow laporan berhasil diproses. Status sekarang: {report.get_status_display()}.",
                 level=messages.SUCCESS,
             )
-            self._send_next_notification(
+            self.message_user(
                 request,
-                report,
-                correction_note=correction_note,
-                approved_transition=flow_action == "approve",
+                "Notifikasi belum dikirim. Admin ERM dapat membuka Konfigurasi "
+                "Notifikasi, mengirim email test, lalu mengirim notifikasi final.",
+                level=messages.INFO,
             )
         return HttpResponseRedirect(
             reverse(
@@ -1734,17 +1787,144 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         )
 
     def send_notification_view(self, request, object_id):
-        if not request.user.is_superuser:
-            raise PermissionDenied("Hanya Super Admin yang dapat mengirim notifikasi laporan risiko.")
+        if not self._can_manage_notifications(request):
+            raise PermissionDenied(
+                "Hanya Admin ERM yang dapat mengonfigurasi dan mengirim "
+                "notifikasi laporan risiko."
+            )
         report = self.get_object(request, object_id)
         if report is None:
             raise Http404("Monthly risk report tidak ditemukan.")
-        self._send_next_notification(request, report)
-        return HttpResponseRedirect(
-            reverse(
-                f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
-                args=[report.pk],
+
+        stage = monthly_report_notification_stage(report)
+        if not stage:
+            raise PermissionDenied(
+                "Status laporan ini tidak memerlukan notifikasi tahap berikutnya."
             )
+
+        recipient_error = ""
+        try:
+            final_delivery = resolve_monthly_report_notification_recipients(
+                report,
+                stage=stage,
+                delivery_mode="final",
+            )
+        except ValidationError as exc:
+            recipient_error = (
+                "; ".join(exc.messages)
+                if hasattr(exc, "messages")
+                else str(exc)
+            )
+            final_delivery = {
+                "recipients": [],
+                "cc_recipients": [],
+                "bcc_recipients": [],
+            }
+
+        initial = {
+            "subject": (
+                f"{stage['title']} - {report.reassessment} "
+                f"{report.periode.nama_periode}"
+            ),
+            "instruction": stage["instruction"],
+            "test_email": request.user.email or "",
+        }
+        form = MonthlyRiskReportNotificationForm(
+            request.POST or None,
+            initial=initial,
+        )
+
+        if request.method == "POST" and form.is_valid():
+            action = request.POST.get("action")
+            subject = form.cleaned_data["subject"].strip()
+            instruction = form.cleaned_data["instruction"].strip()
+            approved_transition = report.status == "approved"
+
+            try:
+                if action == "test":
+                    test_email = (
+                        form.cleaned_data.get("test_email") or ""
+                    ).strip()
+                    if not test_email:
+                        raise ValidationError(
+                            "Email tujuan uji coba wajib diisi."
+                        )
+                    sent = send_monthly_report_notification(
+                        report,
+                        request=request,
+                        approved_transition=approved_transition,
+                        delivery_mode="test",
+                        test_email_override=test_email,
+                        subject_override=subject,
+                        instruction_override=instruction,
+                    )
+                    if sent:
+                        self.message_user(
+                            request,
+                            f"Email uji coba berhasil dikirim ke {test_email}.",
+                            level=messages.SUCCESS,
+                        )
+                    return redirect(request.path)
+
+                if action == "send_final":
+                    if not form.cleaned_data.get("confirm_final"):
+                        raise ValidationError(
+                            "Centang konfirmasi pemeriksaan sebelum mengirim "
+                            "notifikasi final."
+                        )
+                    sent = send_monthly_report_notification(
+                        report,
+                        request=request,
+                        approved_transition=approved_transition,
+                        delivery_mode="final",
+                        subject_override=subject,
+                        instruction_override=instruction,
+                    )
+                    if sent:
+                        self.message_user(
+                            request,
+                            "Notifikasi final berhasil dikirim.",
+                            level=messages.SUCCESS,
+                        )
+                    return HttpResponseRedirect(
+                        reverse(
+                            f"{self.admin_site.name}:"
+                            "monthly_report_monthlyriskreport_change",
+                            args=[report.pk],
+                        )
+                    )
+
+                raise ValidationError("Aksi notifikasi tidak dikenal.")
+            except ValidationError as exc:
+                message = (
+                    "; ".join(exc.messages)
+                    if hasattr(exc, "messages")
+                    else str(exc)
+                )
+                self.message_user(request, message, level=messages.ERROR)
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Konfigurasi Notifikasi Laporan Risiko Bulanan",
+            "opts": self.model._meta,
+            "report": report,
+            "stage": stage,
+            "form": form,
+            "to_emails": final_delivery["recipients"],
+            "cc_emails": final_delivery["cc_recipients"],
+            "bcc_emails": final_delivery["bcc_recipients"],
+            "recipient_error": recipient_error,
+            "cancel_url": reverse(
+                f"{self.admin_site.name}:"
+                "monthly_report_monthlyriskreport_change",
+                args=[report.pk],
+            ),
+        }
+        return TemplateResponse(
+            request,
+            "admin/monthly_report/monthlyriskreport/"
+            "notification_config.html",
+            context,
         )
 
     @admin.action(description="Kirim notifikasi tahap berikutnya")
