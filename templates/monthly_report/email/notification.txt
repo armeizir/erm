@@ -13,9 +13,10 @@ Periode: {{ report.periode.nama_periode }}
 Status: {{ report.get_status_display }}
 {% if deadline_text %}Batas waktu: {{ deadline_text }}{% endif %}
 
-{% if kpmr %}KPMR {{ kpmr.year }} TW{{ kpmr.quarter }}
-{% for indicator in kpmr.indicators %}{{ indicator.kode }} - {{ indicator.nama }}: hasil {{ indicator.hasil|default:"-" }}, skor {{ indicator.skor }}
-{% endfor %}Total KPMR: {{ kpmr.score_total }} ({{ kpmr.rating }})
+{% if kpmr %}KPMR Bulan {{ report.periode.nama_periode }}
+{% if report.status != "approved" %}Hasil sementara: nilai KPMR dihitung berdasarkan data bulan berjalan dan masih dapat berubah sampai laporan selesai direview dan disetujui.
+{% endif %}{% for indicator in kpmr.indicators %}{{ indicator.kode }} - {{ indicator.nama }}: hasil {{ indicator.hasil|default:"-" }}, skor {{ indicator.skor }}
+{% endfor %}Total KPMR{% if report.status != "approved" %} Sementara{% endif %}: {{ kpmr.score_total }} ({{ kpmr.rating }})
 {% endif %}
 
 Buka laporan:
