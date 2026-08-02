@@ -7,6 +7,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 from risk.models import AppSetting
+from risk.models import KnowledgeBaseArticle
 from risk.models import PenugasanUnitBisnis
 from risk.services.kpmr_automation import calculate_kpmr_for_report
 from .recipient_services import build_approved_report_recipients
@@ -42,6 +43,24 @@ def format_indonesian_date(value):
     if not value:
         return ""
     return f"{value.day} {MONTH_NAMES[value.month]} {value.year}"
+
+
+def monthly_report_email_tutorial():
+    return (
+        KnowledgeBaseArticle.objects.filter(
+            status=KnowledgeBaseArticle.STATUS_PUBLISHED,
+            tutorial_placement=(
+                KnowledgeBaseArticle.TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL
+            ),
+        )
+        .exclude(video_youtube_url="")
+        .order_by(
+            "-dipublikasikan_pada",
+            "-diperbarui_pada",
+            "-pk",
+        )
+        .first()
+    )
 
 
 def monthly_report_admin_url(report, request=None, base_url=None):
@@ -427,6 +446,7 @@ def send_monthly_report_notification(
         "app_setting": app_setting,
         "kpmr": calculate_kpmr_for_report(report),
         "correction_note": correction_note,
+        "tutorial": monthly_report_email_tutorial(),
     }
     subject = (
         (subject_override or "").strip()

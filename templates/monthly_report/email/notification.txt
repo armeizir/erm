@@ -21,4 +21,9 @@ Status: {{ report.get_status_display }}
 Buka laporan:
 {{ report_url }}
 
-Terima kasih.
+{% if tutorial %}Tutorial Penggunaan: {{ tutorial.judul }}
+{{ tutorial.ringkasan|default:"Pelajari cara menggunakan fitur Laporan Risiko Bulanan melalui video tutorial." }}
+Tonton video tutorial:
+{{ tutorial.video_youtube_url }}
+
+{% endif %}Terima kasih.

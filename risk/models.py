@@ -293,6 +293,15 @@ class KnowledgeBaseArticle(models.Model):
         ("admin", "Administrator"),
     )
 
+    TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL = "monthly_report_email"
+    TUTORIAL_PLACEMENT_CHOICES = (
+        ("", "Tidak digunakan sebagai tutorial email"),
+        (
+            TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL,
+            "Email Laporan Risiko Bulanan",
+        ),
+    )
+
     kategori = models.ForeignKey(
         KnowledgeBaseCategory,
         on_delete=models.PROTECT,
@@ -328,6 +337,27 @@ class KnowledgeBaseArticle(models.Model):
         null=True,
         verbose_name="Lampiran",
     )
+    video_youtube_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="URL Video YouTube",
+        help_text=(
+            "Masukkan tautan YouTube, misalnya "
+            "https://www.youtube.com/watch?v=... atau https://youtu.be/..."
+        ),
+    )
+    tutorial_placement = models.CharField(
+        max_length=50,
+        choices=TUTORIAL_PLACEMENT_CHOICES,
+        blank=True,
+        default="",
+        verbose_name="Penempatan Tutorial",
+        help_text=(
+            "Pilih lokasi email tempat video tutorial ditampilkan. "
+            "Hanya satu artikel Published yang boleh aktif pada setiap lokasi."
+        ),
+    )
     dibuat_oleh = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -356,6 +386,16 @@ class KnowledgeBaseArticle(models.Model):
         verbose_name = "Knowledge Base - Artikel"
         verbose_name_plural = "KNOWLEDGE BASE — Artikel"
         ordering = ["kategori__urutan", "judul"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tutorial_placement"],
+                condition=(
+                    models.Q(status="published")
+                    & ~models.Q(tutorial_placement="")
+                ),
+                name="uniq_kb_published_tutorial",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.slug:
