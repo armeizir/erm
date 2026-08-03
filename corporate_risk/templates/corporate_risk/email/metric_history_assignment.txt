@@ -7,4 +7,9 @@ Periode: {{ history.periode.nama_periode }}
 Silakan buka tautan berikut setelah login ke ERM:
 {{ input_url }}
 
-Email ini dikirim otomatis oleh aplikasi ERM PLN Batam.
+{% if tutorial %}Panduan pengisian:
+{{ tutorial.judul }}
+{% if tutorial.ringkasan %}{{ tutorial.ringkasan }}
+{% endif %}Video tutorial: {{ tutorial.video_youtube_url }}
+
+{% endif %}Email ini dikirim otomatis oleh aplikasi ERM PLN Batam.
