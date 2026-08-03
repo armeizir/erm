@@ -1480,7 +1480,12 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         kpmr_calculation = None
         kpmr_month = report.periode.tanggal_mulai.month if report.periode_id else None
         kpmr_quarter = month_to_quarter(kpmr_month) if kpmr_month else None
-        if report.reassessment_id and report.reassessment.unit_bisnis_id and kpmr_quarter:
+        if (
+            report.status == "approved"
+            and report.reassessment_id
+            and report.reassessment.unit_bisnis_id
+            and kpmr_quarter
+        ):
             kpmr_calculation = calculate_kpmr_for_report(report)
 
         context = {
