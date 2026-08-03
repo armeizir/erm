@@ -32,7 +32,10 @@ from .services import (
 )
 from .pdf_reports import render_multi_metric_pdf
 from .history_services import duplicate_metric_history_to_next_month
-from .history_notifications import send_metric_history_assignment_notification
+from .history_notifications import (
+    metric_history_pairing_officer,
+    send_metric_history_assignment_notification,
+)
 
 
 def risk_item_label_html(item):
@@ -1246,14 +1249,34 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
         history = get_object_or_404(self.get_queryset(request), pk=object_id)
         if not self.has_change_permission(request, history):
             raise PermissionDenied
+
+        pairing_officer = metric_history_pairing_officer(history)
+
         if request.method == "POST":
             try:
-                recipient = send_metric_history_assignment_notification(history, request=request)
+                recipient = send_metric_history_assignment_notification(
+                    history,
+                    request=request,
+                )
             except ValidationError as exc:
-                self.message_user(request, "; ".join(exc.messages), level=messages.ERROR)
-            else:
                 self.message_user(
-                    request, f"Notifikasi berhasil dikirim ke {recipient}.", level=messages.SUCCESS
+                    request,
+                    "; ".join(exc.messages),
+                    level=messages.ERROR,
+                )
+            else:
+                cc_message = (
+                    f" CC Pairing Officer: {pairing_officer.email}."
+                    if pairing_officer
+                    else (
+                        " Pairing Officer aktif tidak ditemukan; "
+                        "email dikirim tanpa CC."
+                    )
+                )
+                self.message_user(
+                    request,
+                    f"Notifikasi berhasil dikirim ke {recipient}.{cc_message}",
+                    level=messages.SUCCESS,
                 )
             return redirect(
                 reverse(
@@ -1266,6 +1289,7 @@ class MonteCarloMetricHistoryAdmin(admin.ModelAdmin):
             "title": "Kirim Notifikasi Pengisian Data",
             "opts": self.model._meta,
             "history": history,
+            "pairing_officer": pairing_officer,
             "cancel_url": reverse(
                 f"{self.admin_site.name}:corporate_risk_montecarlometrichistory_change",
                 args=[history.pk],

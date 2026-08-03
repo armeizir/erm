@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.core import mail
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase
@@ -18,7 +19,11 @@ from corporate_risk.services import (
 from corporate_risk.history_services import duplicate_metric_history_to_next_month
 from corporate_risk.history_notifications import send_metric_history_assignment_notification
 from masterdata.models import MasterBUMN, PeriodeLaporan, TahunBuku
-from risk.models import ProfilRisikoKorporatItem, ProfilRisikoKorporatSummary
+from risk.models import (
+    PenugasanUnitBisnis,
+    ProfilRisikoKorporatItem,
+    ProfilRisikoKorporatSummary,
+)
 
 
 class DistributionRecommendationAnalysisTests(SimpleTestCase):
@@ -208,6 +213,50 @@ class MultiMetricMonteCarloResultFormTests(TestCase):
         self.assertIn(
             reverse("metric_history_assigned_input", args=[history.pk]),
             mail.outbox[0].body,
+        )
+
+        self.assertEqual(mail.outbox[0].cc, [])
+
+    def test_assignment_email_ccs_active_pairing_officer_for_user_unit(self):
+        unit = Group.objects.create(name="BID TIK")
+        user = get_user_model().objects.create_user(
+            username="data.owner.cc",
+            email="owner.cc@example.com",
+        )
+        user.groups.add(unit)
+
+        pairing = get_user_model().objects.create_user(
+            username="pairing.tik",
+            email="pairing.tik@example.com",
+        )
+        PenugasanUnitBisnis.objects.create(
+            user=pairing,
+            unit_bisnis=unit,
+            peran=PenugasanUnitBisnis.ROLE_PAIRING_OFFICER,
+            aktif=True,
+        )
+
+        history = MonteCarloMetricHistory.objects.create(
+            metric=self.metric,
+            periode=self.forecast_periode,
+            tanggal_data=date(2026, 3, 1),
+            metric_value=70,
+            status=MonteCarloMetricHistory.STATUS_UNUPDATED,
+            assigned_to=user,
+        )
+
+        send_metric_history_assignment_notification(
+            history,
+            request=RequestFactory().get("/"),
+        )
+
+        self.assertEqual(
+            mail.outbox[-1].to,
+            ["owner.cc@example.com"],
+        )
+        self.assertEqual(
+            mail.outbox[-1].cc,
+            ["pairing.tik@example.com"],
         )
 
     def test_only_assigned_user_can_submit_history_data(self):
