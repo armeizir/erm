@@ -1,0 +1,194 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .mc-workspace { --mc-border: var(--hairline-color, #ddd); --mc-muted: var(--body-quiet-color, #666); }
+  .mc-card { background: var(--body-bg); border: 1px solid var(--mc-border); border-radius: 6px; margin: 0 0 18px; padding: 18px; }
+  .mc-card h2 { margin-top: 0; }
+  .mc-selector { align-items: end; display: flex; flex-wrap: wrap; gap: 10px; }
+  .mc-selector label { display: grid; flex: 1 1 420px; gap: 6px; }
+  .mc-selector select { min-height: 36px; width: 100%; }
+  .mc-steps { display: grid; gap: 8px; grid-template-columns: repeat(6, minmax(90px, 1fr)); list-style: none; margin: 0 0 18px; padding: 0; }
+  .mc-steps li { background: var(--darkened-bg); border: 1px solid var(--mc-border); border-radius: 5px; padding: 10px; text-align: center; }
+  .mc-steps strong { display: block; }
+  .mc-summary { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .mc-summary div { background: var(--darkened-bg); border-radius: 4px; padding: 10px; }
+  .mc-summary small { color: var(--mc-muted); display: block; }
+  .mc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .mc-actions a, .mc-actions button { box-sizing: border-box; }
+  .mc-table-wrap { max-width: 100%; overflow-x: auto; }
+  .mc-table { border-collapse: collapse; min-width: 1180px; width: 100%; }
+  .mc-table th, .mc-table td { border: 1px solid var(--mc-border); padding: 7px; vertical-align: middle; }
+  .mc-table th { background: var(--darkened-bg); white-space: nowrap; }
+  .mc-table .metric-col { background: var(--body-bg); left: 0; min-width: 210px; position: sticky; z-index: 2; }
+  .mc-table th.metric-col { background: var(--darkened-bg); z-index: 3; }
+  .mc-cell { box-sizing: border-box; min-width: 82px; width: 100%; }
+  .mc-ready { color: var(--link-fg); font-weight: 700; white-space: nowrap; }
+  .mc-not-ready, .errornote-inline { color: var(--error-fg, #ba2121); font-weight: 700; }
+  .mc-status { border-radius: 5px; font-size: 1.1rem; font-weight: 700; padding: 12px; }
+  .mc-status.ready { background: #e6f4ea; color: #176b32; }
+  .mc-status.not-ready { background: #fff1f0; color: #9b1c1c; }
+  .mc-disabled { cursor: not-allowed; opacity: .5; pointer-events: none; }
+  .mc-checks { display: grid; gap: 7px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); padding-left: 20px; }
+  .mc-help { color: var(--mc-muted); }
+  @media (prefers-color-scheme: dark) {
+    .mc-status.ready { background: #153d24; color: #8fdfa8; }
+    .mc-status.not-ready { background: #4a1d1d; color: #ffb4ae; }
+  }
+  @media (max-width: 800px) { .mc-steps { grid-template-columns: repeat(2, 1fr); } }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; <a href="{{ riskmetric_changelist_url }}">Risk Metrics</a>
+  &rsaquo; Monte Carlo Workspace
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="mc-workspace">
+  <form method="get" class="mc-card mc-selector">
+    <label><strong>Pilih Profil Risiko Korporat / Item Risiko</strong>
+      <select name="item" onchange="this.form.submit()">
+        <option value="">— Pilih risiko —</option>
+        {% for item in items %}
+          <option value="{{ item.pk }}"{% if selected_item.pk == item.pk %} selected{% endif %}>
+            Risiko {{ item.no_risiko|default:item.no_item }} — {{ item.peristiwa_risiko|truncatechars:120 }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="button">Tampilkan</button>
+  </form>
+
+  <ol class="mc-steps">
+    <li><strong>1</strong>Risiko</li><li><strong>2</strong>Metric</li>
+    <li><strong>3</strong>Histori</li><li><strong>4</strong>Validasi</li>
+    <li><strong>5</strong>Simulasi</li><li><strong>6</strong>Hasil</li>
+  </ol>
+
+  {% if not selected_item %}
+    <div class="mc-card"><h2>Mulai dari risiko</h2><p>Pilih item risiko di atas untuk memeriksa metric, melengkapi histori, dan melihat kesiapan simulasi.</p></div>
+  {% else %}
+    <section class="mc-card">
+      <h2>Risiko {{ selected_item.no_risiko|default:selected_item.no_item }} — {{ selected_item.peristiwa_risiko }}</h2>
+      <div class="mc-summary">
+        <div><small>Profil</small>{{ selected_item.summary.judul }}</div>
+        <div><small>Tahun profil</small>{{ selected_item.summary.tahun }}</div>
+        <div><small>Nomor risiko</small>{{ selected_item.no_risiko|default:selected_item.no_item }}</div>
+        <div><small>Metric aktif</small>{{ metrics|length }}</div>
+        <div><small>Histori valid</small>{{ total_history }}</div>
+        <div><small>Simulasi terbaru</small>{% if latest_result %}{{ latest_result.created_at|date:"d M Y H:i" }}{% else %}Belum ada{% endif %}</div>
+      </div>
+      <div class="mc-actions">
+        <a class="button" href="{{ add_metric_url }}">Tambah Metric</a>
+        <a class="button" href="{{ riskmetric_changelist_url }}?corporate_risk_item__id__exact={{ selected_item.pk }}">Atur Metric</a>
+        <a class="button" href="{{ profile_url }}">Buka Profil Risiko</a>
+        <a class="button" href="{{ history_list_url }}">Lihat Detail Histori</a>
+      </div>
+    </section>
+
+    <section class="mc-card">
+      <h2>Histori Bulanan {{ selected_item.summary.tahun }}</h2>
+      <p class="mc-help">Isi nilai aktual, gunakan Tab untuk berpindah sel, atau paste tabel dari Excel mulai dari sel yang dipilih. Sel kosong tidak menghapus data lama.</p>
+      {% if periods_available < 12 %}<p class="errornote-inline">Hanya {{ periods_available }} dari 12 periode bulanan yang tersedia. Sel tanpa periode dinonaktifkan.</p>{% endif %}
+      {% if metric_rows %}
+      <form method="post" id="history-matrix-form">
+        {% csrf_token %}<input type="hidden" name="item" value="{{ selected_item.pk }}">
+        <div class="mc-table-wrap">
+          <table class="mc-table" id="history-matrix">
+            <thead><tr><th class="metric-col">Metric</th>{% for month, label in months %}<th>{{ label }}</th>{% endfor %}<th>Kesiapan</th></tr></thead>
+            <tbody>
+            {% for row in metric_rows %}
+              <tr data-row="{{ forloop.counter0 }}">
+                <td class="metric-col"><strong>{{ row.metric.name }}</strong><br><small>{{ row.metric.unit|default:"Tanpa satuan" }}</small></td>
+                {% for cell in row.cells %}
+                <td>
+                  <input class="mc-cell" data-col="{{ forloop.counter0 }}" type="text" inputmode="decimal"
+                    {% if cell.period %}name="history_{{ row.metric.pk }}_{{ cell.period.pk }}" value="{% if cell.history %}{{ cell.history.metric_value|stringformat:'s' }}{% endif %}"{% else %}disabled title="Periode bulanan belum tersedia"{% endif %}
+                    {% if not can_manage_history %}disabled{% endif %}>
+                </td>
+                {% endfor %}
+                <td class="{% if row.ready %}mc-ready{% else %}mc-not-ready{% endif %}">{{ row.history_count }}/{{ minimum_history_points }} periode{% if row.history_count > minimum_history_points %} (tersedia {{ row.history_count }}){% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if can_manage_history %}<div class="submit-row"><input type="submit" value="Simpan Semua Histori" class="default"></div>{% else %}<p class="mc-help">Mode lihat saja. Anda tidak memiliki izin menambah atau mengubah histori.</p>{% endif %}
+      </form>
+      {% else %}
+        <p>Belum ada metric aktif untuk risiko ini. Tambahkan metric untuk mulai mengisi histori.</p>
+      {% endif %}
+    </section>
+
+    <section class="mc-card">
+      <h2>Validasi Kesiapan</h2>
+      <ul class="mc-checks">
+        <li>{% if metrics %}✓{% else %}✕{% endif %} Metric aktif tersedia ({{ metrics|length }})</li>
+        <li>{% if metric_rows %}Histori tiap metric: lihat indikator pada matriks{% else %}✕ Belum ada histori metric{% endif %}</li>
+        <li>{% if target_metrics %}✓{% else %}✕{% endif %} Metric target utama tersedia</li>
+        <li>{% if target_ready %}✓{% else %}✕{% endif %} Target metric tersedia</li>
+        <li>{% if total_weight > 0 %}✓{% else %}✕{% endif %} Total bobot lebih dari 0 ({{ total_weight }})</li>
+      </ul>
+      <div class="mc-status {% if is_ready %}ready{% else %}not-ready{% endif %}">{% if is_ready %}SIAP{% else %}BELUM SIAP{% endif %}</div>
+      <div class="mc-actions">
+        <a href="{{ simulation_add_url }}" class="button default{% if not is_ready %} mc-disabled{% endif %}"{% if not is_ready %} aria-disabled="true" tabindex="-1" title="Lengkapi checklist kesiapan terlebih dahulu"{% endif %}>Jalankan Multi Metric Monte Carlo</a>
+      </div>
+    </section>
+
+    <section class="mc-card">
+      <h2>Ringkasan Metric</h2>
+      {% if metric_rows %}<div class="mc-table-wrap"><table class="mc-table">
+        <thead><tr><th>Nama</th><th>Satuan</th><th>Bobot</th><th>Arah risiko</th><th>Target efektif</th><th>Target utama</th><th>Histori</th><th>Aksi</th></tr></thead>
+        <tbody>{% for row in metric_rows %}<tr>
+          <td>{{ row.metric.name }}</td><td>{{ row.metric.unit|default:"-" }}</td><td>{{ row.metric.weight }}</td>
+          <td>{{ row.metric.get_direction_display }}</td><td>{{ row.metric.effective_target_value|default_if_none:"-" }}</td>
+          <td>{{ row.metric.is_target_metric|yesno:"Ya,Tidak" }}</td><td>{{ row.history_count }}</td>
+          <td><a href="{{ row.change_url }}">Atur</a> · <a href="{{ row.history_url }}">Histori</a></td>
+        </tr>{% endfor %}</tbody>
+      </table></div>{% else %}<p>Belum ada metric aktif.</p>{% endif %}
+    </section>
+
+    <section class="mc-card">
+      <h2>5 Hasil Simulasi Terbaru</h2>
+      {% if result_rows %}<div class="mc-table-wrap"><table class="mc-table">
+        <thead><tr><th>Periode forecast</th><th>Status target</th><th>Probability achieve target</th><th>Composite score</th><th>Dibuat</th><th>Aksi</th></tr></thead>
+        <tbody>{% for row in result_rows %}<tr>
+          <td>{{ row.result.forecast_periode }}</td><td>{{ row.result.target_status|default:"-" }}</td>
+          <td>{{ row.result.probability_achieve_target|default_if_none:"-" }}</td><td>{{ row.result.composite_score }}</td>
+          <td>{{ row.result.created_at|date:"d M Y H:i" }}</td><td><a href="{{ row.change_url }}">Lihat Hasil</a>{% if row.insight_url %} · <a href="{{ row.insight_url }}">Lihat AI Insight</a>{% endif %}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>{% else %}<p>Belum ada hasil simulasi untuk risiko ini.</p>{% endif %}
+      <div class="mc-actions"><a class="button" href="{{ results_url }}">Semua Hasil Monte Carlo</a></div>
+    </section>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  const matrix = document.getElementById('history-matrix');
+  if (!matrix) return;
+  matrix.addEventListener('paste', function (event) {
+    const start = event.target.closest('input.mc-cell');
+    if (!start || start.disabled) return;
+    const text = event.clipboardData && event.clipboardData.getData('text');
+    if (!text || (!text.includes('\t') && !/[\r\n]/.test(text))) return;
+    event.preventDefault();
+    const startRow = Number(start.closest('tr').dataset.row);
+    const startCol = Number(start.dataset.col);
+    const rows = text.replace(/\r/g, '').replace(/\n$/, '').split('\n');
+    rows.forEach(function (line, rowOffset) {
+      line.split('\t').forEach(function (value, colOffset) {
+        const input = matrix.querySelector('tr[data-row="' + (startRow + rowOffset) + '"] input[data-col="' + (startCol + colOffset) + '"]');
+        if (input && !input.disabled) input.value = value.trim();
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}
