@@ -1282,6 +1282,19 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_monthly_report_excel_export_uses_official_template_and_kpmr_sheet(self):
         report = self._report("BID XLSX")
+        report.status = "approved"
+        report.approved_by = self.admin_user
+        report.approved_at = timezone.now()
+        report.is_locked = True
+        report.save(
+            update_fields=[
+                "status",
+                "approved_by",
+                "approved_at",
+                "is_locked",
+            ]
+        )
+
         risk_event = self._risk_item(
             report,
             no_item=1,
