@@ -6,7 +6,11 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 
-from risk.models import AppSetting, PenugasanUnitBisnis
+from risk.models import (
+    AppSetting,
+    KnowledgeBaseArticle,
+    PenugasanUnitBisnis,
+)
 
 from .models import MonteCarloMetricHistory
 
@@ -117,6 +121,27 @@ def metric_history_pairing_officer(history):
     return None
 
 
+def metric_history_notification_tutorial():
+    # Ambil tutorial Published untuk halaman dan email histori risiko.
+    return (
+        KnowledgeBaseArticle.objects.filter(
+            status=KnowledgeBaseArticle.STATUS_PUBLISHED,
+            tutorial_placement=(
+                KnowledgeBaseArticle
+                .TUTORIAL_PLACEMENT_METRIC_HISTORY_INPUT
+            ),
+        )
+        .exclude(video_youtube_url="")
+        .select_related("kategori")
+        .order_by(
+            "-dipublikasikan_pada",
+            "-diperbarui_pada",
+            "-pk",
+        )
+        .first()
+    )
+
+
 def send_metric_history_assignment_notification(history, request=None, base_url=None):
     history = MonteCarloMetricHistory.objects.select_related(
         "assigned_to",
@@ -141,10 +166,12 @@ def send_metric_history_assignment_notification(history, request=None, base_url=
     )
 
     app_setting = AppSetting.get_solo()
+    tutorial = metric_history_notification_tutorial()
     context = {
         "history": history,
         "recipient": user,
         "pairing_officer": pairing_officer,
+        "tutorial": tutorial,
         "input_url": metric_history_input_url(history, request=request, base_url=base_url),
     }
     subject = f"Input Data Histori Risiko - {history.metric.name} - {history.periode.nama_periode}"
