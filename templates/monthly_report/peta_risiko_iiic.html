@@ -374,7 +374,7 @@
     </tfoot>
   </table>
 
-  {% if report.status == "approved" and kpmr_calculation %}
+  {% if kpmr_calculation and report.status == "submitted" or kpmr_calculation and report.status == "under_review" or kpmr_calculation and report.status == "approved" %}
     <section class="kpmr-panel">
       <h2>KPMR Otomatis Bulanan</h2>
       <p class="kpmr-meta">
