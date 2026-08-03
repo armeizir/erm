@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ERM monthly report reminders every day at 07:00 Asia/Jakarta
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 Asia/Jakarta
+Persistent=true
+AccuracySec=1min
+Unit=erm-monthly-reminder.service
+
+[Install]
+WantedBy=timers.target
