@@ -1620,6 +1620,8 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_peta_risiko_iiic_includes_automatic_kpmr_calculation(self):
         report_infra = self._report("INFRA")
+        report_infra.status = "approved"
+        report_infra.save(update_fields=["status"])
         request = RequestFactory().get(
             f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/peta-risiko-iiic/"
         )
@@ -1631,6 +1633,26 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response.context_data["kpmr_quarter"], 1)
         self.assertEqual(response.context_data["kpmr_calculation"].unit, report_infra.reassessment.unit_bisnis)
         self.assertEqual(response.context_data["kpmr_calculation"].report_count, 1)
+
+    def test_peta_risiko_iiic_hides_kpmr_until_report_is_approved(self):
+        report_infra = self._report("INFRA DRAFT")
+        request = RequestFactory().get(
+            f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/peta-risiko-iiic/"
+        )
+        request.user = self.admin_user
+        report_admin = MonthlyRiskReportAdmin(
+            MonthlyRiskReport,
+            AdminSite(),
+        )
+
+        response = report_admin.peta_risiko_iiic_view(
+            request,
+            str(report_infra.pk),
+        )
+        response.render()
+
+        self.assertIsNone(response.context_data["kpmr_calculation"])
+        self.assertNotIn(b"KPMR Otomatis Bulanan", response.content)
 
     def test_peta_risiko_iiic_exposes_previous_and_next_month_for_same_profile(self):
         report_infra = self._report("INFRA")
@@ -1675,6 +1697,8 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_peta_risiko_iiic_calculates_kpmr_from_monthly_data_even_when_saved_result_exists(self):
         report_infra = self._report("INFRA")
+        report_infra.status = "approved"
+        report_infra.save(update_fields=["status"])
         period = KPMRPeriode.objects.create(
             tahun=2026,
             triwulan=1,
@@ -1908,7 +1932,7 @@ class MonthlyRiskReportAdminTests(TestCase):
                 director.email,
             ],
         )
-        self.assertIn("Total KPMR", mail.outbox[-1].body)
+        self.assertNotIn("Total KPMR", mail.outbox[-1].body)
 
         report.status = "under_review"
         report.save(update_fields=["status"])
@@ -1927,7 +1951,7 @@ class MonthlyRiskReportAdminTests(TestCase):
                 director.email,
             ],
         )
-        self.assertIn("Total KPMR", mail.outbox[-1].body)
+        self.assertNotIn("Total KPMR", mail.outbox[-1].body)
 
         report.status = "approved"
         report.save(update_fields=["status"])
