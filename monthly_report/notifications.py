@@ -446,7 +446,7 @@ def send_monthly_report_notification(
         "app_setting": app_setting,
         "kpmr": (
             calculate_kpmr_for_report(report)
-            if report.status == "approved"
+            if report.status in {"submitted", "under_review", "approved"}
             else None
         ),
         "correction_note": correction_note,
