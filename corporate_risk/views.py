@@ -1,5 +1,7 @@
 import json
+import re
 from datetime import datetime
+from urllib.parse import parse_qs, urlparse
 from decimal import Decimal
 from statistics import mean, median, pstdev
 
@@ -15,6 +17,7 @@ from openpyxl import load_workbook
 
 from .models import RiskMetric, MonteCarloMetricHistory
 from masterdata.models import PeriodeLaporan
+from risk.models import KnowledgeBaseArticle
 
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required, permission_required
@@ -348,6 +351,76 @@ def metric_history_input_menu(request):
     return redirect("risk_admin:risk_profilrisikokorporatsummary_changelist")
 
 
+
+_YOUTUBE_VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{6,32}$")
+
+
+def youtube_embed_url(value):
+    # Ubah URL YouTube yang didukung menjadi URL embed yang aman.
+    raw_url = str(value or "").strip()
+    if not raw_url:
+        return ""
+
+    parsed = urlparse(raw_url)
+    host = (parsed.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+
+    video_id = ""
+
+    if host == "youtu.be":
+        video_id = parsed.path.strip("/").split("/", 1)[0]
+    elif host in {
+        "youtube.com",
+        "m.youtube.com",
+        "music.youtube.com",
+        "youtube-nocookie.com",
+    }:
+        path_parts = [
+            part
+            for part in parsed.path.strip("/").split("/")
+            if part
+        ]
+
+        if parsed.path.rstrip("/") == "/watch":
+            video_id = (parse_qs(parsed.query).get("v") or [""])[0]
+        elif (
+            len(path_parts) >= 2
+            and path_parts[0] in {"embed", "shorts", "live"}
+        ):
+            video_id = path_parts[1]
+
+    video_id = video_id.strip()
+    if not _YOUTUBE_VIDEO_ID_PATTERN.fullmatch(video_id):
+        return ""
+
+    return (
+        "https://www.youtube-nocookie.com/embed/"
+        f"{video_id}?rel=0"
+    )
+
+
+def metric_history_input_tutorial():
+    # Ambil video tutorial Published untuk halaman input histori risiko.
+    return (
+        KnowledgeBaseArticle.objects.filter(
+            status=KnowledgeBaseArticle.STATUS_PUBLISHED,
+            tutorial_placement=(
+                KnowledgeBaseArticle
+                .TUTORIAL_PLACEMENT_METRIC_HISTORY_INPUT
+            ),
+        )
+        .exclude(video_youtube_url="")
+        .select_related("kategori")
+        .order_by(
+            "-dipublikasikan_pada",
+            "-diperbarui_pada",
+            "-pk",
+        )
+        .first()
+    )
+
+
 @login_required
 def assigned_metric_history_input(request, pk):
     history = get_object_or_404(
@@ -367,8 +440,18 @@ def assigned_metric_history_input(request, pk):
         history.save()
         messages.success(request, "Data histori berhasil disimpan.")
         return redirect("metric_history_assigned_input", pk=history.pk)
+    tutorial = metric_history_input_tutorial()
     return render(
         request,
         "corporate_risk/assigned_metric_history_input.html",
-        {"history": history, "form": form},
+        {
+            "history": history,
+            "form": form,
+            "tutorial": tutorial,
+            "tutorial_embed_url": youtube_embed_url(
+                tutorial.video_youtube_url
+                if tutorial
+                else ""
+            ),
+        },
     )

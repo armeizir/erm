@@ -294,11 +294,16 @@ class KnowledgeBaseArticle(models.Model):
     )
 
     TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL = "monthly_report_email"
+    TUTORIAL_PLACEMENT_METRIC_HISTORY_INPUT = "metric_history_input"
     TUTORIAL_PLACEMENT_CHOICES = (
-        ("", "Tidak digunakan sebagai tutorial email"),
+        ("", "Tidak digunakan sebagai video tutorial"),
         (
             TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL,
             "Email Laporan Risiko Bulanan",
+        ),
+        (
+            TUTORIAL_PLACEMENT_METRIC_HISTORY_INPUT,
+            "Halaman Input Data Histori Risiko",
         ),
     )
 
@@ -354,8 +359,9 @@ class KnowledgeBaseArticle(models.Model):
         default="",
         verbose_name="Penempatan Tutorial",
         help_text=(
-            "Pilih lokasi email tempat video tutorial ditampilkan. "
-            "Hanya satu artikel Published yang boleh aktif pada setiap lokasi."
+            "Pilih lokasi aplikasi atau email tempat video tutorial "
+            "ditampilkan. Hanya satu artikel Published yang boleh aktif "
+            "pada setiap lokasi."
         ),
     )
     dibuat_oleh = models.ForeignKey(
