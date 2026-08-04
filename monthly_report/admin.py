@@ -497,6 +497,14 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             "realisasi_nilai_probabilitas": "Nilai Probabilitas (%)",
             "realisasi_skala_probabilitas": "Skala Probabilitas BUMN",
             "efektivitas_perlakuan_risiko": "Efektifitas Perlakuan Risiko",
+            "jenis_risiko": "Jenis Risiko",
+            "realisasi_eksposur": "Nilai Eksposur Risiko",
+            "realisasi_skor_risiko": "Skala Nilai Risiko BUMN",
+            "realisasi_skala_dampak_kbumn": "Skala Dampak KBUMN",
+            "realisasi_skala_probabilitas_kbumn": "Skala Probabilitas KBUMN",
+            "realisasi_skala_nilai_risiko_kbumn": "Skala Nilai Risiko KBUMN",
+            "realisasi_level_risiko_bumn": "Level Risiko BUMN",
+            "realisasi_level_risiko_kbumn": "Level Risiko KBUMN",
             "realisasi_rencana_perlakuan": "Realisasi Rencana Perlakuan Risiko",
             "realisasi_output_perlakuan": "Realisasi Output atas Masing-masing Breakdown Perlakuan Risiko",
             "realisasi_biaya_perlakuan": "Realisasi Biaya Perlakuan Risiko (Rp/USD)",
@@ -526,9 +534,21 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["efektivitas_perlakuan_risiko"].choices = (
+            ("", "---------"),
+            ("efektif", "Efektif"),
+            ("tidak_efektif", "Tidak Efektif"),
+        )
         report = self.instance.report if self.instance and self.instance.report_id else None
         if report and report.periode_id and report.periode.tanggal_mulai:
             month_name = BULAN_LABELS[report.periode.tanggal_mulai.month]
+            quarter = ((report.periode.tanggal_mulai.month - 1) // 3) + 1
+            self.fields["realisasi_nilai_dampak"].label = f"Nilai Dampak Q{quarter}"
+            self.fields["realisasi_skala_dampak"].label = f"Skala Dampak BUMN Q{quarter}"
+            self.fields["realisasi_nilai_probabilitas"].label = f"Nilai Probabilitas Q{quarter} (%)"
+            self.fields["realisasi_skala_probabilitas"].label = (
+                f"Skala Probabilitas BUMN Q{quarter}"
+            )
             self.fields["realisasi_threshold_kri"].label = (
                 f"Realisasi Threshold KRI {month_name}"
             )
@@ -590,32 +610,83 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     model = MonthlyRiskReportItem
     form = MonthlyRiskReportItemForm
     template = "admin/monthly_report/monthlyriskreport/edit_inline/monitoring_stacked.html"
-    extra = 1
-    readonly_fields = ("persentase_serapan_biaya", "serapan_biaya_mitigasi")
+    extra = 0
+    readonly_fields = (
+        "risk_event",
+        "data_item_profil",
+        "nomor_risiko_profil",
+        "peristiwa_risiko_profil",
+        "asumsi_dampak_inheren",
+        "nilai_dampak_inheren",
+        "skala_dampak_bumn_inheren",
+        "skala_dampak_kbumn_inheren",
+        "nilai_probabilitas_inheren",
+        "skala_probabilitas_bumn_inheren",
+        "skala_probabilitas_kbumn_inheren",
+        "eksposur_risiko_inheren",
+        "skala_nilai_risiko_bumn_inheren",
+        "realisasi_skala_dampak_kbumn",
+        "realisasi_skala_probabilitas_kbumn",
+        "realisasi_eksposur",
+        "realisasi_skor_risiko",
+        "realisasi_skala_nilai_risiko_kbumn",
+        "realisasi_level_risiko_kbumn",
+        "persentase_serapan_biaya",
+        "serapan_biaya_mitigasi",
+    )
     verbose_name = "Risiko yang Dipantau"
     verbose_name_plural = "III.A & III.B – Pemantauan Risiko Bulanan"
     fieldsets = (
         (
-            "Risiko yang Dipantau",
+            "A. IDENTITAS RISIKO",
             {
-                "fields": ("risk_event",),
+                "fields": (
+                    "data_item_profil",
+                    "nomor_risiko_profil",
+                    "peristiwa_risiko_profil",
+                    "jenis_risiko",
+                ),
             },
         ),
         (
-            "A. Posisi Risiko Residual Bulan Ini",
+            "B. RISIKO INHEREN",
             {
+                "fields": (
+                    "asumsi_dampak_inheren",
+                    "nilai_dampak_inheren",
+                    "skala_dampak_bumn_inheren",
+                    "skala_dampak_kbumn_inheren",
+                    "nilai_probabilitas_inheren",
+                    "skala_probabilitas_bumn_inheren",
+                    "skala_probabilitas_kbumn_inheren",
+                    "eksposur_risiko_inheren",
+                    "skala_nilai_risiko_bumn_inheren",
+                ),
+            },
+        ),
+        (
+            "C. HASIL REALISASI RESIDUAL RISK – QUARTER AKTIF",
+            {
+                "classes": ("residual-grid",),
                 "fields": (
                     "realisasi_asumsi_dampak",
                     "realisasi_nilai_dampak",
                     "realisasi_skala_dampak",
+                    "realisasi_skala_dampak_kbumn",
                     "realisasi_nilai_probabilitas",
                     "realisasi_skala_probabilitas",
+                    "realisasi_skala_probabilitas_kbumn",
+                    "realisasi_eksposur",
+                    "realisasi_skor_risiko",
+                    "realisasi_skala_nilai_risiko_kbumn",
+                    "realisasi_level_risiko_bumn",
+                    "realisasi_level_risiko_kbumn",
                     "efektivitas_perlakuan_risiko",
                 ),
             },
         ),
         (
-            "B. Realisasi Mitigasi dan KRI",
+            "D. REALISASI PERLAKUAN RISIKO DAN KRI",
             {
                 "fields": (
                     "realisasi_rencana_perlakuan",
@@ -632,7 +703,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             },
         ),
         (
-            "C. Tindak Lanjut",
+            "E. TINDAK LANJUT",
             {
                 "fields": (
                     "next_action",
@@ -642,9 +713,74 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         ),
     )
 
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = list(super().get_fieldsets(request, obj))
+        if obj and obj.periode_id and obj.periode.tanggal_mulai:
+            period_date = obj.periode.tanggal_mulai
+            quarter = ((period_date.month - 1) // 3) + 1
+            month_name = BULAN_LABELS[period_date.month].upper()
+            fieldsets[2] = (
+                f"C. HASIL REALISASI RESIDUAL RISK – Q{quarter} / {month_name} {period_date.year}",
+                fieldsets[2][1],
+            )
+        return tuple(fieldsets)
+
     @admin.display(description="Persentase Serapan Biaya")
     def serapan_biaya_mitigasi(self, obj):
         return obj.persentase_serapan_biaya if obj and obj.pk else "-"
+
+    def _risk_value(self, obj, field_name):
+        risk = obj.risk_event if obj and obj.risk_event_id else None
+        value = getattr(risk, field_name, None) if risk else None
+        return value if value not in (None, "") else "Data belum lengkap"
+
+    @admin.display(description="Data Item")
+    def data_item_profil(self, obj):
+        return self._risk_value(obj, "no_item")
+
+    @admin.display(description="No. Risiko")
+    def nomor_risiko_profil(self, obj):
+        return self._risk_value(obj, "no_risiko")
+
+    @admin.display(description="Peristiwa Risiko")
+    def peristiwa_risiko_profil(self, obj):
+        return self._risk_value(obj, "peristiwa_risiko")
+
+    @admin.display(description="Asumsi Perhitungan Dampak Kuantitatif / Penjelasan Dampak Kualitatif")
+    def asumsi_dampak_inheren(self, obj):
+        return self._risk_value(obj, "asumsi_perhitungan_dampak")
+
+    @admin.display(description="Nilai Dampak Risiko Inheren")
+    def nilai_dampak_inheren(self, obj):
+        return self._risk_value(obj, "nilai_dampak")
+
+    @admin.display(description="Skala Dampak BUMN Risiko Inheren")
+    def skala_dampak_bumn_inheren(self, obj):
+        return self._risk_value(obj, "skala_dampak")
+
+    @admin.display(description="Skala Dampak KBUMN Risiko Inheren — Dihitung otomatis")
+    def skala_dampak_kbumn_inheren(self, obj):
+        return "Data belum lengkap"
+
+    @admin.display(description="Nilai Probabilitas Risiko Inheren (%)")
+    def nilai_probabilitas_inheren(self, obj):
+        return self._risk_value(obj, "nilai_probabilitas")
+
+    @admin.display(description="Skala Probabilitas BUMN Risiko Inheren")
+    def skala_probabilitas_bumn_inheren(self, obj):
+        return self._risk_value(obj, "skala_probabilitas")
+
+    @admin.display(description="Skala Probabilitas KBUMN Risiko Inheren — Dihitung otomatis")
+    def skala_probabilitas_kbumn_inheren(self, obj):
+        return "Data belum lengkap"
+
+    @admin.display(description="Eksposur Risiko Inheren — Dihitung otomatis")
+    def eksposur_risiko_inheren(self, obj):
+        return self._risk_value(obj, "eksposur_risiko")
+
+    @admin.display(description="Skala Nilai Risiko BUMN Risiko Inheren")
+    def skala_nilai_risiko_bumn_inheren(self, obj):
+        return self._risk_value(obj, "skala_risiko")
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "risk_event":

@@ -26,6 +26,12 @@ IMPORTABLE_FIELDS = (
     "realisasi_skala_dampak_id",
     "realisasi_nilai_probabilitas",
     "realisasi_skala_probabilitas_id",
+    "jenis_risiko",
+    "realisasi_skala_dampak_kbumn",
+    "realisasi_skala_probabilitas_kbumn",
+    "realisasi_skala_nilai_risiko_kbumn",
+    "realisasi_level_risiko_bumn",
+    "realisasi_level_risiko_kbumn",
     "efektivitas_perlakuan_risiko",
     "realisasi_rencana_perlakuan",
     "realisasi_output_perlakuan",
@@ -44,6 +50,13 @@ IIIA_QUARTER_COLUMNS = {
     "realisasi_skala_dampak_id": {1: 18, 2: 19, 3: 20, 4: 21},    # S:V
     "realisasi_nilai_probabilitas": {1: 26, 2: 27, 3: 28, 4: 29}, # AA:AD
     "realisasi_skala_probabilitas_id": {1: 30, 2: 31, 3: 32, 4: 33},
+    "realisasi_skala_dampak_kbumn": {1: 22, 2: 23, 3: 24, 4: 25},       # W:Z
+    "realisasi_skala_probabilitas_kbumn": {1: 34, 2: 35, 3: 36, 4: 37}, # AI:AL
+    "source_realisasi_eksposur": {1: 38, 2: 39, 3: 40, 4: 41},          # AM:AP
+    "source_realisasi_skor_risiko": {1: 42, 2: 43, 3: 44, 4: 45},       # AQ:AT
+    "realisasi_skala_nilai_risiko_kbumn": {1: 46, 2: 47, 3: 48, 4: 49},# AU:AX
+    "realisasi_level_risiko_bumn": {1: 50, 2: 51, 3: 52, 4: 53},        # AY:BB
+    "realisasi_level_risiko_kbumn": {1: 54, 2: 55, 3: 56, 4: 57},       # BC:BF
 }
 
 
@@ -69,6 +82,11 @@ FIELD_LABELS = {
     "realisasi_skala_dampak_id": "Skala dampak",
     "realisasi_nilai_probabilitas": "Nilai probabilitas",
     "realisasi_skala_probabilitas_id": "Skala probabilitas",
+    "realisasi_skala_dampak_kbumn": "Skala dampak KBUMN",
+    "realisasi_skala_probabilitas_kbumn": "Skala probabilitas KBUMN",
+    "realisasi_skala_nilai_risiko_kbumn": "Skala nilai risiko KBUMN",
+    "realisasi_level_risiko_bumn": "Level risiko BUMN",
+    "realisasi_level_risiko_kbumn": "Level risiko KBUMN",
     "efektivitas_perlakuan_risiko": "Efektivitas perlakuan",
     "realisasi_rencana_perlakuan": "Realisasi rencana",
     "realisasi_output_perlakuan": "Realisasi output",
@@ -574,6 +592,24 @@ def _parse_workbook(batch, include_diagnostics=False):
             "realisasi_nilai_probabilitas": f"III.A!{get_column_letter(probability + 1)}{row_number}",
             "realisasi_skala_probabilitas_id": f"III.A!{get_column_letter(probability_scale + 1)}{row_number}",
         }
+        standard_values = {}
+        if standard_iiia_layout:
+            for field_name in (
+                "realisasi_skala_dampak_kbumn",
+                "realisasi_skala_probabilitas_kbumn",
+                "source_realisasi_eksposur",
+                "source_realisasi_skor_risiko",
+                "realisasi_skala_nilai_risiko_kbumn",
+                "realisasi_level_risiko_bumn",
+                "realisasi_level_risiko_kbumn",
+            ):
+                column_index = IIIA_QUARTER_COLUMNS[field_name][quarter]
+                source_cells[field_name] = (
+                    f"III.A!{get_column_letter(column_index + 1)}{row_number}"
+                )
+                standard_values[field_name] = (
+                    row[column_index] if len(row) > column_index else None
+                )
         empty_quarter_fields = (
             [
                 field_name
@@ -582,6 +618,26 @@ def _parse_workbook(batch, include_diagnostics=False):
                     ("realisasi_skala_dampak_id", impact_scale),
                     ("realisasi_nilai_probabilitas", probability),
                     ("realisasi_skala_probabilitas_id", probability_scale),
+                    (
+                        "realisasi_skala_dampak_kbumn",
+                        IIIA_QUARTER_COLUMNS["realisasi_skala_dampak_kbumn"][quarter],
+                    ),
+                    (
+                        "realisasi_skala_probabilitas_kbumn",
+                        IIIA_QUARTER_COLUMNS["realisasi_skala_probabilitas_kbumn"][quarter],
+                    ),
+                    (
+                        "realisasi_skala_nilai_risiko_kbumn",
+                        IIIA_QUARTER_COLUMNS["realisasi_skala_nilai_risiko_kbumn"][quarter],
+                    ),
+                    (
+                        "realisasi_level_risiko_bumn",
+                        IIIA_QUARTER_COLUMNS["realisasi_level_risiko_bumn"][quarter],
+                    ),
+                    (
+                        "realisasi_level_risiko_kbumn",
+                        IIIA_QUARTER_COLUMNS["realisasi_level_risiko_kbumn"][quarter],
+                    ),
                 )
                 if len(row) <= column_index or row[column_index] in (None, "")
             ]
@@ -615,6 +671,12 @@ def _parse_workbook(batch, include_diagnostics=False):
                     "empty_quarter_fields": empty_quarter_fields,
                 },
                 "proposed_data": {
+                    "jenis_risiko": (
+                        _text(row[3]).casefold()
+                        if len(row) > 3
+                        and _text(row[3]).casefold() in {"kuantitatif", "kualitatif"}
+                        else None
+                    ),
                     "realisasi_asumsi_dampak": _safe_import_text(
                         row[assumption] if len(row) > assumption else None
                     ),
@@ -633,6 +695,21 @@ def _parse_workbook(batch, include_diagnostics=False):
                         row[probability_scale]
                         if len(row) > probability_scale
                         else None,
+                    ),
+                    "realisasi_skala_dampak_kbumn": _positive_integer(
+                        standard_values.get("realisasi_skala_dampak_kbumn")
+                    ),
+                    "realisasi_skala_probabilitas_kbumn": _positive_integer(
+                        standard_values.get("realisasi_skala_probabilitas_kbumn")
+                    ),
+                    "realisasi_skala_nilai_risiko_kbumn": _positive_integer(
+                        standard_values.get("realisasi_skala_nilai_risiko_kbumn")
+                    ),
+                    "realisasi_level_risiko_bumn": _safe_import_text(
+                        standard_values.get("realisasi_level_risiko_bumn")
+                    ),
+                    "realisasi_level_risiko_kbumn": _safe_import_text(
+                        standard_values.get("realisasi_level_risiko_kbumn")
                     ),
                     "efektivitas_perlakuan_risiko": _effectiveness(
                         row[effectiveness]
@@ -947,6 +1024,22 @@ def _validate_entry(entry, item, method, confidence, candidates):
         fatal = True
     if proposed.get("realisasi_biaya_perlakuan") is not None and proposed["realisasi_biaya_perlakuan"] < 0:
         issues.append("Realisasi biaya tidak boleh negatif.")
+        fatal = True
+    for field_name in (
+        "realisasi_skala_dampak_kbumn",
+        "realisasi_skala_probabilitas_kbumn",
+    ):
+        value = proposed.get(field_name)
+        if value is not None and not 1 <= int(value) <= 5:
+            issues.append(f"{FIELD_LABELS.get(field_name, field_name)} harus 1 sampai 5.")
+            fatal = True
+    risk_scale = proposed.get("realisasi_skala_nilai_risiko_kbumn")
+    if risk_scale is not None and not 1 <= int(risk_scale) <= 25:
+        issues.append("Skala nilai risiko KBUMN harus 1 sampai 25.")
+        fatal = True
+    effectiveness = proposed.get("efektivitas_perlakuan_risiko")
+    if effectiveness not in (None, "", "efektif", "tidak_efektif"):
+        issues.append("Efektivitas harus Efektif atau Tidak Efektif.")
         fatal = True
     if not item:
         if method == "outside_target_profile":

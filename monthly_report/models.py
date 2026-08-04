@@ -232,6 +232,10 @@ class MonthlyRiskReport(TimeStampedModel):
 
 
 class MonthlyRiskReportItem(TimeStampedModel):
+    RISK_TYPE_CHOICES = [
+        ("kuantitatif", "Kuantitatif"),
+        ("kualitatif", "Kualitatif"),
+    ]
     TREND_CHOICES = [
         ("up", "Meningkat"),
         ("down", "Menurun"),
@@ -247,7 +251,6 @@ class MonthlyRiskReportItem(TimeStampedModel):
 
     EFFECTIVENESS_CHOICES = [
         ("efektif", "Efektif"),
-        ("cukup_efektif", "Cukup Efektif"),
         ("tidak_efektif", "Tidak Efektif"),
     ]
     TREATMENT_STATUS_CHOICES = [
@@ -292,6 +295,14 @@ class MonthlyRiskReportItem(TimeStampedModel):
         max_length=30, choices=MITIGATION_STATUS_CHOICES, null=True, blank=True
     )
 
+    jenis_risiko = models.CharField(
+        max_length=20,
+        choices=RISK_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name="Jenis Risiko",
+    )
+
     realisasi_asumsi_dampak = models.TextField(
         null=True,
         blank=True,
@@ -327,6 +338,12 @@ class MonthlyRiskReportItem(TimeStampedModel):
         related_name="monthly_report_realisasi_probabilitas",
         verbose_name="Skala Probabilitas Bulan Ini",
     )
+    realisasi_skala_dampak_kbumn = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Skala Dampak KBUMN"
+    )
+    realisasi_skala_probabilitas_kbumn = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Skala Probabilitas KBUMN"
+    )
     realisasi_eksposur = models.DecimalField(
         max_digits=18,
         decimal_places=2,
@@ -344,6 +361,15 @@ class MonthlyRiskReportItem(TimeStampedModel):
         null=True,
         blank=True,
         verbose_name="Level Risiko Bulan Ini",
+    )
+    realisasi_skala_nilai_risiko_kbumn = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Skala Nilai Risiko KBUMN"
+    )
+    realisasi_level_risiko_bumn = models.CharField(
+        max_length=100, null=True, blank=True, verbose_name="Level Risiko BUMN"
+    )
+    realisasi_level_risiko_kbumn = models.CharField(
+        max_length=100, null=True, blank=True, verbose_name="Level Risiko KBUMN"
     )
     efektivitas_perlakuan_risiko = models.CharField(
         max_length=100,
@@ -448,6 +474,31 @@ class MonthlyRiskReportItem(TimeStampedModel):
                 errors["realisasi_nilai_probabilitas"] = (
                     "Nilai probabilitas harus berada di antara 0 sampai 100."
                 )
+        if self.realisasi_nilai_dampak is not None and self.realisasi_nilai_dampak < 0:
+            errors["realisasi_nilai_dampak"] = "Nilai dampak tidak boleh negatif."
+        for field_name in (
+            "realisasi_skala_dampak_kbumn",
+            "realisasi_skala_probabilitas_kbumn",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and not 1 <= value <= 5:
+                errors[field_name] = "Skala harus berada di antara 1 sampai 5."
+        if (
+            self.realisasi_skala_nilai_risiko_kbumn is not None
+            and not 1 <= self.realisasi_skala_nilai_risiko_kbumn <= 25
+        ):
+            errors["realisasi_skala_nilai_risiko_kbumn"] = (
+                "Skala nilai risiko harus berada di antara 1 sampai 25."
+            )
+        if self.efektivitas_perlakuan_risiko not in (
+            None,
+            "",
+            "efektif",
+            "tidak_efektif",
+        ):
+            errors["efektivitas_perlakuan_risiko"] = (
+                "Efektivitas harus Efektif atau Tidak Efektif."
+            )
         if self.persentase_serapan_biaya is not None:
             if self.persentase_serapan_biaya < 0:
                 errors["persentase_serapan_biaya"] = (

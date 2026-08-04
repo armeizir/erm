@@ -5,6 +5,7 @@ from io import BytesIO
 import tempfile
 
 from django.contrib.admin.sites import AdminSite
+from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core import mail
@@ -315,10 +316,17 @@ class MonthlyRiskReportAdminTests(TestCase):
         iiia.cell(13, 17, q3_impact)  # Q / Q3
         iiia.cell(13, 20, 5)  # T / Q2
         iiia.cell(13, 21, 2)  # U / Q3
+        iiia.cell(13, 25, 2)  # Y / Q3 KBUMN
         iiia.cell(13, 28, 0.31)  # AB / Q2
         iiia.cell(13, 29, q3_probability / 100 if q3_probability is not None else None)
         iiia.cell(13, 32, 4)  # AF / Q2
         iiia.cell(13, 33, 1)  # AG / Q3
+        iiia.cell(13, 37, 1)  # AK / Q3 KBUMN
+        iiia.cell(13, 41, 0.5)  # AO / Q3 source exposure
+        iiia.cell(13, 45, 6)  # AS / Q3 BUMN risk scale
+        iiia.cell(13, 49, 6)  # AW / Q3 KBUMN risk scale
+        iiia.cell(13, 53, "Low")  # BA / Q3 BUMN risk level
+        iiia.cell(13, 57, "Rendah")  # BE / Q3 KBUMN risk level
         iiia.cell(13, 59, "Efektif")
         iiib.cell(10, 1, "Start pengisian")
         iiib.cell(11, 2, 1)
@@ -381,6 +389,13 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(residual.proposed_data["realisasi_skala_dampak_id"], impact_scale.pk)
         self.assertEqual(residual.proposed_data["realisasi_nilai_probabilitas"], "25.00")
         self.assertEqual(residual.proposed_data["realisasi_skala_probabilitas_id"], probability_scale.pk)
+        self.assertEqual(residual.proposed_data["realisasi_skala_dampak_kbumn"], 2)
+        self.assertEqual(residual.proposed_data["realisasi_skala_probabilitas_kbumn"], 1)
+        self.assertEqual(residual.proposed_data["realisasi_skala_nilai_risiko_kbumn"], 6)
+        self.assertEqual(residual.proposed_data["realisasi_level_risiko_bumn"], "Low")
+        self.assertEqual(residual.proposed_data["realisasi_level_risiko_kbumn"], "Rendah")
+        self.assertEqual(residual.raw_data["source_cells"]["source_realisasi_eksposur"], "III.A!AO13")
+        self.assertEqual(residual.raw_data["source_cells"]["source_realisasi_skor_risiko"], "III.A!AS13")
         self.assertEqual(treatment.proposed_data["realisasi_threshold_kri"], "3. Hijau")
         self.assertEqual(treatment.proposed_data["realisasi_threshold_kri_skor"], "100")
 
@@ -1761,6 +1776,20 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(
             form.fields["realisasi_threshold_kri"].label,
             "Realisasi Threshold KRI Februari",
+        )
+
+    def test_monthly_monitoring_form_uses_excel_control_types(self):
+        form = MonthlyRiskReportItemForm()
+
+        self.assertIsInstance(form.fields["jenis_risiko"].widget, forms.Select)
+        self.assertIsInstance(form.fields["realisasi_asumsi_dampak"].widget, forms.Textarea)
+        self.assertIsInstance(form.fields["realisasi_skala_dampak"].widget, forms.Select)
+        self.assertIsInstance(form.fields["realisasi_skala_probabilitas"].widget, forms.Select)
+        self.assertIsInstance(form.fields["realisasi_level_risiko_bumn"].widget, forms.TextInput)
+        self.assertNotIsInstance(form.fields["realisasi_level_risiko_bumn"].widget, forms.Select)
+        self.assertEqual(
+            [value for value, _ in form.fields["efektivitas_perlakuan_risiko"].choices],
+            ["", "efektif", "tidak_efektif"],
         )
 
     def test_monthly_report_change_page_renders_monitoring_accordion_and_management_form(self):

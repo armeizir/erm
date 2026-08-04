@@ -13,6 +13,26 @@
 .completion-badge.needs-check { background: #f8d7da; color: #842029; }
 .monitoring-risk-body { padding: 10px; }
 .monitoring-risk-body fieldset { margin-bottom: 12px; }
+.monitoring-risk-body fieldset.residual-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.monitoring-risk-body fieldset.residual-grid > h2 { grid-column: 1 / -1; }
+.monitoring-risk-body fieldset.residual-grid .form-row { border: 1px solid var(--hairline-color); padding: 10px; }
+.monitoring-risk-body fieldset.residual-grid .field-realisasi_asumsi_dampak { grid-column: 1 / -1; }
+.monitoring-risk-body fieldset.residual-grid .readonly {
+  background: var(--darkened-bg);
+  border-radius: 4px;
+  padding: 8px;
+}
+.monitoring-risk-body fieldset.residual-grid .readonly::before {
+  content: "🧮 Dihitung otomatis";
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
 .monitoring-risk-body textarea { min-height: 70px; width: min(100%, 900px); }
 .monitoring-risk-footer { align-items: center; border-top: 1px solid var(--hairline-color); display: flex; gap: 14px; justify-content: flex-end; padding: 10px; }
 .monitoring-delete { color: var(--body-quiet-color); font-size: 12px; opacity: .75; }
@@ -20,4 +40,9 @@
   .monitoring-risk-details > summary { grid-template-columns: 1fr; }
   .completion-badge { grid-column: 1; grid-row: auto; justify-self: start; }
   .monitoring-risk-body .form-row { overflow-wrap: anywhere; }
+  .monitoring-risk-body fieldset.residual-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .monitoring-risk-body fieldset.residual-grid { grid-template-columns: 1fr; }
+  .monitoring-risk-body fieldset.residual-grid .field-realisasi_asumsi_dampak { grid-column: 1; }
 }
