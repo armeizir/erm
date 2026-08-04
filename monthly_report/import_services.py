@@ -30,6 +30,8 @@ IMPORTABLE_FIELDS = (
     "realisasi_skala_dampak_kbumn",
     "realisasi_skala_probabilitas_kbumn",
     "realisasi_skala_nilai_risiko_kbumn",
+    "realisasi_eksposur",
+    "realisasi_skor_risiko",
     "realisasi_level_risiko_bumn",
     "realisasi_level_risiko_kbumn",
     "efektivitas_perlakuan_risiko",
@@ -87,6 +89,8 @@ FIELD_LABELS = {
     "realisasi_skala_nilai_risiko_kbumn": "Skala nilai risiko KBUMN",
     "realisasi_level_risiko_bumn": "Level risiko BUMN",
     "realisasi_level_risiko_kbumn": "Level risiko KBUMN",
+    "realisasi_eksposur": "Nilai eksposur risiko",
+    "realisasi_skor_risiko": "Skala nilai risiko BUMN",
     "efektivitas_perlakuan_risiko": "Efektivitas perlakuan",
     "realisasi_rencana_perlakuan": "Realisasi rencana",
     "realisasi_output_perlakuan": "Realisasi output",
@@ -610,6 +614,8 @@ def _parse_workbook(batch, include_diagnostics=False):
                 standard_values[field_name] = (
                     row[column_index] if len(row) > column_index else None
                 )
+            source_cells["realisasi_eksposur"] = source_cells["source_realisasi_eksposur"]
+            source_cells["realisasi_skor_risiko"] = source_cells["source_realisasi_skor_risiko"]
         empty_quarter_fields = (
             [
                 field_name
@@ -637,6 +643,14 @@ def _parse_workbook(batch, include_diagnostics=False):
                     (
                         "realisasi_level_risiko_kbumn",
                         IIIA_QUARTER_COLUMNS["realisasi_level_risiko_kbumn"][quarter],
+                    ),
+                    (
+                        "realisasi_eksposur",
+                        IIIA_QUARTER_COLUMNS["source_realisasi_eksposur"][quarter],
+                    ),
+                    (
+                        "realisasi_skor_risiko",
+                        IIIA_QUARTER_COLUMNS["source_realisasi_skor_risiko"][quarter],
                     ),
                 )
                 if len(row) <= column_index or row[column_index] in (None, "")
@@ -710,6 +724,12 @@ def _parse_workbook(batch, include_diagnostics=False):
                     ),
                     "realisasi_level_risiko_kbumn": _safe_import_text(
                         standard_values.get("realisasi_level_risiko_kbumn")
+                    ),
+                    "realisasi_eksposur": _decimal(
+                        standard_values.get("source_realisasi_eksposur")
+                    ),
+                    "realisasi_skor_risiko": _positive_integer(
+                        standard_values.get("source_realisasi_skor_risiko")
                     ),
                     "efektivitas_perlakuan_risiko": _effectiveness(
                         row[effectiveness]
@@ -1036,6 +1056,14 @@ def _validate_entry(entry, item, method, confidence, candidates):
     risk_scale = proposed.get("realisasi_skala_nilai_risiko_kbumn")
     if risk_scale is not None and not 1 <= int(risk_scale) <= 25:
         issues.append("Skala nilai risiko KBUMN harus 1 sampai 25.")
+        fatal = True
+    bumn_risk_scale = proposed.get("realisasi_skor_risiko")
+    if bumn_risk_scale is not None and not 1 <= int(bumn_risk_scale) <= 25:
+        issues.append("Skala nilai risiko BUMN harus 1 sampai 25.")
+        fatal = True
+    exposure = proposed.get("realisasi_eksposur")
+    if exposure is not None and Decimal(str(exposure)) < 0:
+        issues.append("Nilai eksposur risiko tidak boleh negatif.")
         fatal = True
     effectiveness = proposed.get("efektivitas_perlakuan_risiko")
     if effectiveness not in (None, "", "efektif", "tidak_efektif"):

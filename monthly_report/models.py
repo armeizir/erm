@@ -345,7 +345,7 @@ class MonthlyRiskReportItem(TimeStampedModel):
         null=True, blank=True, verbose_name="Skala Probabilitas KBUMN"
     )
     realisasi_eksposur = models.DecimalField(
-        max_digits=18,
+        max_digits=24,
         decimal_places=2,
         null=True,
         blank=True,
@@ -476,6 +476,8 @@ class MonthlyRiskReportItem(TimeStampedModel):
                 )
         if self.realisasi_nilai_dampak is not None and self.realisasi_nilai_dampak < 0:
             errors["realisasi_nilai_dampak"] = "Nilai dampak tidak boleh negatif."
+        if self.realisasi_eksposur is not None and self.realisasi_eksposur < 0:
+            errors["realisasi_eksposur"] = "Nilai eksposur risiko tidak boleh negatif."
         for field_name in (
             "realisasi_skala_dampak_kbumn",
             "realisasi_skala_probabilitas_kbumn",
@@ -489,6 +491,13 @@ class MonthlyRiskReportItem(TimeStampedModel):
         ):
             errors["realisasi_skala_nilai_risiko_kbumn"] = (
                 "Skala nilai risiko harus berada di antara 1 sampai 25."
+            )
+        if (
+            self.realisasi_skor_risiko is not None
+            and not 1 <= self.realisasi_skor_risiko <= 25
+        ):
+            errors["realisasi_skor_risiko"] = (
+                "Skala nilai risiko BUMN harus antara 1 sampai 25."
             )
         if self.efektivitas_perlakuan_risiko not in (
             None,
@@ -524,19 +533,6 @@ class MonthlyRiskReportItem(TimeStampedModel):
         return RiskMatrix.objects.filter(aktif=True, is_default=True).first()
 
     def _calculate_realisasi(self):
-        # Pada risiko kualitatif, nilai dampak quarter pada template dapat berupa
-        # skor/parameter, bukan nominal mata uang. Jangan mengalikannya sebagai
-        # rupiah sebelum konfigurasi RAS dan faktor dampak tersedia.
-        if self.jenis_risiko == "kualitatif":
-            self.realisasi_eksposur = None
-        elif self.realisasi_nilai_dampak is not None and self.realisasi_nilai_probabilitas is not None:
-            self.realisasi_eksposur = (
-                self.realisasi_nilai_dampak
-                * (self.realisasi_nilai_probabilitas / Decimal("100"))
-            ).quantize(Decimal("0.01"))
-        else:
-            self.realisasi_eksposur = None
-
         self.persentase_serapan_biaya = None
         if self.realisasi_biaya_perlakuan is not None and self.risk_event_id:
             anggaran = self.risk_event.biaya_perlakuan_risiko
@@ -545,18 +541,9 @@ class MonthlyRiskReportItem(TimeStampedModel):
                     self.realisasi_biaya_perlakuan / anggaran * Decimal("100")
                 ).quantize(Decimal("0.01"))
 
-        self.realisasi_skor_risiko = None
-        self.realisasi_level_risiko = None
-        if self.realisasi_skala_dampak_id and self.realisasi_skala_probabilitas_id:
-            matrix = self._get_active_matrix()
-            cell = (
-                matrix.get_cell(self.realisasi_skala_dampak, self.realisasi_skala_probabilitas)
-                if matrix
-                else None
-            )
-            if cell:
-                self.realisasi_skor_risiko = cell.skor
-                self.realisasi_level_risiko = cell.level_risiko.nama
+        # Nilai eksposur, skala nilai risiko, dan level risiko pada laporan
+        # bulanan mengikuti Kertas Kerja III.A (input manual atau import).
+        # Jangan hitung ulang atau timpa nilainya saat item disimpan.
 
     def save(self, *args, **kwargs):
         if self.risk_event_id:

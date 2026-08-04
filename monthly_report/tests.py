@@ -322,7 +322,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         iiia.cell(13, 32, 4)  # AF / Q2
         iiia.cell(13, 33, 1)  # AG / Q3
         iiia.cell(13, 37, 1)  # AK / Q3 KBUMN
-        iiia.cell(13, 41, 0.5)  # AO / Q3 source exposure
+        iiia.cell(13, 41, 417340650)  # AO / Q3 source exposure
         iiia.cell(13, 45, 6)  # AS / Q3 BUMN risk scale
         iiia.cell(13, 49, 6)  # AW / Q3 KBUMN risk scale
         iiia.cell(13, 53, "Low")  # BA / Q3 BUMN risk level
@@ -394,6 +394,8 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(residual.proposed_data["realisasi_skala_nilai_risiko_kbumn"], 6)
         self.assertEqual(residual.proposed_data["realisasi_level_risiko_bumn"], "Low")
         self.assertEqual(residual.proposed_data["realisasi_level_risiko_kbumn"], "Rendah")
+        self.assertEqual(residual.proposed_data["realisasi_eksposur"], "417340650")
+        self.assertEqual(residual.proposed_data["realisasi_skor_risiko"], 6)
         self.assertEqual(residual.raw_data["source_cells"]["source_realisasi_eksposur"], "III.A!AO13")
         self.assertEqual(residual.raw_data["source_cells"]["source_realisasi_skor_risiko"], "III.A!AS13")
         self.assertEqual(treatment.proposed_data["realisasi_threshold_kri"], "3. Hijau")
@@ -1787,6 +1789,18 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIsInstance(form.fields["realisasi_skala_probabilitas"].widget, forms.Select)
         self.assertIsInstance(form.fields["realisasi_level_risiko_bumn"].widget, forms.TextInput)
         self.assertNotIsInstance(form.fields["realisasi_level_risiko_bumn"].widget, forms.Select)
+        for field_name in (
+            "realisasi_skala_dampak_kbumn",
+            "realisasi_skala_probabilitas_kbumn",
+            "realisasi_eksposur",
+            "realisasi_skor_risiko",
+            "realisasi_skala_nilai_risiko_kbumn",
+        ):
+            self.assertIsInstance(form.fields[field_name].widget, forms.NumberInput)
+        self.assertIsInstance(
+            form.fields["realisasi_level_risiko_kbumn"].widget,
+            forms.TextInput,
+        )
         self.assertEqual(
             [value for value, _ in form.fields["efektivitas_perlakuan_risiko"].choices],
             ["", "efektif", "tidak_efektif"],
@@ -1863,7 +1877,7 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertEqual(report_item.persentase_serapan_biaya, Decimal("150.00"))
 
-    def test_quantitative_exposure_uses_decimal_percentage(self):
+    def test_manual_exposure_is_not_recalculated_on_save(self):
         report = self._report("BID EXPOSURE QUANTITATIVE")
         risk_event = self._risk_item(report)
         item = MonthlyRiskReportItem.objects.create(
@@ -1872,17 +1886,18 @@ class MonthlyRiskReportAdminTests(TestCase):
             jenis_risiko="kuantitatif",
             realisasi_nilai_dampak=Decimal("1669362600"),
             realisasi_nilai_probabilitas=Decimal("25"),
+            realisasi_eksposur=Decimal("417340650"),
         )
 
         self.assertEqual(item.realisasi_eksposur, Decimal("417340650.00"))
         item.realisasi_nilai_probabilitas = Decimal("15")
         item.save()
-        self.assertEqual(item.realisasi_eksposur, Decimal("250404390.00"))
+        self.assertEqual(item.realisasi_eksposur, Decimal("417340650"))
         item.realisasi_nilai_probabilitas = Decimal("31")
         item.save()
-        self.assertEqual(item.realisasi_eksposur, Decimal("517502406.00"))
+        self.assertEqual(item.realisasi_eksposur, Decimal("417340650"))
 
-    def test_qualitative_impact_score_is_not_used_as_currency_exposure(self):
+    def test_qualitative_manual_exposure_is_preserved(self):
         report = self._report("BID EXPOSURE QUALITATIVE")
         risk_event = self._risk_item(report)
         item = MonthlyRiskReportItem.objects.create(
@@ -1891,14 +1906,12 @@ class MonthlyRiskReportAdminTests(TestCase):
             jenis_risiko="kualitatif",
             realisasi_nilai_dampak=Decimal("2"),
             realisasi_nilai_probabilitas=Decimal("25"),
+            realisasi_eksposur=Decimal("417340650"),
         )
 
-        self.assertIsNone(item.realisasi_eksposur)
-        inline = MonthlyRiskReportItemInline(MonthlyRiskReport, AdminSite())
-        explanation = str(inline.nilai_eksposur_risiko_otomatis(item))
-        self.assertIn("Data belum lengkap", explanation)
-        self.assertIn("Skor dampak tidak digunakan", explanation)
-        self.assertNotIn("0.50", explanation)
+        self.assertEqual(item.realisasi_eksposur, Decimal("417340650"))
+        item.save()
+        self.assertEqual(item.realisasi_eksposur, Decimal("417340650"))
 
     def test_peta_risiko_iiic_includes_automatic_kpmr_calculation(self):
         report_infra = self._report("INFRA")

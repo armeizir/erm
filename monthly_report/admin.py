@@ -528,6 +528,13 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             "realisasi_biaya_perlakuan": "Isi realisasi biaya perlakuan risiko beserta satuan mata uang yang digunakan.",
             "progress_pelaksanaan_percent": "Isi progress pelaksanaan rencana perlakuan antara 0 sampai 100.",
             "realisasi_threshold_kri": "Pilih realisasi threshold KRI sesuai kategori threshold yang ditetapkan.",
+            "realisasi_skala_dampak_kbumn": "Isi skala dampak KBUMN antara 1 sampai 5 sesuai Kertas Kerja III.A.",
+            "realisasi_skala_probabilitas_kbumn": "Isi skala probabilitas KBUMN antara 1 sampai 5 sesuai Kertas Kerja III.A.",
+            "realisasi_eksposur": "Isi nilai eksposur risiko dalam Rupiah/USD sesuai Kertas Kerja III.A. Diisi manual atau melalui import Excel.",
+            "realisasi_skor_risiko": "Isi skala nilai risiko BUMN antara 1 sampai 25 sesuai Kertas Kerja III.A.",
+            "realisasi_skala_nilai_risiko_kbumn": "Isi skala nilai risiko KBUMN antara 1 sampai 25 sesuai Kertas Kerja III.A.",
+            "realisasi_level_risiko_bumn": "Isi level risiko BUMN sesuai Kertas Kerja III.A.",
+            "realisasi_level_risiko_kbumn": "Isi level risiko KBUMN sesuai Kertas Kerja III.A.",
             "next_action": "Jelaskan tindakan yang akan dilakukan pada periode berikutnya.",
             "escalation_note": "Isi apabila terdapat kendala atau kondisi yang perlu dilaporkan kepada pejabat yang lebih tinggi.",
         }
@@ -539,6 +546,17 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             ("efektif", "Efektif"),
             ("tidak_efektif", "Tidak Efektif"),
         )
+        for field_name in (
+            "realisasi_skala_dampak_kbumn",
+            "realisasi_skala_probabilitas_kbumn",
+        ):
+            self.fields[field_name].widget.attrs.update({"min": 1, "max": 5, "step": 1})
+        for field_name in (
+            "realisasi_skor_risiko",
+            "realisasi_skala_nilai_risiko_kbumn",
+        ):
+            self.fields[field_name].widget.attrs.update({"min": 1, "max": 25, "step": 1})
+        self.fields["realisasi_eksposur"].widget.attrs.update({"min": 0, "step": "0.01"})
         report = self.instance.report if self.instance and self.instance.report_id else None
         if report and report.periode_id and report.periode.tanggal_mulai:
             month_name = BULAN_LABELS[report.periode.tanggal_mulai.month]
@@ -549,6 +567,13 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             self.fields["realisasi_skala_probabilitas"].label = (
                 f"Skala Probabilitas BUMN Q{quarter}"
             )
+            self.fields["realisasi_skala_dampak_kbumn"].label = f"Skala Dampak KBUMN Q{quarter}"
+            self.fields["realisasi_skala_probabilitas_kbumn"].label = f"Skala Probabilitas KBUMN Q{quarter}"
+            self.fields["realisasi_eksposur"].label = f"Nilai Eksposur Risiko Q{quarter}"
+            self.fields["realisasi_skor_risiko"].label = f"Skala Nilai Risiko BUMN Q{quarter}"
+            self.fields["realisasi_skala_nilai_risiko_kbumn"].label = f"Skala Nilai Risiko KBUMN Q{quarter}"
+            self.fields["realisasi_level_risiko_bumn"].label = f"Level Risiko BUMN Q{quarter}"
+            self.fields["realisasi_level_risiko_kbumn"].label = f"Level Risiko KBUMN Q{quarter}"
             self.fields["realisasi_threshold_kri"].label = (
                 f"Realisasi Threshold KRI {month_name}"
             )
@@ -598,6 +623,9 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             self._value("risk_event"),
             self._value("realisasi_skala_dampak"),
             self._value("realisasi_skala_probabilitas"),
+            self._value("realisasi_eksposur"),
+            self._value("realisasi_skor_risiko"),
+            self._value("realisasi_level_risiko_bumn"),
             self._value("status_rencana_perlakuan"),
             self._value("progress_pelaksanaan_percent"),
         ]
@@ -646,12 +674,6 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         "threshold_aman_profil",
         "threshold_hati_hati_profil",
         "threshold_bahaya_profil",
-        "realisasi_skala_dampak_kbumn",
-        "realisasi_skala_probabilitas_kbumn",
-        "nilai_eksposur_risiko_otomatis",
-        "realisasi_skor_risiko",
-        "realisasi_skala_nilai_risiko_kbumn",
-        "realisasi_level_risiko_kbumn",
         "persentase_serapan_biaya",
         "serapan_biaya_mitigasi",
     )
@@ -698,7 +720,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
                     "realisasi_nilai_probabilitas",
                     "realisasi_skala_probabilitas",
                     "realisasi_skala_probabilitas_kbumn",
-                    "nilai_eksposur_risiko_otomatis",
+                    "realisasi_eksposur",
                     "realisasi_skor_risiko",
                     "realisasi_skala_nilai_risiko_kbumn",
                     "realisasi_level_risiko_bumn",
@@ -828,30 +850,6 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     @admin.display(description="Skala Nilai Risiko BUMN Risiko Inheren")
     def skala_nilai_risiko_bumn_inheren(self, obj):
         return self._risk_value(obj, "skala_risiko")
-
-    @admin.display(description="Nilai Eksposur Risiko — Dihitung otomatis")
-    def nilai_eksposur_risiko_otomatis(self, obj):
-        if not obj or not obj.pk:
-            return "Data belum lengkap"
-        if obj.jenis_risiko == "kualitatif":
-            return mark_safe(
-                "<strong>Data belum lengkap</strong><br>"
-                "<small>Nilai dasar/RAS tahunan dan faktor dampak resmi belum "
-                "tersedia pada konfigurasi ERM. Skor dampak tidak digunakan "
-                "sebagai nominal mata uang.</small>"
-            )
-        if obj.realisasi_eksposur is None:
-            return mark_safe(
-                "<strong>Data belum lengkap</strong><br>"
-                "<small>Nilai dampak nominal atau probabilitas belum tersedia.</small>"
-            )
-        return format_html(
-            "<strong>{:,.2f}</strong><br>"
-            "<small>Dihitung otomatis: {:,.2f} × {:,.2f}%</small>",
-            obj.realisasi_eksposur,
-            obj.realisasi_nilai_dampak,
-            obj.realisasi_nilai_probabilitas,
-        )
 
     @admin.display(description="Deskripsi Peristiwa Risiko")
     def deskripsi_peristiwa_risiko_profil(self, obj):
