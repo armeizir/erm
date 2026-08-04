@@ -12,6 +12,7 @@
 .completion-badge.is-incomplete { background: #fff3cd; color: #765b00; }
 .completion-badge.needs-check { background: #f8d7da; color: #842029; }
 .monitoring-risk-body { padding: 10px; }
+.active-period-context { background: var(--darkened-bg); font-weight: 600; margin: 0 0 12px; padding: 8px 10px; }
 .monitoring-risk-body fieldset { margin-bottom: 12px; }
 .monitoring-risk-body fieldset.residual-grid {
   display: grid;

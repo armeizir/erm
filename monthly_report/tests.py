@@ -1816,6 +1816,24 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertContains(response, "monthly_report/admin/monthly_report_monitoring.js")
         self.assertContains(response, "Kembali ke Daftar Risiko")
         self.assertContains(response, "Belum Lengkap")
+        self.assertContains(response, "III.A – REALISASI RISIKO RESIDUAL BULANAN")
+        self.assertContains(response, "III.B – REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA")
+        self.assertContains(response, "CATATAN TAMBAHAN ERM")
+        self.assertContains(response, "Quarter aktif: Q1 | Periode laporan: Februari 2026")
+        self.assertNotContains(response, "A. IDENTITAS RISIKO")
+        self.assertNotContains(response, "B. RISIKO INHEREN")
+        self.assertNotContains(response, "C. HASIL REALISASI RESIDUAL RISK")
+        self.assertNotContains(response, "D. REALISASI PERLAKUAN RISIKO DAN KRI")
+        self.assertNotContains(response, "E. TINDAK LANJUT")
+        content = response.content.decode()
+        self.assertLess(
+            content.index("III.A – REALISASI RISIKO RESIDUAL BULANAN"),
+            content.index("III.B – REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA"),
+        )
+        self.assertLess(
+            content.index("Level Risiko KBUMN"),
+            content.index("III.B – REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA"),
+        )
 
     def test_monitoring_form_with_validation_error_is_marked_to_open(self):
         report = self._report("BID MONITORING ERROR")

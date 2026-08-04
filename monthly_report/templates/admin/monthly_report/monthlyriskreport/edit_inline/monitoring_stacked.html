@@ -36,6 +36,7 @@
           </summary>
 
           <div class="monitoring-risk-body">
+            <p class="active-period-context">{{ inline_admin_form.form.active_period_context }}</p>
             {% if inline_admin_form.form.non_field_errors %}{{ inline_admin_form.form.non_field_errors }}{% endif %}
             {% with parent_counter=forloop.counter0 %}
               {% for fieldset in inline_admin_form %}
