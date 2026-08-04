@@ -33,6 +33,7 @@
   .mc-disabled { cursor: not-allowed; opacity: .5; pointer-events: none; }
   .mc-checks { display: grid; gap: 7px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); padding-left: 20px; }
   .mc-help { color: var(--mc-muted); }
+  .mc-badge { background: var(--selected-bg, #ffc); border-radius: 12px; display: inline-block; font-size: 11px; margin-left: 6px; padding: 3px 8px; vertical-align: middle; }
   @media (prefers-color-scheme: dark) {
     .mc-status.ready { background: #153d24; color: #8fdfa8; }
     .mc-status.not-ready { background: #4a1d1d; color: #ffb4ae; }
@@ -74,6 +75,21 @@
   {% if not selected_item %}
     <div class="mc-card"><h2>Mulai dari risiko</h2><p>Pilih item risiko di atas untuk memeriksa metric, melengkapi histori, dan melihat kesiapan simulasi.</p></div>
   {% else %}
+    <form method="get" class="mc-card mc-selector">
+      <input type="hidden" name="item" value="{{ selected_item.pk }}">
+      <label><strong>Tahun Histori</strong>
+        <select name="history_year" onchange="this.form.submit()">
+          {% for year in available_history_years %}
+            <option value="{{ year }}"{% if selected_year == year %} selected{% endif %}>{{ year }}{% if year < selected_item.summary.tahun %} — Data Historis{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="button">Tampilkan Tahun</button>
+    </form>
+    <div class="mc-actions">
+      {% if previous_history_year %}<a class="button" href="?item={{ selected_item.pk }}&amp;history_year={{ previous_history_year }}">Tahun Sebelumnya</a>{% endif %}
+      {% if next_history_year %}<a class="button" href="?item={{ selected_item.pk }}&amp;history_year={{ next_history_year }}">Tahun Berikutnya</a>{% endif %}
+    </div>
     <section class="mc-card">
       <h2>Risiko {{ selected_item.no_risiko|default:selected_item.no_item }} — {{ selected_item.peristiwa_risiko }}</h2>
       <div class="mc-summary">
@@ -93,12 +109,14 @@
     </section>
 
     <section class="mc-card">
-      <h2>Histori Bulanan {{ selected_item.summary.tahun }}</h2>
+      <h2>Histori Bulanan {{ selected_year }}{% if is_historical_year %}<span class="mc-badge">Data Historis</span>{% endif %}</h2>
       <p class="mc-help">Isi nilai aktual, gunakan Tab untuk berpindah sel, atau paste tabel dari Excel mulai dari sel yang dipilih. Sel kosong tidak menghapus data lama.</p>
+      {% if periods_available == 0 %}
+        <p class="errornote-inline">Belum ada PeriodeLaporan bulanan untuk tahun {{ selected_year }}. Tidak ada periode yang dibuat otomatis; tambahkan periode bulanan melalui Master Data terlebih dahulu.</p>
+      {% elif metric_rows %}
       {% if periods_available < 12 %}<p class="errornote-inline">Hanya {{ periods_available }} dari 12 periode bulanan yang tersedia. Sel tanpa periode dinonaktifkan.</p>{% endif %}
-      {% if metric_rows %}
       <form method="post" id="history-matrix-form">
-        {% csrf_token %}<input type="hidden" name="item" value="{{ selected_item.pk }}">
+        {% csrf_token %}<input type="hidden" name="item" value="{{ selected_item.pk }}"><input type="hidden" name="history_year" value="{{ selected_year }}">
         <div class="mc-table-wrap">
           <table class="mc-table" id="history-matrix">
             <thead><tr><th class="metric-col">Metric</th>{% for month, label in months %}<th>{{ label }}</th>{% endfor %}<th>Kesiapan</th></tr></thead>

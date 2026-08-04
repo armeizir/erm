@@ -1,3 +1,4 @@
+from calendar import monthrange
 from datetime import date
 from decimal import Decimal
 
@@ -64,6 +65,20 @@ class MonteCarloWorkspaceTests(TestCase):
             **kwargs,
         )
 
+    def _create_monthly_periods(self, year):
+        year_book = TahunBuku.objects.create(tahun=year)
+        return [
+            PeriodeLaporan.objects.create(
+                tahun_buku=year_book,
+                kode_periode=f"{year}-{month:02d}",
+                nama_periode=f"Bulan {month} {year}",
+                jenis_periode="bulanan",
+                tanggal_mulai=date(year, month, 1),
+                tanggal_selesai=date(year, month, monthrange(year, month)[1]),
+            )
+            for month in range(1, 13)
+        ]
+
     def test_superuser_can_open_workspace_and_selected_risk_and_metric_appear(self):
         response = self.client.get(self.url, {"item": self.item.pk})
 
@@ -96,7 +111,7 @@ class MonteCarloWorkspaceTests(TestCase):
 
         response = self.client.post(self.url, {"item": self.item.pk, field_name: "12.75"})
 
-        self.assertRedirects(response, f"{self.url}?item={self.item.pk}")
+        self.assertRedirects(response, f"{self.url}?item={self.item.pk}&history_year=2026")
         history = MonteCarloMetricHistory.objects.get(metric=self.metric, periode=self.periods[0])
         self.assertEqual(history.metric_value, Decimal("12.7500"))
         self.assertEqual(history.tanggal_data, self.periods[0].tanggal_selesai)
@@ -184,3 +199,92 @@ class MonteCarloWorkspaceTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Belum ada metric aktif")
+
+    def test_default_history_year_uses_profile_year(self):
+        self._create_monthly_periods(2025)
+
+        response = self.client.get(self.url, {"item": self.item.pk})
+
+        self.assertEqual(response.context["selected_year"], self.summary.tahun)
+        self.assertContains(response, "Histori Bulanan 2026")
+        self.assertContains(response, 'name="history_year" value="2026"', html=False)
+
+    def test_history_year_2025_displays_january_through_december_periods(self):
+        periods_2025 = self._create_monthly_periods(2025)
+
+        response = self.client.get(
+            self.url, {"item": self.item.pk, "history_year": 2025}
+        )
+
+        self.assertEqual(response.context["selected_year"], 2025)
+        self.assertContains(response, "Histori Bulanan 2025")
+        self.assertContains(response, "Data Historis")
+        for period in periods_2025:
+            self.assertContains(
+                response,
+                f'name="history_{self.metric.pk}_{period.pk}"',
+            )
+
+    def test_history_value_2025_appears_in_correct_cell(self):
+        periods_2025 = self._create_monthly_periods(2025)
+        history = self._history(periods_2025[0], Decimal("2025.1250"))
+
+        response = self.client.get(
+            self.url, {"item": self.item.pk, "history_year": 2025}
+        )
+
+        self.assertContains(
+            response,
+            f'name="history_{self.metric.pk}_{history.periode_id}" value="2025.1250"',
+        )
+
+    def test_post_history_year_2025_saves_to_2025_period_and_preserves_redirect(self):
+        periods_2025 = self._create_monthly_periods(2025)
+        field_name = f"history_{self.metric.pk}_{periods_2025[0].pk}"
+
+        response = self.client.post(self.url, {
+            "item": self.item.pk,
+            "history_year": "2025",
+            field_name: "45.5",
+        })
+
+        self.assertRedirects(
+            response,
+            f"{self.url}?item={self.item.pk}&history_year=2025",
+        )
+        history = MonteCarloMetricHistory.objects.get(
+            metric=self.metric, periode=periods_2025[0]
+        )
+        self.assertEqual(history.metric_value, Decimal("45.5000"))
+        self.assertEqual(history.tanggal_data.year, 2025)
+
+    def test_invalid_history_year_falls_back_to_profile_year(self):
+        self._create_monthly_periods(2025)
+
+        response = self.client.get(
+            self.url, {"item": self.item.pk, "history_year": "not-a-year"}
+        )
+        unavailable_response = self.client.get(
+            self.url, {"item": self.item.pk, "history_year": "1999"}
+        )
+
+        self.assertEqual(response.context["selected_year"], 2026)
+        self.assertEqual(unavailable_response.context["selected_year"], 2026)
+        self.assertContains(response, "Histori Bulanan 2026")
+
+    def test_selected_year_does_not_mix_2025_and_2026_history(self):
+        periods_2025 = self._create_monthly_periods(2025)
+        self._history(periods_2025[0], Decimal("5252.1250"))
+        self._history(self.periods[0], Decimal("6262.8750"))
+
+        response_2025 = self.client.get(
+            self.url, {"item": self.item.pk, "history_year": 2025}
+        )
+        response_2026 = self.client.get(
+            self.url, {"item": self.item.pk, "history_year": 2026}
+        )
+
+        self.assertContains(response_2025, "5252.1250")
+        self.assertNotContains(response_2025, "6262.8750")
+        self.assertContains(response_2026, "6262.8750")
+        self.assertNotContains(response_2026, "5252.1250")

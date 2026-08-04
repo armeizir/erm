@@ -71,16 +71,51 @@ class MonteCarloWorkspaceMixin:
         except (ProfilRisikoKorporatItem.DoesNotExist, TypeError, ValueError):
             return None
 
-    def _monthly_periods(self, year: int) -> dict[int, PeriodeLaporan]:
+    def _canonical_monthly_periods(self, year: int) -> dict[int, PeriodeLaporan]:
         periods = PeriodeLaporan.objects.filter(
-            tahun_buku__tahun=year,
             jenis_periode="bulanan",
+            tanggal_mulai__year=year,
         ).order_by("tanggal_mulai", "tanggal_selesai", "pk")
         result = {}
         for period in periods:
             if period.tanggal_mulai.year == year:
                 result.setdefault(period.tanggal_mulai.month, period)
         return result
+
+    def _available_history_years(self, item, metrics) -> list[int]:
+        period_years = PeriodeLaporan.objects.filter(
+            jenis_periode="bulanan",
+        ).values_list("tanggal_mulai__year", flat=True).distinct()
+        history_years = MonteCarloMetricHistory.objects.filter(
+            metric_id__in=[metric.pk for metric in metrics],
+        ).values_list("tanggal_data__year", flat=True).distinct()
+        years = {
+            int(year)
+            for year in (*period_years, *history_years, item.summary.tahun)
+            if year is not None
+        }
+        return sorted(years, reverse=True)
+
+    def _selected_history_year(self, request, item, available_years: list[int]) -> int:
+        default_year = item.summary.tahun
+        raw_year = request.POST.get("history_year") or request.GET.get("history_year")
+        try:
+            requested_year = int(raw_year) if raw_year not in (None, "") else default_year
+        except (TypeError, ValueError):
+            return default_year
+        return requested_year if requested_year in available_years else default_year
+
+    def _year_navigation(self, selected_year: int, available_years: list[int]):
+        ascending = sorted(available_years)
+        selected_index = ascending.index(selected_year)
+        return {
+            "previous_history_year": ascending[selected_index - 1] if selected_index > 0 else None,
+            "next_history_year": (
+                ascending[selected_index + 1]
+                if selected_index + 1 < len(ascending)
+                else None
+            ),
+        }
 
     def _active_metrics(self, item):
         return list(
@@ -150,7 +185,7 @@ class MonteCarloWorkspaceMixin:
         )
         return created_count, updated_count
 
-    def _workspace_context(self, request, item):
+    def _workspace_context(self, request, item, selected_year=None):
         namespace = self.admin_site.name
         items = list(self._workspace_items())
         context: dict[str, Any] = {
@@ -172,7 +207,10 @@ class MonteCarloWorkspaceMixin:
             return context
 
         metrics = self._active_metrics(item)
-        periods = self._monthly_periods(item.summary.tahun)
+        available_years = self._available_history_years(item, metrics)
+        if selected_year is None:
+            selected_year = self._selected_history_year(request, item, available_years)
+        periods = self._canonical_monthly_periods(selected_year)
         histories = {
             (history.metric_id, history.periode_id): history
             for metric in metrics
@@ -238,6 +276,9 @@ class MonteCarloWorkspaceMixin:
         context.update({
             "metrics": metrics,
             "metric_rows": metric_rows,
+            "available_history_years": available_years,
+            "selected_year": selected_year,
+            "is_historical_year": selected_year < item.summary.tahun,
             "periods_available": len(periods),
             "total_history": sum(valid_counts.values()),
             "minimum_history_points": MINIMUM_HISTORY_POINTS,
@@ -261,6 +302,7 @@ class MonteCarloWorkspaceMixin:
             "results_url": reverse(
                 f"{namespace}:corporate_risk_multimetricmontecarloresult_changelist"
             ) + f"?corporate_risk_item__id__exact={item.pk}",
+            **self._year_navigation(selected_year, available_years),
         })
         return context
 
@@ -271,17 +313,32 @@ class MonteCarloWorkspaceMixin:
         if request.method == "POST":
             if not item:
                 self.message_user(request, "Risiko tidak valid.", level=messages.ERROR)
+                selected_year = None
             else:
+                metrics = self._active_metrics(item)
+                available_years = self._available_history_years(item, metrics)
+                selected_year = self._selected_history_year(request, item, available_years)
                 self._save_matrix(
                     request,
                     item,
-                    self._active_metrics(item),
-                    self._monthly_periods(item.summary.tahun),
+                    metrics,
+                    self._canonical_monthly_periods(selected_year),
                 )
             url = reverse(f"{self.admin_site.name}:corporate_risk_riskmetric_workspace")
-            return redirect(f"{url}?item={item.pk}" if item else url)
+            return redirect(
+                f"{url}?item={item.pk}&history_year={selected_year}"
+                if item else url
+            )
+        selected_year = None
+        if item:
+            metrics = self._active_metrics(item)
+            selected_year = self._selected_history_year(
+                request,
+                item,
+                self._available_history_years(item, metrics),
+            )
         return TemplateResponse(
             request,
             self.workspace_template,
-            self._workspace_context(request, item),
+            self._workspace_context(request, item, selected_year),
         )
