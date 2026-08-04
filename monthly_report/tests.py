@@ -40,7 +40,7 @@ from risk.models import (
     ReAssessmentSummary,
 )
 
-from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportAdminForm, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemInline, _monthly_risk_item_label
+from .admin import MonthlyRiskReportAdmin, MonthlyRiskReportAdminForm, MonthlyRiskReportGroupFilter, MonthlyRiskReportItemForm, MonthlyRiskReportItemInline, _monthly_risk_item_label
 from .models import (
     MonthlyRiskReport,
     MonthlyRiskReportChange,
@@ -1602,6 +1602,66 @@ class MonthlyRiskReportAdminTests(TestCase):
         inline = MonthlyRiskReportItemInline(MonthlyRiskReport, AdminSite())
 
         self.assertIn("persentase_serapan_biaya", inline.readonly_fields)
+
+    def test_monthly_monitoring_form_uses_business_friendly_labels_and_help(self):
+        form = MonthlyRiskReportItemForm()
+
+        expected_labels = {
+            "risk_event": "Risiko yang Dipantau",
+            "realisasi_asumsi_dampak": "Dasar Penilaian Dampak Bulan Ini",
+            "realisasi_nilai_dampak": "Nilai Dampak Aktual",
+            "realisasi_skala_dampak": "Tingkat Dampak Aktual",
+            "realisasi_nilai_probabilitas": "Nilai Kemungkinan Aktual (%)",
+            "realisasi_skala_probabilitas": "Tingkat Kemungkinan Aktual",
+            "realisasi_rencana_perlakuan": "Kegiatan Mitigasi yang Dilaksanakan",
+            "next_action": "Tindak Lanjut Bulan Berikutnya",
+            "escalation_note": "Catatan Eskalasi",
+        }
+        for field_name, label in expected_labels.items():
+            with self.subTest(field=field_name):
+                self.assertEqual(form.fields[field_name].label, label)
+        self.assertIn(
+            "dasar penentuan dampak aktual",
+            form.fields["realisasi_asumsi_dampak"].help_text,
+        )
+
+    def test_monthly_report_change_page_renders_monitoring_accordion_and_management_form(self):
+        report = self._report("BID MONITORING UI")
+        risk_event = self._risk_item(
+            report,
+            no_item=1,
+            no_risiko=7,
+            peristiwa_risiko="Gangguan proses bisnis",
+        )
+        MonthlyRiskReportItem.objects.create(report=report, risk_event=risk_event)
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse(
+            "risk_admin:monthly_report_monthlyriskreport_change", args=[report.pk]
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "III.A &amp; III.B – PEMANTAUAN RISIKO BULANAN", html=False)
+        self.assertNotContains(response, "INPUT REALISASI RISIKO BULANAN")
+        self.assertContains(response, "Risiko 7 – Pemantauan Februari 2026")
+        self.assertContains(response, "Gangguan proses bisnis")
+        self.assertContains(response, 'name="items-TOTAL_FORMS"', html=False)
+        self.assertContains(response, "monthly_report/admin/monthly_report_monitoring.js")
+        self.assertContains(response, "Kembali ke Daftar Risiko")
+        self.assertContains(response, "Belum Lengkap")
+
+    def test_monitoring_form_with_validation_error_is_marked_to_open(self):
+        report = self._report("BID MONITORING ERROR")
+        risk_event = self._risk_item(report)
+        form = MonthlyRiskReportItemForm(data={
+            "report": report.pk,
+            "risk_event": risk_event.pk,
+            "realisasi_nilai_probabilitas": "150",
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertTrue(form.should_open)
+        self.assertEqual(form.completion_status, "Perlu Diperiksa")
 
     def test_monthly_report_item_calculates_cost_absorption_from_budget_formula(self):
         report_infra = self._report("INFRA")

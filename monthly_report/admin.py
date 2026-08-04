@@ -485,21 +485,115 @@ def _monthly_risk_item_label(item, number_by_pk=None):
     return f"{risk_code} | Risiko {risk_number} | Penyebab {cause_number or '-'} - {risk_event}"
 
 
+class MonthlyRiskReportItemForm(forms.ModelForm):
+    class Meta:
+        model = MonthlyRiskReportItem
+        fields = "__all__"
+        labels = {
+            "risk_event": "Risiko yang Dipantau",
+            "realisasi_asumsi_dampak": "Dasar Penilaian Dampak Bulan Ini",
+            "realisasi_nilai_dampak": "Nilai Dampak Aktual",
+            "realisasi_skala_dampak": "Tingkat Dampak Aktual",
+            "realisasi_nilai_probabilitas": "Nilai Kemungkinan Aktual (%)",
+            "realisasi_skala_probabilitas": "Tingkat Kemungkinan Aktual",
+            "efektivitas_perlakuan_risiko": "Efektivitas Mitigasi Risiko",
+            "realisasi_rencana_perlakuan": "Kegiatan Mitigasi yang Dilaksanakan",
+            "realisasi_output_perlakuan": "Output/Bukti Pelaksanaan Mitigasi",
+            "realisasi_biaya_perlakuan": "Biaya Mitigasi Bulan Ini",
+            "realisasi_pic": "PIC Pelaksana",
+            "status_rencana_perlakuan": "Status Mitigasi",
+            "penjelasan_status_rencana": "Penjelasan Perkembangan Mitigasi",
+            "progress_pelaksanaan_percent": "Progres Mitigasi Bulan Ini (%)",
+            "realisasi_threshold_kri": "Status KRI Bulan Ini",
+            "realisasi_threshold_kri_skor": "Skor KRI Bulan Ini",
+            "next_action": "Tindak Lanjut Bulan Berikutnya",
+            "escalation_note": "Catatan Eskalasi",
+        }
+        help_texts = {
+            "realisasi_asumsi_dampak": "Jelaskan dasar penentuan dampak aktual pada bulan laporan.",
+            "realisasi_nilai_dampak": "Isi nilai numerik dampak sesuai parameter profil risiko.",
+            "realisasi_skala_dampak": "Pilih tingkat dampak yang sesuai dengan nilai dampak aktual.",
+            "realisasi_nilai_probabilitas": "Isi nilai kemungkinan atau probabilitas aktual bulan laporan.",
+            "realisasi_skala_probabilitas": "Pilih tingkat kemungkinan berdasarkan nilai aktual.",
+            "realisasi_rencana_perlakuan": "Jelaskan kegiatan mitigasi yang benar-benar dilakukan sampai bulan laporan.",
+            "realisasi_output_perlakuan": "Jelaskan hasil, dokumen, atau bukti pelaksanaan mitigasi.",
+            "realisasi_biaya_perlakuan": "Isi realisasi biaya mitigasi pada bulan laporan.",
+            "progress_pelaksanaan_percent": "Isi persentase kemajuan kegiatan mitigasi, antara 0 sampai 100.",
+            "realisasi_threshold_kri": "Isi status aktual indikator risiko utama pada bulan laporan.",
+            "next_action": "Jelaskan tindakan yang akan dilakukan pada periode berikutnya.",
+            "escalation_note": "Isi apabila terdapat kendala atau kondisi yang perlu dilaporkan kepada pejabat yang lebih tinggi.",
+        }
+        widgets = {
+            "realisasi_asumsi_dampak": forms.Textarea(attrs={"rows": 3}),
+            "realisasi_rencana_perlakuan": forms.Textarea(attrs={"rows": 3}),
+            "realisasi_output_perlakuan": forms.Textarea(attrs={"rows": 3}),
+            "penjelasan_status_rencana": forms.Textarea(attrs={"rows": 3}),
+            "next_action": forms.Textarea(attrs={"rows": 3}),
+            "escalation_note": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def _value(self, field_name):
+        return self[field_name].value() if self.is_bound else getattr(self.instance, field_name, None)
+
+    @property
+    def risk(self):
+        return self.instance.risk_event if self.instance and self.instance.risk_event_id else None
+
+    @property
+    def risk_heading(self):
+        risk_number = self.risk.no_risiko if self.risk else self._value("risk_event") or "Baru"
+        period = (
+            self.instance.report.periode.nama_periode
+            if self.instance and self.instance.report_id and self.instance.report.periode_id
+            else "periode laporan"
+        )
+        return f"Risiko {risk_number} – Pemantauan {period}"
+
+    @property
+    def system_code(self):
+        return str(self.instance) if self.instance and self.instance.pk else "Kode dibuat setelah disimpan"
+
+    @property
+    def completion_status(self):
+        if self.errors:
+            return "Perlu Diperiksa"
+        required_values = [
+            self._value("risk_event"),
+            self._value("realisasi_skala_dampak"),
+            self._value("realisasi_skala_probabilitas"),
+            self._value("status_rencana_perlakuan"),
+            self._value("progress_pelaksanaan_percent"),
+        ]
+        if self.risk and (self.risk.key_risk_indicators or "").strip():
+            required_values.append(self._value("realisasi_threshold_kri"))
+        return "Lengkap" if all(value not in (None, "") for value in required_values) else "Belum Lengkap"
+
+    @property
+    def should_open(self):
+        return bool(self.errors)
+
+    @property
+    def status_mitigasi_display(self):
+        return self.instance.get_status_rencana_perlakuan_display() if self.instance.pk else "-"
+
+
 class MonthlyRiskReportItemInline(admin.StackedInline):
     model = MonthlyRiskReportItem
+    form = MonthlyRiskReportItemForm
+    template = "admin/monthly_report/monthlyriskreport/edit_inline/monitoring_stacked.html"
     extra = 1
-    readonly_fields = ("persentase_serapan_biaya",)
-    verbose_name = "Realisasi Risiko Bulanan"
-    verbose_name_plural = "Input Realisasi Risiko Bulanan"
+    readonly_fields = ("persentase_serapan_biaya", "serapan_biaya_mitigasi")
+    verbose_name = "Risiko yang Dipantau"
+    verbose_name_plural = "III.A & III.B – Pemantauan Risiko Bulanan"
     fieldsets = (
         (
-            "Item Risiko",
+            "Risiko yang Dipantau",
             {
                 "fields": ("risk_event",),
             },
         ),
         (
-            "III.A - Realisasi Risiko Residual",
+            "A. Posisi Risiko Residual Bulan Ini",
             {
                 "fields": (
                     "realisasi_asumsi_dampak",
@@ -512,13 +606,13 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             },
         ),
         (
-            "III.B - Realisasi Perlakuan Risiko dan KRI",
+            "B. Realisasi Mitigasi dan KRI",
             {
                 "fields": (
                     "realisasi_rencana_perlakuan",
                     "realisasi_output_perlakuan",
                     "realisasi_biaya_perlakuan",
-                    "persentase_serapan_biaya",
+                    "serapan_biaya_mitigasi",
                     "realisasi_pic",
                     "status_rencana_perlakuan",
                     "penjelasan_status_rencana",
@@ -529,7 +623,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             },
         ),
         (
-            "Catatan",
+            "C. Tindak Lanjut",
             {
                 "fields": (
                     "next_action",
@@ -538,6 +632,10 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             },
         ),
     )
+
+    @admin.display(description="Serapan Biaya Mitigasi (%)")
+    def serapan_biaya_mitigasi(self, obj):
+        return obj.persentase_serapan_biaya if obj and obj.pk else "-"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "risk_event":
@@ -709,11 +807,13 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "screen": (
                 "admin/css/vendor/select2/select2.css",
                 "admin/css/autocomplete.css",
+                "monthly_report/admin/monthly_report_monitoring.css",
             )
         }
         js = (
             "admin/js/vendor/select2/select2.full.js",
             "monthly_report/admin/monthly_report_items_searchable.js",
+            "monthly_report/admin/monthly_report_monitoring.js",
         )
 
     fields = [
@@ -1349,7 +1449,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         return mark_safe(
             "<ul style='margin:0; padding-left:18px;'>"
             "<li><strong>III.A & III.B</strong>: ada di bagian "
-            "<a href='#items-group'>Input Realisasi Risiko Bulanan</a>.</li>"
+            "<a href='#items-group'>III.A &amp; III.B – Pemantauan Risiko Bulanan</a>.</li>"
             "<li><strong>III.C</strong>: peta risiko residual. Pada halaman Add, simpan laporan dulu; "
             "setelah itu tombol <em>Lihat Peta Risiko III.C</em> bisa dibuka.</li>"
             "<li><strong>III.D</strong>: ada di bagian "
