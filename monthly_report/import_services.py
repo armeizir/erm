@@ -37,7 +37,32 @@ IMPORTABLE_FIELDS = (
     "realisasi_threshold_kri",
     "realisasi_threshold_kri_skor",
 )
-IMPORT_PARSER_VERSION = 4
+IMPORT_PARSER_VERSION = 5
+
+IIIA_QUARTER_COLUMNS = {
+    "realisasi_nilai_dampak": {1: 14, 2: 15, 3: 16, 4: 17},       # O:R
+    "realisasi_skala_dampak_id": {1: 18, 2: 19, 3: 20, 4: 21},    # S:V
+    "realisasi_nilai_probabilitas": {1: 26, 2: 27, 3: 28, 4: 29}, # AA:AD
+    "realisasi_skala_probabilitas_id": {1: 30, 2: 31, 3: 32, 4: 33},
+}
+
+
+def report_quarter(month):
+    if month not in range(1, 13):
+        raise ValueError("Bulan harus berada antara 1 dan 12.")
+    return ((month - 1) // 3) + 1
+
+
+def _is_standard_iiia_layout(worksheet):
+    """Recognize the official III.A layout before using fixed quarter columns."""
+    return (
+        normalize_header_name(worksheet.cell(5, 14).value)
+        == "asumsi perhitungan dampak"
+        and normalize_header_name(worksheet.cell(5, 15).value) == "nilai dampak"
+        and normalize_header_name(worksheet.cell(5, 19).value) == "skala dampak"
+        and normalize_header_name(worksheet.cell(5, 27).value) == "nilai probabilitas"
+        and normalize_header_name(worksheet.cell(5, 31).value) == "skala probabilitas"
+    )
 FIELD_LABELS = {
     "realisasi_asumsi_dampak": "Asumsi perhitungan dampak",
     "realisasi_nilai_dampak": "Nilai dampak",
@@ -465,7 +490,7 @@ def _parse_workbook(batch, include_diagnostics=False):
         )
 
     month = batch.report.periode.tanggal_mulai.month
-    quarter = ((month - 1) // 3) + 1
+    quarter = report_quarter(month)
     iiia_schemas = (
         (11 + quarter, 15 + quarter, 23 + quarter, 27 + quarter, 56, 11),
         (13 + quarter, 17 + quarter, 21 + quarter, 25 + quarter, 46, 13),
@@ -476,6 +501,7 @@ def _parse_workbook(batch, include_diagnostics=False):
     diagnostics = {}
 
     iiia = workbook["III.A"]
+    standard_iiia_layout = _is_standard_iiia_layout(iiia)
     anchor_row, anchor_coordinate = find_start_anchor(iiia)
     columns, header_rows = find_header_columns(iiia, anchor_row)
     if not {"risk_number", "risk_event"}.issubset(columns):
@@ -530,8 +556,37 @@ def _parse_workbook(batch, include_diagnostics=False):
                 )
             )
 
-        impact, impact_scale, probability, probability_scale, effectiveness, assumption = max(
-            iiia_schemas, key=schema_score
+        if standard_iiia_layout:
+            impact = IIIA_QUARTER_COLUMNS["realisasi_nilai_dampak"][quarter]
+            impact_scale = IIIA_QUARTER_COLUMNS["realisasi_skala_dampak_id"][quarter]
+            probability = IIIA_QUARTER_COLUMNS["realisasi_nilai_probabilitas"][quarter]
+            probability_scale = IIIA_QUARTER_COLUMNS[
+                "realisasi_skala_probabilitas_id"
+            ][quarter]
+            effectiveness, assumption = 58, 13
+        else:
+            impact, impact_scale, probability, probability_scale, effectiveness, assumption = max(
+                iiia_schemas, key=schema_score
+            )
+        source_cells = {
+            "realisasi_nilai_dampak": f"III.A!{get_column_letter(impact + 1)}{row_number}",
+            "realisasi_skala_dampak_id": f"III.A!{get_column_letter(impact_scale + 1)}{row_number}",
+            "realisasi_nilai_probabilitas": f"III.A!{get_column_letter(probability + 1)}{row_number}",
+            "realisasi_skala_probabilitas_id": f"III.A!{get_column_letter(probability_scale + 1)}{row_number}",
+        }
+        empty_quarter_fields = (
+            [
+                field_name
+                for field_name, column_index in (
+                    ("realisasi_nilai_dampak", impact),
+                    ("realisasi_skala_dampak_id", impact_scale),
+                    ("realisasi_nilai_probabilitas", probability),
+                    ("realisasi_skala_probabilitas_id", probability_scale),
+                )
+                if len(row) <= column_index or row[column_index] in (None, "")
+            ]
+            if standard_iiia_layout
+            else []
         )
         entries.append(
             {
@@ -555,6 +610,9 @@ def _parse_workbook(batch, include_diagnostics=False):
                     "sequence_warning": (
                         "sequence_not_extracted" if no_risiko is None else ""
                     ),
+                    "selected_quarter": f"Q{quarter}",
+                    "source_cells": source_cells,
+                    "empty_quarter_fields": empty_quarter_fields,
                 },
                 "proposed_data": {
                     "realisasi_asumsi_dampak": _safe_import_text(
@@ -875,6 +933,12 @@ def _validate_entry(entry, item, method, confidence, candidates):
     proposed = entry["proposed_data"]
     probability = proposed.get("realisasi_nilai_probabilitas")
     progress = proposed.get("progress_pelaksanaan_percent")
+    for field_name in entry.get("raw_data", {}).get("empty_quarter_fields", []):
+        source_cell = entry["raw_data"].get("source_cells", {}).get(field_name, "")
+        issues.append(
+            f"{FIELD_LABELS[field_name]} untuk quarter terpilih kosong ({source_cell}); "
+            "nilai quarter sebelumnya tidak digunakan."
+        )
     if probability is not None and not 0 <= probability <= 100:
         issues.append("Nilai probabilitas harus berada antara 0 dan 100%.")
         fatal = True
@@ -1068,6 +1132,10 @@ def analyze_import_batch(batch):
             key: _json_value(value)
             for key, value in entry["proposed_data"].items()
             if value not in (None, "")
+            or (
+                entry["source_sheet"] == "III.A"
+                and key in entry["raw_data"].get("empty_quarter_fields", [])
+            )
         }
         rows.append(
             MonthlyRiskReportImportRow.objects.create(

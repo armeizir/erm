@@ -59,6 +59,7 @@ from .import_services import (
     normalize_cause_code,
     normalize_risk_code,
     normalize_treatment_code,
+    report_quarter,
 )
 from .notifications import send_monthly_report_notification
 from .recipient_services import build_approved_report_recipients
@@ -295,6 +296,125 @@ class MonthlyRiskReportAdminTests(TestCase):
             stream.getvalue(),
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+    def _official_july_workbook(self, *, q3_probability=25, q3_impact=2):
+        workbook = Workbook()
+        iiia = workbook.active
+        iiia.title = "III.A"
+        iiib = workbook.create_sheet("III.B")
+        iiia.cell(5, 14, "Asumsi Perhitungan Dampak")
+        iiia.cell(5, 15, "Nilai Dampak")
+        iiia.cell(5, 19, "Skala Dampak")
+        iiia.cell(5, 27, "Nilai Probabilitas")
+        iiia.cell(5, 31, "Skala Probabilitas")
+        iiia.cell(11, 1, "Start pengisian")
+        iiia.cell(13, 2, 1)
+        iiia.cell(13, 3, "Risiko BID BIS")
+        iiia.cell(13, 14, "Asumsi Q3")
+        iiia.cell(13, 16, 99)  # P / Q2: must never be used for July.
+        iiia.cell(13, 17, q3_impact)  # Q / Q3
+        iiia.cell(13, 20, 5)  # T / Q2
+        iiia.cell(13, 21, 2)  # U / Q3
+        iiia.cell(13, 28, 0.31)  # AB / Q2
+        iiia.cell(13, 29, q3_probability / 100 if q3_probability is not None else None)
+        iiia.cell(13, 32, 4)  # AF / Q2
+        iiia.cell(13, 33, 1)  # AG / Q3
+        iiia.cell(13, 59, "Efektif")
+        iiib.cell(10, 1, "Start pengisian")
+        iiib.cell(11, 2, 1)
+        iiib.cell(11, 3, "Risiko BID BIS")
+        iiib.cell(11, 6, "BID BIS-1-a")
+        iiib.cell(11, 11, "Realisasi Juli")
+        iiib.cell(11, 51, "3. Hijau")  # AY / July threshold
+        iiib.cell(11, 52, 100)  # AZ / July score
+        stream = BytesIO()
+        workbook.save(stream)
+        return SimpleUploadedFile(
+            "official_july.xlsx",
+            stream.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def test_report_quarter_maps_all_month_boundaries(self):
+        expected = {1: 1, 3: 1, 4: 2, 6: 2, 7: 3, 9: 3, 10: 4, 12: 4}
+        self.assertEqual({month: report_quarter(month) for month in expected}, expected)
+
+    def test_official_july_import_uses_q3_columns_and_monthly_kri_column(self):
+        july = PeriodeLaporan.objects.create(
+            tahun_buku=self.tahun_buku,
+            kode_periode="2026-07",
+            nama_periode="Juli 2026",
+            jenis_periode="bulanan",
+            tanggal_mulai=date(2026, 7, 1),
+            tanggal_selesai=date(2026, 7, 31),
+        )
+        report = self._report("BID BIS JULY")
+        report.periode = july
+        report.save(update_fields=["periode"])
+        risk_event = self._risk_item(
+            report, no_item=1, no_risiko=1, no_penyebab_risiko="a",
+            peristiwa_risiko="Risiko BID BIS",
+        )
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            realisasi_nilai_probabilitas=Decimal("31"),
+        )
+        impact_scale = MasterSkalaDampak.objects.create(nama="Rendah", urutan=2)
+        probability_scale = MasterSkalaProbabilitas.objects.create(nama="Jarang", urutan=1)
+
+        with tempfile.TemporaryDirectory() as media_root, self.settings(MEDIA_ROOT=media_root):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report,
+                source_file=self._official_july_workbook(),
+                original_filename="official_july.xlsx",
+                file_sha256="9" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+
+        residual = batch.rows.get(source_reference="III.A:13")
+        treatment = batch.rows.get(source_reference="III.B:11")
+        self.assertEqual(residual.raw_data["selected_quarter"], "Q3")
+        self.assertEqual(residual.raw_data["source_cells"]["realisasi_nilai_probabilitas"], "III.A!AC13")
+        self.assertEqual(residual.proposed_data["realisasi_nilai_dampak"], "2")
+        self.assertEqual(residual.proposed_data["realisasi_skala_dampak_id"], impact_scale.pk)
+        self.assertEqual(residual.proposed_data["realisasi_nilai_probabilitas"], "25.00")
+        self.assertEqual(residual.proposed_data["realisasi_skala_probabilitas_id"], probability_scale.pk)
+        self.assertEqual(treatment.proposed_data["realisasi_threshold_kri"], "3. Hijau")
+        self.assertEqual(treatment.proposed_data["realisasi_threshold_kri_skor"], "100")
+
+    def test_official_july_import_does_not_fallback_when_q3_is_blank(self):
+        july = PeriodeLaporan.objects.create(
+            tahun_buku=self.tahun_buku, kode_periode="2026-07", nama_periode="Juli 2026",
+            jenis_periode="bulanan", tanggal_mulai=date(2026, 7, 1), tanggal_selesai=date(2026, 7, 31),
+        )
+        report = self._report("BID BIS JULY BLANK")
+        report.periode = july
+        report.save(update_fields=["periode"])
+        risk_event = self._risk_item(report, no_item=1, no_risiko=1, peristiwa_risiko="Risiko BID BIS")
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            realisasi_nilai_probabilitas=Decimal("31"),
+        )
+
+        with tempfile.TemporaryDirectory() as media_root, self.settings(MEDIA_ROOT=media_root):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report, source_file=self._official_july_workbook(q3_probability=None),
+                original_filename="blank_q3.xlsx", file_sha256="8" * 64, uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+
+        residual = batch.rows.get(source_reference="III.A:13")
+        self.assertIsNone(residual.proposed_data["realisasi_nilai_probabilitas"])
+        self.assertIn("III.A!AC13", " ".join(residual.issues))
+        self.assertEqual(residual.validation_level, residual.LEVEL_YELLOW)
+        residual.user_decision = residual.DECISION_IMPORT
+        residual.save(update_fields=["user_decision"])
+        apply_import_batch(batch, self.admin_user)
+        item.refresh_from_db()
+        self.assertIsNone(item.realisasi_nilai_probabilitas)
 
     def test_excel_import_is_staged_then_applied_after_confirmation(self):
         report = self._report("BID BIS")
