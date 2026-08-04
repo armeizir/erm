@@ -1499,6 +1499,9 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "show_kpmr": show_kpmr,
             "kpmr_is_preview": normalized_status == "draft",
             "kpmr_calculation": kpmr_calculation,
+            "kpmr_diagnostics": (
+                kpmr_calculation.diagnostics if kpmr_calculation else None
+            ),
             "kpmr_detail_groups": _kpmr_detail_groups(kpmr_calculation),
             "kpmr_month": kpmr_month,
             "kpmr_quarter": kpmr_quarter,

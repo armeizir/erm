@@ -5,6 +5,16 @@ from decimal import Decimal
 from .kpmr_scoring import _fmt
 
 
+def normalize_no_item(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return str(int(Decimal(text)))
+    except Exception:
+        return text.casefold()
+
+
 def _sum_detail_by_report(reports, attr: str) -> tuple[list, Decimal, int]:
     details = []
     total = Decimal("0")
@@ -71,9 +81,9 @@ def _aggregate_exposure_for_i1(report_items, quarter):
         if risk_event is None:
             continue
 
-        group_key = getattr(risk_event, "no_item", None)
+        group_key = normalize_no_item(getattr(risk_event, "no_item", None))
         if group_key in (None, ""):
-            group_key = getattr(risk_event, "pk", None)
+            group_key = f"risk:{getattr(risk_event, 'pk', '')}"
         if group_key is None:
             continue
 
@@ -83,6 +93,7 @@ def _aggregate_exposure_for_i1(report_items, quarter):
                 "target": None,
                 "residual": None,
                 "risk_event_ids": set(),
+                "missing": set(),
             },
         )
         risk_event_id = getattr(risk_event, "pk", None)
@@ -97,6 +108,7 @@ def _aggregate_exposure_for_i1(report_items, quarter):
             ("residual", raw_residual),
         ):
             if raw_value in (None, ""):
+                entry["missing"].add(field_name)
                 continue
             value = Decimal(raw_value)
             current = entry[field_name]
@@ -132,6 +144,7 @@ def _aggregate_exposure_for_i1(report_items, quarter):
         "comparable_group_count": len(complete),
         "incomplete_group_count": incomplete_count,
         "conflicts": conflicts,
+        "groups": groups,
     }
 
 

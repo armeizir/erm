@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.contrib.auth.models import Group
+from django.db.models import Prefetch
 
 from .kpmr_aggregation import (
     _aggregate_budget_absorption,
@@ -13,6 +14,7 @@ from .kpmr_i1 import calculate_i1
 from .kpmr_i2 import calculate_i2
 from .kpmr_i3 import calculate_i3
 from .kpmr_i4 import calculate_i4
+from .kpmr_diagnostics import build_kpmr_diagnostics
 from .kpmr_scoring import (
     INDICATOR_DEFINITIONS,
     _weighted_score,
@@ -25,7 +27,7 @@ from .kpmr_scoring import (
 )
 from .kpmr_types import KPMRCalculation
 
-from monthly_report.models import MonthlyRiskReport
+from monthly_report.models import MonthlyRiskReport, MonthlyRiskReportItem
 from risk.models import (
     KPMRIndikatorResmi,
     KPMRPeriode,
@@ -234,7 +236,18 @@ def calculate_kpmr_for_unit(
     candidates = list(
         report_qs
         .select_related("periode", "reassessment", "reassessment__unit_bisnis")
-        .prefetch_related("items__risk_event")
+        .prefetch_related(Prefetch(
+            "items",
+            queryset=MonthlyRiskReportItem.objects.select_related(
+                "risk_event",
+                "risk_event__summary",
+                "risk_event__summary__risk_matrix",
+                f"risk_event__skala_dampak_q{quarter}",
+                f"risk_event__skala_probabilitas_q{quarter}",
+                "realisasi_skala_dampak",
+                "realisasi_skala_probabilitas",
+            ),
+        ))
         .order_by("periode__tanggal_mulai", "reassessment_id", "-versi", "-id")
     )
 
@@ -312,6 +325,9 @@ def calculate_kpmr_for_unit(
         period_note + " Perhitungan tidak merata-ratakan laporan bulan lain dalam triwulan."
     ]
     item_count = len(report_items)
+    diagnostics = build_kpmr_diagnostics(
+        reports[0], report_items=report_items, quarter=quarter
+    ) if reports else None
     comparable = [
         item
         for item in report_items
@@ -330,6 +346,12 @@ def calculate_kpmr_for_unit(
             same_target += 1
         else:
             below_target += 1
+
+    if diagnostics and diagnostics["needs_verification"]:
+        notes.append(
+            "STATUS DATA KPMR: PERLU VERIFIKASI DATA. "
+            + diagnostics["fallback_reason"]
+        )
 
     i1_raw, i1_option, i1_note, i1_detail = calculate_i1(
         report_items=report_items,
@@ -400,6 +422,7 @@ def calculate_kpmr_for_unit(
         indicators=indicators,
         notes=notes,
         month=selected_month,
+        diagnostics=diagnostics,
     )
 
 

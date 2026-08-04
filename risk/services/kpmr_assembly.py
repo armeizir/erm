@@ -18,9 +18,9 @@ def build_i4_subindicators(sub_scores):
             "kode": code,
             "nama": SUBINDICATOR_DEFINITIONS[code],
             "bobot": Decimal("25.00"),
-            "hasil": quantize_score(score),
+            "hasil": quantize_score(score) if score is not None else None,
             "skor": _weighted_score(score, 25),
-            "jawaban": "a" if score >= Decimal("90") else "b",
+            "jawaban": "" if score is None else ("a" if score >= Decimal("90") else "b"),
             "keterangan": note,
         }
         for code, score, note in sub_scores
@@ -69,6 +69,7 @@ def finalize_kpmr_result(
     indicators,
     notes,
     month,
+    diagnostics=None,
 ):
     score_total = quantize_score(
         sum(indicator["skor"] for indicator in indicators)
@@ -84,4 +85,10 @@ def finalize_kpmr_result(
         indicators=indicators,
         notes=notes,
         month=month,
+        data_status=(
+            "perlu_verifikasi_data"
+            if diagnostics and diagnostics.get("needs_verification")
+            else "valid"
+        ),
+        diagnostics=diagnostics,
     )

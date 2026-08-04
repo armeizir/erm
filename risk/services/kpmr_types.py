@@ -18,3 +18,5 @@ class KPMRCalculation:
     indicators: list[dict]
     notes: list[str]
     month: int | None = None
+    data_status: str = "valid"
+    diagnostics: dict | None = None

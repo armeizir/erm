@@ -1663,6 +1663,10 @@ class MonthlyRiskReportAdminTests(TestCase):
             "Pratinjau KPMR — hasil masih dapat berubah selama laporan belum diajukan.",
             response.content.decode(),
         )
+        self.assertIn(
+            b"Rincian Perbandingan Target dan Aktual Risiko",
+            response.content,
+        )
 
     def test_peta_risiko_iiic_shows_kpmr_after_report_is_submitted(self):
         for status in ("submitted", "under_review"):
@@ -1767,7 +1771,7 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertNotEqual(response.context_data["kpmr_calculation"].score_total, Decimal("81.00"))
         self.assertIn(
-            "Belum ada data eksposur lengkap maupun pasangan skor residual-target yang dapat dihitung.",
+            "Data eksposur kelompok belum lengkap. Parameter I1 perlu verifikasi data dan fallback skor matriks tidak digunakan.",
             response.context_data["kpmr_calculation"].notes,
         )
 

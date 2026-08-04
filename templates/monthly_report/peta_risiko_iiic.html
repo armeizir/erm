@@ -252,6 +252,15 @@
     text-align: center;
   }
 
+  .kpmr-diagnostic-wrap { overflow-x: auto; }
+  .kpmr-diagnostic-table { border-collapse: collapse; min-width: 1500px; width: 100%; }
+  .kpmr-diagnostic-table th, .kpmr-diagnostic-table td { border: 1px solid #d1d5db; padding: 6px 8px; vertical-align: top; }
+  .kpmr-diagnostic-table th { background: #eef2f7; }
+  .kpmr-warning { background: #fff7d6; border: 1px solid #e7c75f; margin: 12px 0; padding: 10px 12px; }
+  .kpmr-diagnostic-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .kpmr-diagnostic-summary span { background: #eef2f7; border-radius: 4px; padding: 6px 9px; }
+  .kpmr-comparison-incomplete { color: #a33; font-weight: 700; }
+
   .rating-strong {
     background: #00b050;
     color: #fff;
@@ -486,6 +495,45 @@
         <tr><td class="rating-marginal">Marginal</td><td>75 - 79</td></tr>
         <tr><td class="rating-unsatisfactory">Unsatisfactory</td><td>&lt; 75</td></tr>
       </table>
+      {% if kpmr_diagnostics %}
+      <details style="margin-top:18px;" open>
+        <summary><strong>Rincian Perbandingan Target dan Aktual Risiko</strong></summary>
+        {% if kpmr_calculation.data_status == "perlu_verifikasi_data" %}
+          <p class="kpmr-warning"><strong>Status: Perlu verifikasi data.</strong> {{ kpmr_diagnostics.fallback_reason }}</p>
+        {% endif %}
+        {% if kpmr_diagnostics.fallback_used %}
+          <p class="kpmr-warning"><strong>Fallback digunakan.</strong> Perbandingan eksposur kelompok tidak lengkap sehingga kalkulasi memakai perbandingan skor sel matriks per risiko. {{ kpmr_diagnostics.fallback_reason }}</p>
+        {% endif %}
+        <div class="kpmr-diagnostic-summary">
+          <span>Di bawah target: <strong>{{ kpmr_diagnostics.counts.below }}</strong></span>
+          <span>Sama: <strong>{{ kpmr_diagnostics.counts.same }}</strong></span>
+          <span>Di atas target: <strong>{{ kpmr_diagnostics.counts.above }}</strong></span>
+          <span>Data tidak lengkap: <strong>{{ kpmr_diagnostics.counts.incomplete }}</strong></span>
+          <span>Kelompok eksposur lengkap: <strong>{{ kpmr_diagnostics.complete_group_count }}/{{ kpmr_diagnostics.group_count }}</strong></span>
+        </div>
+        <div class="kpmr-diagnostic-wrap">
+          <table class="kpmr-diagnostic-table">
+            <thead><tr><th>No.</th><th>No. Item</th><th>No. Risiko</th><th>Peristiwa Risiko</th><th>Target Likelihood</th><th>Target Impact</th><th>Target Score</th><th>Aktual Likelihood</th><th>Aktual Impact</th><th>Aktual Score</th><th>Hasil Perbandingan</th><th>Status Kelengkapan</th><th>Sumber Data/Field</th></tr></thead>
+            <tbody>
+            {% for row in kpmr_diagnostics.rows %}
+              <tr>
+                <td>{{ forloop.counter }}</td><td>{{ row.no_item }}</td><td>{{ row.no_risiko }}</td><td>{{ row.event }}</td>
+                <td>{% if row.target_likelihood %}{{ row.target_likelihood.label }} (ranking {{ row.target_likelihood.rank }}){% else %}-{% endif %}</td>
+                <td>{% if row.target_impact %}{{ row.target_impact.label }} (ranking {{ row.target_impact.rank }}){% else %}-{% endif %}</td>
+                <td>{{ row.target_score|default_if_none:"-" }}</td>
+                <td>{% if row.actual_likelihood %}{{ row.actual_likelihood.label }} (ranking {{ row.actual_likelihood.rank }}){% else %}-{% endif %}</td>
+                <td>{% if row.actual_impact %}{{ row.actual_impact.label }} (ranking {{ row.actual_impact.rank }}){% else %}-{% endif %}</td>
+                <td>{{ row.actual_score|default_if_none:"-" }}</td>
+                <td class="kpmr-comparison-{{ row.comparison }}">{{ row.comparison_label }}</td>
+                <td>{% if row.is_complete %}Lengkap{% else %}Tidak lengkap: {{ row.missing|join:", " }}{% endif %}</td>
+                <td>{{ row.source }}<br>Matriks: {{ row.matrix }} (ID {{ row.matrix_id|default:"-" }}). Field legacy tidak dibandingkan: target_residual_level={{ row.legacy_target_residual_level|default_if_none:"-" }}, realisasi_skor_risiko={{ row.legacy_actual_score|default_if_none:"-" }}.</td>
+              </tr>
+            {% empty %}<tr><td colspan="13">Belum ada item risiko untuk didiagnosis.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endif %}
     </section>
   {% endif %}
 </div>

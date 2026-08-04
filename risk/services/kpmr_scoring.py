@@ -60,18 +60,44 @@ def int_or_none(value):
         return None
 
 
-def target_residual_score(item, quarter: int):
-    if item.target_residual_level is not None:
-        return item.target_residual_level
-    if item.risk_event_id:
-        return int_or_none(getattr(item.risk_event, f"skala_risiko_q{quarter}", None))
+def risk_matrix_for_item(item):
+    risk_event = getattr(item, "risk_event", None)
+    summary = getattr(risk_event, "summary", None)
+    if summary and summary.risk_matrix_id:
+        return summary.risk_matrix
     return None
 
 
+def _matrix_score(matrix, impact, likelihood):
+    if not matrix or not impact or not likelihood:
+        return None
+    cell = matrix.get_cell(impact, likelihood)
+    return cell.skor if cell else None
+
+
+def target_residual_score(item, quarter: int):
+    """Target score from target impact/likelihood on the profile matrix.
+
+    ``target_residual_level`` is a legacy scalar whose domain is ambiguous and
+    must not be compared with a matrix-cell score.
+    """
+    risk_event = getattr(item, "risk_event", None)
+    if not risk_event:
+        return None
+    return _matrix_score(
+        risk_matrix_for_item(item),
+        getattr(risk_event, f"skala_dampak_q{quarter}", None),
+        getattr(risk_event, f"skala_probabilitas_q{quarter}", None),
+    )
+
+
 def actual_residual_score(item):
-    if item.realisasi_skor_risiko is not None:
-        return item.realisasi_skor_risiko
-    return item.residual_level
+    """Actual score from actual impact/likelihood on the same profile matrix."""
+    return _matrix_score(
+        risk_matrix_for_item(item),
+        getattr(item, "realisasi_skala_dampak", None),
+        getattr(item, "realisasi_skala_probabilitas", None),
+    )
 
 
 def rating_for_score(score: Decimal) -> str:
