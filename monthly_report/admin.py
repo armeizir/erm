@@ -648,7 +648,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         "threshold_bahaya_profil",
         "realisasi_skala_dampak_kbumn",
         "realisasi_skala_probabilitas_kbumn",
-        "realisasi_eksposur",
+        "nilai_eksposur_risiko_otomatis",
         "realisasi_skor_risiko",
         "realisasi_skala_nilai_risiko_kbumn",
         "realisasi_level_risiko_kbumn",
@@ -698,7 +698,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
                     "realisasi_nilai_probabilitas",
                     "realisasi_skala_probabilitas",
                     "realisasi_skala_probabilitas_kbumn",
-                    "realisasi_eksposur",
+                    "nilai_eksposur_risiko_otomatis",
                     "realisasi_skor_risiko",
                     "realisasi_skala_nilai_risiko_kbumn",
                     "realisasi_level_risiko_bumn",
@@ -828,6 +828,30 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     @admin.display(description="Skala Nilai Risiko BUMN Risiko Inheren")
     def skala_nilai_risiko_bumn_inheren(self, obj):
         return self._risk_value(obj, "skala_risiko")
+
+    @admin.display(description="Nilai Eksposur Risiko — Dihitung otomatis")
+    def nilai_eksposur_risiko_otomatis(self, obj):
+        if not obj or not obj.pk:
+            return "Data belum lengkap"
+        if obj.jenis_risiko == "kualitatif":
+            return mark_safe(
+                "<strong>Data belum lengkap</strong><br>"
+                "<small>Nilai dasar/RAS tahunan dan faktor dampak resmi belum "
+                "tersedia pada konfigurasi ERM. Skor dampak tidak digunakan "
+                "sebagai nominal mata uang.</small>"
+            )
+        if obj.realisasi_eksposur is None:
+            return mark_safe(
+                "<strong>Data belum lengkap</strong><br>"
+                "<small>Nilai dampak nominal atau probabilitas belum tersedia.</small>"
+            )
+        return format_html(
+            "<strong>{:,.2f}</strong><br>"
+            "<small>Dihitung otomatis: {:,.2f} × {:,.2f}%</small>",
+            obj.realisasi_eksposur,
+            obj.realisasi_nilai_dampak,
+            obj.realisasi_nilai_probabilitas,
+        )
 
     @admin.display(description="Deskripsi Peristiwa Risiko")
     def deskripsi_peristiwa_risiko_profil(self, obj):

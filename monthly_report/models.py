@@ -524,7 +524,12 @@ class MonthlyRiskReportItem(TimeStampedModel):
         return RiskMatrix.objects.filter(aktif=True, is_default=True).first()
 
     def _calculate_realisasi(self):
-        if self.realisasi_nilai_dampak is not None and self.realisasi_nilai_probabilitas is not None:
+        # Pada risiko kualitatif, nilai dampak quarter pada template dapat berupa
+        # skor/parameter, bukan nominal mata uang. Jangan mengalikannya sebagai
+        # rupiah sebelum konfigurasi RAS dan faktor dampak tersedia.
+        if self.jenis_risiko == "kualitatif":
+            self.realisasi_eksposur = None
+        elif self.realisasi_nilai_dampak is not None and self.realisasi_nilai_probabilitas is not None:
             self.realisasi_eksposur = (
                 self.realisasi_nilai_dampak
                 * (self.realisasi_nilai_probabilitas / Decimal("100"))

@@ -1863,6 +1863,43 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertEqual(report_item.persentase_serapan_biaya, Decimal("150.00"))
 
+    def test_quantitative_exposure_uses_decimal_percentage(self):
+        report = self._report("BID EXPOSURE QUANTITATIVE")
+        risk_event = self._risk_item(report)
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            jenis_risiko="kuantitatif",
+            realisasi_nilai_dampak=Decimal("1669362600"),
+            realisasi_nilai_probabilitas=Decimal("25"),
+        )
+
+        self.assertEqual(item.realisasi_eksposur, Decimal("417340650.00"))
+        item.realisasi_nilai_probabilitas = Decimal("15")
+        item.save()
+        self.assertEqual(item.realisasi_eksposur, Decimal("250404390.00"))
+        item.realisasi_nilai_probabilitas = Decimal("31")
+        item.save()
+        self.assertEqual(item.realisasi_eksposur, Decimal("517502406.00"))
+
+    def test_qualitative_impact_score_is_not_used_as_currency_exposure(self):
+        report = self._report("BID EXPOSURE QUALITATIVE")
+        risk_event = self._risk_item(report)
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            jenis_risiko="kualitatif",
+            realisasi_nilai_dampak=Decimal("2"),
+            realisasi_nilai_probabilitas=Decimal("25"),
+        )
+
+        self.assertIsNone(item.realisasi_eksposur)
+        inline = MonthlyRiskReportItemInline(MonthlyRiskReport, AdminSite())
+        explanation = str(inline.nilai_eksposur_risiko_otomatis(item))
+        self.assertIn("Data belum lengkap", explanation)
+        self.assertIn("Skor dampak tidak digunakan", explanation)
+        self.assertNotIn("0.50", explanation)
+
     def test_peta_risiko_iiic_includes_automatic_kpmr_calculation(self):
         report_infra = self._report("INFRA")
         report_infra.status = "approved"
