@@ -128,6 +128,41 @@ def build_kpmr_diagnostics(report, report_items=None, quarter=None):
     else:
         fallback_reason = "Eksposur kelompok lengkap; fallback tidak diperlukan."
 
+    exposure_groups = []
+    raw_exposure_groups = (exposure or {}).get("groups", {})
+    conflicts = (exposure or {}).get("conflicts", [])
+    for group_key, members in group_members.items():
+        values = raw_exposure_groups.get(group_key, {})
+        missing = sorted(values.get("missing", []))
+        group_conflicts = [row for row in conflicts if row["group"] == group_key]
+        is_complete = not missing and not group_conflicts
+        reasons = []
+        if "target" in missing:
+            reasons.append(
+                f"ReAssessmentItem.eksposur_risiko_q{quarter} tidak ditemukan"
+            )
+        if "residual" in missing:
+            reasons.append(
+                "MonthlyRiskReportItem.realisasi_eksposur tidak ditemukan"
+            )
+        if group_conflicts:
+            reasons.append(
+                f"terdapat {len(group_conflicts)} nilai berbeda dalam kelompok"
+            )
+        exposure_groups.append({
+            "no_item": group_key,
+            "risk_count": len(members),
+            "target": values.get("target"),
+            "actual": values.get("residual"),
+            "target_source": f"ReAssessmentItem.eksposur_risiko_q{quarter}",
+            "actual_source": "MonthlyRiskReportItem.realisasi_eksposur",
+            "is_complete": is_complete,
+            "missing": missing,
+            "reason": "; ".join(reasons) if reasons else "Data eksposur lengkap",
+            "assessable": is_complete,
+            "conflict_count": len(group_conflicts),
+        })
+
     return {
         "rows": rows,
         "counts": {
@@ -136,9 +171,13 @@ def build_kpmr_diagnostics(report, report_items=None, quarter=None):
             "above": counts["above"],
             "incomplete": counts["incomplete"],
         },
+        "complete_risk_count": len(rows) - counts["incomplete"],
         "group_members": group_members,
+        "exposure_groups": exposure_groups,
         "group_count": len(group_members),
         "complete_group_count": exposure["comparable_group_count"] if exposure else 0,
+        "incomplete_group_count": exposure["incomplete_group_count"] if exposure else len(group_members),
+        "conflict_count": len(exposure["conflicts"]) if exposure else 0,
         "exposure": exposure,
         "exposure_ready": exposure_ready,
         "fallback_used": fallback_used,

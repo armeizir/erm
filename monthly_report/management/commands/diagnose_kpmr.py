@@ -38,14 +38,15 @@ class Command(BaseCommand):
             f"groups={diagnostics['group_count']}"
         )
         self.stdout.write("\nKELOMPOK NO_ITEM:")
-        exposure_groups = (diagnostics.get("exposure") or {}).get("groups", {})
-        for group_key, members in diagnostics["group_members"].items():
-            exposure = exposure_groups.get(group_key, {})
-            missing = ", ".join(sorted(exposure.get("missing", []))) or "-"
+        for group in diagnostics["exposure_groups"]:
             self.stdout.write(
-                f"- no_item={group_key}; risiko={members}; "
-                f"target_exposure={exposure.get('target')}; "
-                f"actual_exposure={exposure.get('residual')}; missing={missing}"
+                f"- no_item={group['no_item']}; jumlah_risiko={group['risk_count']}; "
+                f"target_exposure={group['target']}; actual_exposure={group['actual']}; "
+                f"target_source={group['target_source']}; "
+                f"actual_source={group['actual_source']}; "
+                f"missing={', '.join(group['missing']) or '-'}; "
+                f"status={'lengkap' if group['is_complete'] else 'tidak lengkap'}; "
+                f"assessable={group['assessable']}; reason={group['reason']}"
             )
 
         self.stdout.write("\nPER RISIKO:")
@@ -92,4 +93,17 @@ class Command(BaseCommand):
         self.stdout.write(
             f"TOTAL={calculation.score_total}; rating={calculation.rating}; "
             f"data_status={calculation.data_status}"
+        )
+        self.stdout.write("\nKELENGKAPAN NILAI KPMR:")
+        self.stdout.write(
+            f"is_complete={calculation.is_complete}; "
+            f"requires_verification={calculation.requires_verification}; "
+            f"assessed_weight={calculation.assessed_weight}; "
+            f"unassessed_weight={calculation.unassessed_weight}; "
+            f"provisional_score={calculation.provisional_score}; "
+            f"normalized_indicative_score={calculation.normalized_indicative_score}; "
+            f"final_score_available={calculation.final_score is not None}; "
+            f"final_score={calculation.final_score}; "
+            f"final_rating_available={calculation.final_rating is not None}; "
+            f"final_rating={calculation.final_rating}"
         )

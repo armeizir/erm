@@ -9,6 +9,7 @@ from risk.services.kpmr_aggregation import (
     normalize_no_item,
 )
 from risk.services.kpmr_diagnostics import build_kpmr_diagnostics
+from risk.services.kpmr_assembly import finalize_kpmr_result
 
 
 @dataclass(frozen=True)
@@ -158,3 +159,61 @@ class KPMRDiagnosticsTests(SimpleTestCase):
         diagnostics = self._diagnostics([item, item])
 
         self.assertEqual(len(diagnostics["rows"]), 1)
+
+    def test_unassessed_required_indicator_is_not_treated_as_zero_final_score(self):
+        indicators = [
+            {"kode": "I1", "hasil": None, "skor": Decimal("0"), "bobot": Decimal("30")},
+            {"kode": "I2", "hasil": 100, "skor": Decimal("20"), "bobot": Decimal("20")},
+            {"kode": "I3", "hasil": 80, "skor": Decimal("16"), "bobot": Decimal("20")},
+            {"kode": "I4", "hasil": 80, "skor": Decimal("24"), "bobot": Decimal("30")},
+        ]
+
+        result = finalize_kpmr_result(
+            year=2026, quarter=3, unit=SimpleNamespace(), report_count=1,
+            item_count=22, indicators=indicators, notes=[], month=7,
+            diagnostics={"needs_verification": True},
+        )
+
+        self.assertFalse(result.is_complete)
+        self.assertTrue(result.requires_verification)
+        self.assertEqual(result.provisional_score, Decimal("60.00"))
+        self.assertEqual(result.assessed_weight, Decimal("70.00"))
+        self.assertEqual(result.unassessed_weight, Decimal("30.00"))
+        self.assertIsNone(result.final_score)
+        self.assertIsNone(result.final_rating)
+        self.assertEqual(result.normalized_indicative_score, Decimal("85.71"))
+
+    def test_complete_kpmr_has_final_score_and_rating(self):
+        indicators = [
+            {"kode": code, "hasil": 90, "skor": score, "bobot": weight}
+            for code, score, weight in (
+                ("I1", Decimal("27"), Decimal("30")),
+                ("I2", Decimal("20"), Decimal("20")),
+                ("I3", Decimal("16"), Decimal("20")),
+                ("I4", Decimal("27"), Decimal("30")),
+            )
+        ]
+
+        result = finalize_kpmr_result(
+            year=2026, quarter=3, unit=SimpleNamespace(), report_count=1,
+            item_count=22, indicators=indicators, notes=[], month=7,
+        )
+
+        self.assertTrue(result.is_complete)
+        self.assertFalse(result.requires_verification)
+        self.assertEqual(result.final_score, Decimal("90.00"))
+        self.assertEqual(result.final_rating, "SATISFACTORY")
+        self.assertIsNone(result.normalized_indicative_score)
+
+    def test_incomplete_exposure_group_has_explicit_reason_and_sources(self):
+        diagnostics = self._diagnostics([
+            self._item(target_exposure=None, actual_exposure=None)
+        ])
+
+        group = diagnostics["exposure_groups"][0]
+        self.assertFalse(group["is_complete"])
+        self.assertFalse(group["assessable"])
+        self.assertIn("target", group["missing"])
+        self.assertIn("residual", group["missing"])
+        self.assertIn("ReAssessmentItem.eksposur_risiko_q1", group["reason"])
+        self.assertIn("MonthlyRiskReportItem.realisasi_eksposur", group["reason"])

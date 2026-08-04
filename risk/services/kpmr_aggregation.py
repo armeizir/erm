@@ -137,6 +137,13 @@ def _aggregate_exposure_for_i1(report_items, quarter):
     total_target = sum((entry["target"] for entry in complete), Decimal("0"))
     total_residual = sum((entry["residual"] for entry in complete), Decimal("0"))
 
+    for entry in groups.values():
+        entry["missing"] = {
+            field_name
+            for field_name in ("target", "residual")
+            if entry[field_name] is None
+        }
+
     return {
         "total_target": total_target,
         "total_residual": total_residual,

@@ -133,6 +133,12 @@ def calculate_i4(
         f"Jawaban: {'perlu verifikasi data' if plan_raw is None else ('a' if plan_raw >= Decimal('90') else 'b')}.\n"
         f"Hasil Penilaian: {plan_raw if plan_raw is not None else '-'}."
     )
+    if plan_raw == Decimal("50") and comparison_complete and above_target:
+        plan_detail += (
+            "\nParameter 4.3 memperoleh nilai b karena masih terdapat risiko yang "
+            "berada di atas target residual. Jumlah risiko di atas target: "
+            f"{above_target} dari {item_count}."
+        )
 
     priority_raw = Decimal("90")
     priority_note = (

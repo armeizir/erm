@@ -409,22 +409,29 @@
       </p>
       <div class="kpmr-summary">
         <div class="kpmr-card">
-          <span>Skor KPMR</span>
-          <strong>{{ kpmr_calculation.score_total }}</strong>
+          <span>Status KPMR</span>
+          <strong>{% if kpmr_calculation.requires_verification %}Perlu Verifikasi Data{% else %}Lengkap{% endif %}</strong>
         </div>
         <div class="kpmr-card">
-          <span>Rating</span>
-          <strong>{{ kpmr_calculation.rating }}</strong>
+          <span>Skor Final</span>
+          <strong>{{ kpmr_calculation.final_score|default_if_none:"Belum tersedia" }}</strong>
         </div>
         <div class="kpmr-card">
-          <span>Laporan Sumber Bulan Ini</span>
-          <strong>{{ kpmr_calculation.report_count }}</strong>
+          <span>Skor Sementara</span>
+          <strong>{{ kpmr_calculation.provisional_score }} dari bobot tersedia {{ kpmr_calculation.assessed_weight|floatformat:"-2" }}</strong>
         </div>
         <div class="kpmr-card">
-          <span>Item Risiko</span>
-          <strong>{{ kpmr_calculation.item_count }}</strong>
+          <span>Cakupan Penilaian</span>
+          <strong>{{ kpmr_calculation.assessed_weight|floatformat:"-2" }}%</strong>
+        </div>
+        <div class="kpmr-card">
+          <span>Rating Final</span>
+          <strong>{{ kpmr_calculation.final_rating|default_if_none:"Belum dapat ditentukan" }}</strong>
         </div>
       </div>
+      {% if kpmr_calculation.normalized_indicative_score != None %}
+        <p class="kpmr-warning">Skor indikatif: <strong>{{ kpmr_calculation.normalized_indicative_score }}</strong> — indikatif, bukan nilai resmi dan tidak digunakan untuk menetapkan rating final.</p>
+      {% endif %}
       <table class="kpmr-table">
         <thead>
           <tr>
@@ -508,8 +515,11 @@
           <span>Di bawah target: <strong>{{ kpmr_diagnostics.counts.below }}</strong></span>
           <span>Sama: <strong>{{ kpmr_diagnostics.counts.same }}</strong></span>
           <span>Di atas target: <strong>{{ kpmr_diagnostics.counts.above }}</strong></span>
-          <span>Data tidak lengkap: <strong>{{ kpmr_diagnostics.counts.incomplete }}</strong></span>
+          <span>Data risiko lengkap: <strong>{{ kpmr_diagnostics.complete_risk_count }}</strong>/{{ kpmr_diagnostics.rows|length }}</span>
+          <span>Data risiko tidak lengkap: <strong>{{ kpmr_diagnostics.counts.incomplete }}</strong></span>
           <span>Kelompok eksposur lengkap: <strong>{{ kpmr_diagnostics.complete_group_count }}/{{ kpmr_diagnostics.group_count }}</strong></span>
+          <span>Kelompok eksposur tidak lengkap: <strong>{{ kpmr_diagnostics.incomplete_group_count }}</strong></span>
+          <span>Konflik data: <strong>{{ kpmr_diagnostics.conflict_count }}</strong></span>
         </div>
         <div class="kpmr-diagnostic-wrap">
           <table class="kpmr-diagnostic-table">
@@ -530,6 +540,20 @@
               </tr>
             {% empty %}<tr><td colspan="13">Belum ada item risiko untuk didiagnosis.</td></tr>{% endfor %}
             </tbody>
+          </table>
+        </div>
+        <h3>Rincian Kelengkapan Eksposur per Kelompok</h3>
+        <div class="kpmr-diagnostic-wrap">
+          <table class="kpmr-diagnostic-table">
+            <thead><tr><th>No. Item</th><th>Jumlah Risiko</th><th>Nilai Target Eksposur</th><th>Nilai Aktual Eksposur</th><th>Sumber Target</th><th>Sumber Aktual</th><th>Status Kelengkapan</th><th>Field yang Kosong</th><th>Alasan Tidak Lengkap</th><th>Dapat Dinilai/Tidak</th></tr></thead>
+            <tbody>{% for group in kpmr_diagnostics.exposure_groups %}<tr>
+              <td>{{ group.no_item }}</td><td>{{ group.risk_count }}</td>
+              <td>{{ group.target|default_if_none:"-" }}</td><td>{{ group.actual|default_if_none:"-" }}</td>
+              <td>{{ group.target_source }}</td><td>{{ group.actual_source }}</td>
+              <td>{% if group.is_complete %}Lengkap{% else %}Tidak lengkap{% endif %}</td>
+              <td>{{ group.missing|join:", "|default:"-" }}</td><td>{{ group.reason }}</td>
+              <td>{% if group.assessable %}Dapat dinilai{% else %}Tidak dapat dinilai{% endif %}</td>
+            </tr>{% empty %}<tr><td colspan="10">Belum ada kelompok eksposur.</td></tr>{% endfor %}</tbody>
           </table>
         </div>
       </details>

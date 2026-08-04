@@ -62,6 +62,11 @@ def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_
                 for sub in indicator.subindikator.order_by("kode")
             ]
         indicators.append(indicator_data)
+    assessed = [item for item in indicators if item["hasil"] is not None]
+    assessed_weight = quantize_score(sum(item["bobot"] for item in assessed))
+    is_complete = len(assessed) == 4 and assessed_weight == Decimal("100.00")
+    final_score = period.skor_total if is_complete else None
+    final_rating = (period.rating or rating_for_score(final_score)) if final_score is not None else None
     return KPMRCalculation(
         year=period.tahun,
         quarter=period.triwulan,
@@ -69,9 +74,21 @@ def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_
         report_count=report_count,
         item_count=item_count,
         score_total=period.skor_total,
-        rating=period.rating or rating_for_score(period.skor_total),
+        rating=final_rating or "",
         indicators=indicators,
         notes=[period.catatan] if period.catatan else [],
+        is_complete=is_complete,
+        requires_verification=not is_complete,
+        assessed_weight=assessed_weight,
+        unassessed_weight=quantize_score(Decimal("100") - assessed_weight),
+        provisional_score=period.skor_total,
+        final_score=final_score,
+        final_rating=final_rating,
+        normalized_indicative_score=(
+            quantize_score(period.skor_total / assessed_weight * Decimal("100"))
+            if assessed_weight > 0 and not is_complete else None
+        ),
+        data_status="valid" if is_complete else "perlu_verifikasi_data",
     )
 
 

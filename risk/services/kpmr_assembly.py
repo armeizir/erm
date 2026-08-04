@@ -71,8 +71,23 @@ def finalize_kpmr_result(
     month,
     diagnostics=None,
 ):
-    score_total = quantize_score(
-        sum(indicator["skor"] for indicator in indicators)
+    assessed_indicators = [
+        indicator for indicator in indicators if indicator["hasil"] is not None
+    ]
+    provisional_score = quantize_score(
+        sum(indicator["skor"] for indicator in assessed_indicators)
+    )
+    assessed_weight = quantize_score(
+        sum(indicator["bobot"] for indicator in assessed_indicators)
+    )
+    unassessed_weight = quantize_score(Decimal("100") - assessed_weight)
+    is_complete = len(assessed_indicators) == len(indicators) and unassessed_weight == 0
+    final_score = provisional_score if is_complete else None
+    final_rating = rating_for_score(final_score) if final_score is not None else None
+    normalized_indicative_score = (
+        quantize_score(provisional_score / assessed_weight * Decimal("100"))
+        if assessed_weight > 0 and not is_complete
+        else None
     )
     return KPMRCalculation(
         year=year,
@@ -80,15 +95,19 @@ def finalize_kpmr_result(
         unit=unit,
         report_count=report_count,
         item_count=item_count,
-        score_total=score_total,
-        rating=rating_for_score(score_total),
+        score_total=provisional_score,
+        rating=final_rating or "",
         indicators=indicators,
         notes=notes,
         month=month,
-        data_status=(
-            "perlu_verifikasi_data"
-            if diagnostics and diagnostics.get("needs_verification")
-            else "valid"
-        ),
+        data_status="valid" if is_complete else "perlu_verifikasi_data",
         diagnostics=diagnostics,
+        is_complete=is_complete,
+        requires_verification=not is_complete,
+        assessed_weight=assessed_weight,
+        unassessed_weight=unassessed_weight,
+        provisional_score=provisional_score,
+        final_score=final_score,
+        final_rating=final_rating,
+        normalized_indicative_score=normalized_indicative_score,
     )

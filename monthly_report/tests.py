@@ -1667,6 +1667,14 @@ class MonthlyRiskReportAdminTests(TestCase):
             b"Rincian Perbandingan Target dan Aktual Risiko",
             response.content,
         )
+        self.assertIn(b"Status KPMR", response.content)
+        self.assertIn(b"Perlu Verifikasi Data", response.content)
+        self.assertIn(b"Skor Final", response.content)
+        self.assertIn(b"Belum tersedia", response.content)
+        self.assertIn(b"Rating Final", response.content)
+        self.assertIn(b"Belum dapat ditentukan", response.content)
+        self.assertIn(b"Kelompok eksposur tidak lengkap", response.content)
+        self.assertIn(b"Rincian Kelengkapan Eksposur per Kelompok", response.content)
 
     def test_peta_risiko_iiic_shows_kpmr_after_report_is_submitted(self):
         for status in ("submitted", "under_review"):
