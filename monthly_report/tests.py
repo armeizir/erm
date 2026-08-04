@@ -1603,17 +1603,23 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         self.assertIn("persentase_serapan_biaya", inline.readonly_fields)
 
-    def test_monthly_monitoring_form_uses_business_friendly_labels_and_help(self):
+    def test_monthly_monitoring_form_uses_excel_labels_and_help(self):
         form = MonthlyRiskReportItemForm()
 
         expected_labels = {
-            "risk_event": "Risiko yang Dipantau",
-            "realisasi_asumsi_dampak": "Dasar Penilaian Dampak Bulan Ini",
-            "realisasi_nilai_dampak": "Nilai Dampak Aktual",
-            "realisasi_skala_dampak": "Tingkat Dampak Aktual",
-            "realisasi_nilai_probabilitas": "Nilai Kemungkinan Aktual (%)",
-            "realisasi_skala_probabilitas": "Tingkat Kemungkinan Aktual",
-            "realisasi_rencana_perlakuan": "Kegiatan Mitigasi yang Dilaksanakan",
+            "risk_event": "Peristiwa Risiko",
+            "realisasi_asumsi_dampak": "Asumsi Perhitungan Dampak",
+            "realisasi_nilai_dampak": "Nilai Dampak",
+            "realisasi_skala_dampak": "Skala Dampak BUMN",
+            "realisasi_nilai_probabilitas": "Nilai Probabilitas (%)",
+            "realisasi_skala_probabilitas": "Skala Probabilitas BUMN",
+            "realisasi_rencana_perlakuan": "Realisasi Rencana Perlakuan Risiko",
+            "realisasi_output_perlakuan": "Realisasi Output atas Masing-masing Breakdown Perlakuan Risiko",
+            "realisasi_biaya_perlakuan": "Realisasi Biaya Perlakuan Risiko (Rp/USD)",
+            "realisasi_pic": "Realisasi PIC",
+            "status_rencana_perlakuan": "Status Rencana Perlakuan Risiko",
+            "penjelasan_status_rencana": "Penjelasan Status Rencana Perlakuan",
+            "progress_pelaksanaan_percent": "Progress Pelaksanaan Rencana Perlakuan (%)",
             "next_action": "Tindak Lanjut Bulan Berikutnya",
             "escalation_note": "Catatan Eskalasi",
         }
@@ -1621,8 +1627,20 @@ class MonthlyRiskReportAdminTests(TestCase):
             with self.subTest(field=field_name):
                 self.assertEqual(form.fields[field_name].label, label)
         self.assertIn(
-            "dasar penentuan dampak aktual",
+            "asumsi atau pendekatan",
             form.fields["realisasi_asumsi_dampak"].help_text,
+        )
+
+    def test_monthly_monitoring_form_uses_report_month_in_kri_label(self):
+        report = self._report("BID LABEL KRI")
+        risk_event = self._risk_item(report)
+        item = MonthlyRiskReportItem(report=report, risk_event=risk_event)
+
+        form = MonthlyRiskReportItemForm(instance=item)
+
+        self.assertEqual(
+            form.fields["realisasi_threshold_kri"].label,
+            "Realisasi Threshold KRI Februari",
         )
 
     def test_monthly_report_change_page_renders_monitoring_accordion_and_management_form(self):

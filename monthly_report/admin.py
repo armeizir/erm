@@ -490,39 +490,48 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         model = MonthlyRiskReportItem
         fields = "__all__"
         labels = {
-            "risk_event": "Risiko yang Dipantau",
-            "realisasi_asumsi_dampak": "Dasar Penilaian Dampak Bulan Ini",
-            "realisasi_nilai_dampak": "Nilai Dampak Aktual",
-            "realisasi_skala_dampak": "Tingkat Dampak Aktual",
-            "realisasi_nilai_probabilitas": "Nilai Kemungkinan Aktual (%)",
-            "realisasi_skala_probabilitas": "Tingkat Kemungkinan Aktual",
-            "efektivitas_perlakuan_risiko": "Efektivitas Mitigasi Risiko",
-            "realisasi_rencana_perlakuan": "Kegiatan Mitigasi yang Dilaksanakan",
-            "realisasi_output_perlakuan": "Output/Bukti Pelaksanaan Mitigasi",
-            "realisasi_biaya_perlakuan": "Biaya Mitigasi Bulan Ini",
-            "realisasi_pic": "PIC Pelaksana",
-            "status_rencana_perlakuan": "Status Mitigasi",
-            "penjelasan_status_rencana": "Penjelasan Perkembangan Mitigasi",
-            "progress_pelaksanaan_percent": "Progres Mitigasi Bulan Ini (%)",
-            "realisasi_threshold_kri": "Status KRI Bulan Ini",
-            "realisasi_threshold_kri_skor": "Skor KRI Bulan Ini",
+            "risk_event": "Peristiwa Risiko",
+            "realisasi_asumsi_dampak": "Asumsi Perhitungan Dampak",
+            "realisasi_nilai_dampak": "Nilai Dampak",
+            "realisasi_skala_dampak": "Skala Dampak BUMN",
+            "realisasi_nilai_probabilitas": "Nilai Probabilitas (%)",
+            "realisasi_skala_probabilitas": "Skala Probabilitas BUMN",
+            "efektivitas_perlakuan_risiko": "Efektifitas Perlakuan Risiko",
+            "realisasi_rencana_perlakuan": "Realisasi Rencana Perlakuan Risiko",
+            "realisasi_output_perlakuan": "Realisasi Output atas Masing-masing Breakdown Perlakuan Risiko",
+            "realisasi_biaya_perlakuan": "Realisasi Biaya Perlakuan Risiko (Rp/USD)",
+            "realisasi_pic": "Realisasi PIC",
+            "status_rencana_perlakuan": "Status Rencana Perlakuan Risiko",
+            "penjelasan_status_rencana": "Penjelasan Status Rencana Perlakuan",
+            "progress_pelaksanaan_percent": "Progress Pelaksanaan Rencana Perlakuan (%)",
+            "realisasi_threshold_kri": "Realisasi Threshold KRI",
+            "realisasi_threshold_kri_skor": "Skor",
             "next_action": "Tindak Lanjut Bulan Berikutnya",
             "escalation_note": "Catatan Eskalasi",
         }
         help_texts = {
-            "realisasi_asumsi_dampak": "Jelaskan dasar penentuan dampak aktual pada bulan laporan.",
-            "realisasi_nilai_dampak": "Isi nilai numerik dampak sesuai parameter profil risiko.",
-            "realisasi_skala_dampak": "Pilih tingkat dampak yang sesuai dengan nilai dampak aktual.",
-            "realisasi_nilai_probabilitas": "Isi nilai kemungkinan atau probabilitas aktual bulan laporan.",
-            "realisasi_skala_probabilitas": "Pilih tingkat kemungkinan berdasarkan nilai aktual.",
-            "realisasi_rencana_perlakuan": "Jelaskan kegiatan mitigasi yang benar-benar dilakukan sampai bulan laporan.",
-            "realisasi_output_perlakuan": "Jelaskan hasil, dokumen, atau bukti pelaksanaan mitigasi.",
-            "realisasi_biaya_perlakuan": "Isi realisasi biaya mitigasi pada bulan laporan.",
-            "progress_pelaksanaan_percent": "Isi persentase kemajuan kegiatan mitigasi, antara 0 sampai 100.",
-            "realisasi_threshold_kri": "Isi status aktual indikator risiko utama pada bulan laporan.",
+            "realisasi_asumsi_dampak": "Tambahkan penjelasan atas asumsi atau pendekatan yang dipakai untuk menghitung nilai dampak.",
+            "realisasi_nilai_dampak": "Isi realisasi perkiraan nilai dampak dalam Rupiah/USD. Untuk dampak kualitatif, isi 0.",
+            "realisasi_skala_dampak": "Pilih skala dampak BUMN 1–5 sesuai definisi perusahaan.",
+            "realisasi_nilai_probabilitas": "Isi nilai probabilitas risiko dalam persentase.",
+            "realisasi_skala_probabilitas": "Pilih skala probabilitas BUMN 1–5 sesuai definisi perusahaan.",
+            "realisasi_rencana_perlakuan": "Isi realisasi rencana perlakuan risiko yang telah dijalankan.",
+            "realisasi_output_perlakuan": "Isi realisasi output untuk masing-masing rencana perlakuan risiko yang relevan.",
+            "realisasi_biaya_perlakuan": "Isi realisasi biaya perlakuan risiko beserta satuan mata uang yang digunakan.",
+            "progress_pelaksanaan_percent": "Isi progress pelaksanaan rencana perlakuan antara 0 sampai 100.",
+            "realisasi_threshold_kri": "Pilih realisasi threshold KRI sesuai kategori threshold yang ditetapkan.",
             "next_action": "Jelaskan tindakan yang akan dilakukan pada periode berikutnya.",
             "escalation_note": "Isi apabila terdapat kendala atau kondisi yang perlu dilaporkan kepada pejabat yang lebih tinggi.",
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        report = self.instance.report if self.instance and self.instance.report_id else None
+        if report and report.periode_id and report.periode.tanggal_mulai:
+            month_name = BULAN_LABELS[report.periode.tanggal_mulai.month]
+            self.fields["realisasi_threshold_kri"].label = (
+                f"Realisasi Threshold KRI {month_name}"
+            )
         widgets = {
             "realisasi_asumsi_dampak": forms.Textarea(attrs={"rows": 3}),
             "realisasi_rencana_perlakuan": forms.Textarea(attrs={"rows": 3}),
@@ -633,7 +642,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         ),
     )
 
-    @admin.display(description="Serapan Biaya Mitigasi (%)")
+    @admin.display(description="Persentase Serapan Biaya")
     def serapan_biaya_mitigasi(self, obj):
         return obj.persentase_serapan_biaya if obj and obj.pk else "-"
 
