@@ -1480,12 +1480,13 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         kpmr_calculation = None
         kpmr_month = report.periode.tanggal_mulai.month if report.periode_id else None
         kpmr_quarter = month_to_quarter(kpmr_month) if kpmr_month else None
-        if (
-            report.status in {"submitted", "under_review", "approved"}
-            and report.reassessment_id
+        normalized_status = (report.status or "").strip().lower()
+        show_kpmr = bool(
+            report.reassessment_id
             and report.reassessment.unit_bisnis_id
             and kpmr_quarter
-        ):
+        )
+        if show_kpmr:
             kpmr_calculation = calculate_kpmr_for_report(report)
 
         context = {
@@ -1495,6 +1496,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "matrix": matrix,
             "dampak_scales": dampak_scales,
             "rows": rows,
+            "show_kpmr": show_kpmr,
+            "kpmr_is_preview": normalized_status == "draft",
             "kpmr_calculation": kpmr_calculation,
             "kpmr_detail_groups": _kpmr_detail_groups(kpmr_calculation),
             "kpmr_month": kpmr_month,

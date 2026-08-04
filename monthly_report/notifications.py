@@ -106,7 +106,8 @@ def _risk_officers_for_report(report):
 
 
 def monthly_report_notification_stage(report):
-    if report.status in {"draft", "revision"}:
+    normalized_status = (report.status or "").strip().lower()
+    if normalized_status in {"draft", "revision"}:
         return {
             "stage": STAGE_PREPARE,
             "recipients": _risk_officers_for_report(report),
@@ -121,7 +122,7 @@ def monthly_report_notification_stage(report):
                 "sebagai pendamping pemantauan."
             ),
         }
-    if report.status == "submitted":
+    if normalized_status == "submitted":
         return {
             "stage": STAGE_REVIEW,
             "recipient": report.reviewed_by,
@@ -131,7 +132,7 @@ def monthly_report_notification_stage(report):
             "title": "Paraf / Review Laporan Risiko Bulanan",
             "instruction": "Mohon Reviewer melakukan paraf/review atas laporan risiko bulanan.",
         }
-    if report.status == "under_review":
+    if normalized_status == "under_review":
         return {
             "stage": STAGE_APPROVE,
             "recipient": report.approved_by,
@@ -141,7 +142,7 @@ def monthly_report_notification_stage(report):
             "title": "Tanda Tangan Digital Laporan Risiko Bulanan",
             "instruction": "Mohon Approver melakukan tanda tangan digital atas laporan risiko bulanan.",
         }
-    if report.status == "approved":
+    if normalized_status == "approved":
         recipients = build_approved_report_recipients(report)
         return {
             "stage": "completed",
@@ -384,8 +385,9 @@ def send_monthly_report_notification(
 ):
     if delivery_mode not in {"auto", "test", "final"}:
         raise ValidationError("Mode pengiriman notifikasi tidak dikenal.")
+    normalized_status = (report.status or "").strip().lower()
     if (
-        report.status == "approved"
+        normalized_status == "approved"
         and not approved_transition
         and delivery_mode == "auto"
     ):
@@ -402,7 +404,7 @@ def send_monthly_report_notification(
 
     correction_note = (correction_note or "").strip()
     if correction_note:
-        if report.status != "revision":
+        if normalized_status != "revision":
             raise ValidationError(
                 "Komentar koreksi hanya dapat dikirim untuk laporan "
                 "berstatus Revision."
@@ -428,6 +430,8 @@ def send_monthly_report_notification(
         test_email_override=test_email_override,
     )
     app_setting = AppSetting.get_solo()
+    show_kpmr = normalized_status in {"submitted", "under_review", "approved"}
+    kpmr = calculate_kpmr_for_report(report) if show_kpmr else None
     context = {
         "report": report,
         "stage": stage,
@@ -444,11 +448,9 @@ def send_monthly_report_notification(
             base_url=base_url,
         ),
         "app_setting": app_setting,
-        "kpmr": (
-            calculate_kpmr_for_report(report)
-            if report.status in {"submitted", "under_review", "approved"}
-            else None
-        ),
+        "show_kpmr": show_kpmr,
+        "kpmr_is_preview": show_kpmr and normalized_status != "approved",
+        "kpmr": kpmr,
         "correction_note": correction_note,
         "tutorial": monthly_report_email_tutorial(),
     }

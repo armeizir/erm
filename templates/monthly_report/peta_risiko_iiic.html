@@ -145,6 +145,14 @@
     margin: 0 0 4px;
   }
 
+  .kpmr-preview {
+    background: #fff7d6;
+    border: 1px solid #e7c75f;
+    color: #6b5200;
+    margin: 10px 0 14px;
+    padding: 10px 12px;
+  }
+
   .kpmr-meta {
     color: #555;
     margin: 0 0 14px;
@@ -374,9 +382,12 @@
     </tfoot>
   </table>
 
-  {% if kpmr_calculation and report.status == "submitted" or kpmr_calculation and report.status == "under_review" or kpmr_calculation and report.status == "approved" %}
+  {% if show_kpmr and kpmr_calculation %}
     <section class="kpmr-panel">
       <h2>KPMR Otomatis Bulanan</h2>
+      {% if kpmr_is_preview %}
+        <p class="kpmr-preview">Pratinjau KPMR — hasil masih dapat berubah selama laporan belum diajukan.</p>
+      {% endif %}
       <p class="kpmr-meta">
         Dihitung otomatis dari <strong>Monthly Risk Report {{ report.periode.nama_periode }}</strong>
         untuk {{ report.reassessment.unit_bisnis.name }} tahun {{ report.reassessment.tahun }}.

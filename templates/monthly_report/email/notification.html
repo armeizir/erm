@@ -46,14 +46,14 @@
                 </tr>
                 {% endif %}
               </table>
-              {% if kpmr %}
+              {% if show_kpmr and kpmr %}
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:24px 0;border:1px solid #dbe3ec;">
                 <tr>
                   <td colspan="3" style="background:#eef5fa;padding:12px 14px;font-weight:700;">
                     KPMR Bulan {{ report.periode.nama_periode }}
                   </td>
                 </tr>
-                {% if report.status != "approved" %}
+                {% if kpmr_is_preview %}
                 <tr>
                   <td colspan="3" style="background:#fff7ed;color:#92400e;padding:10px 14px;border-bottom:1px solid #f3d6b8;font-size:13px;">
                     <strong>Hasil sementara.</strong>
@@ -75,7 +75,7 @@
                 {% endfor %}
                 <tr>
                   <td colspan="2" style="padding:11px 14px;font-weight:700;">
-                    Total KPMR{% if report.status != "approved" %} Sementara{% endif %} — {{ kpmr.rating }}
+                    Total KPMR{% if kpmr_is_preview %} Sementara{% endif %} — {{ kpmr.rating }}
                   </td>
                   <td style="padding:11px 14px;font-weight:700;text-align:center;">{{ kpmr.score_total }}</td>
                 </tr>

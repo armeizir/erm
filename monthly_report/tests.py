@@ -1630,12 +1630,16 @@ class MonthlyRiskReportAdminTests(TestCase):
 
         response = report_admin.peta_risiko_iiic_view(request, str(report_infra.pk))
 
+        self.assertTrue(response.context_data["show_kpmr"])
+        self.assertFalse(response.context_data["kpmr_is_preview"])
         self.assertEqual(response.context_data["kpmr_quarter"], 1)
         self.assertEqual(response.context_data["kpmr_calculation"].unit, report_infra.reassessment.unit_bisnis)
         self.assertEqual(response.context_data["kpmr_calculation"].report_count, 1)
 
-    def test_peta_risiko_iiic_hides_kpmr_for_draft_report(self):
+    def test_peta_risiko_iiic_shows_preview_kpmr_for_draft_report(self):
         report_infra = self._report("INFRA DRAFT")
+        report_infra.status = " Draft "
+        report_infra.save(update_fields=["status"])
         request = RequestFactory().get(
             f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/peta-risiko-iiic/"
         )
@@ -1651,8 +1655,14 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
         response.render()
 
-        self.assertIsNone(response.context_data["kpmr_calculation"])
-        self.assertNotIn(b"KPMR Otomatis Bulanan", response.content)
+        self.assertTrue(response.context_data["show_kpmr"])
+        self.assertTrue(response.context_data["kpmr_is_preview"])
+        self.assertIsNotNone(response.context_data["kpmr_calculation"])
+        self.assertIn(b"KPMR Otomatis Bulanan", response.content)
+        self.assertIn(
+            "Pratinjau KPMR — hasil masih dapat berubah selama laporan belum diajukan.",
+            response.content.decode(),
+        )
 
     def test_peta_risiko_iiic_shows_kpmr_after_report_is_submitted(self):
         for status in ("submitted", "under_review"):
@@ -1679,6 +1689,8 @@ class MonthlyRiskReportAdminTests(TestCase):
                 self.assertIsNotNone(
                     response.context_data["kpmr_calculation"]
                 )
+                self.assertTrue(response.context_data["show_kpmr"])
+                self.assertFalse(response.context_data["kpmr_is_preview"])
                 self.assertIn(
                     b"KPMR Otomatis Bulanan",
                     response.content,
@@ -1761,6 +1773,8 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_monthly_report_notification_sends_prepare_stage_to_risk_office_and_cc_pairing(self):
         report_infra = self._report("INFRA")
+        report_infra.status = " Draft "
+        report_infra.save(update_fields=["status"])
         User = get_user_model()
         first_officer = User.objects.create_user(username="risk.office.1", email="risk.office.1@example.com")
         second_officer = User.objects.create_user(username="risk.office.2", email="risk.office.2@example.com")
@@ -1801,6 +1815,9 @@ class MonthlyRiskReportAdminTests(TestCase):
             "https://erm.plnbatam.com/admin/monthly_report/monthlyriskreport/",
             mail.outbox[0].body,
         )
+        self.assertNotIn("KPMR Bulan", mail.outbox[0].body)
+        self.assertNotIn("Total KPMR", mail.outbox[0].body)
+        self.assertNotIn("KPMR Bulan", mail.outbox[0].alternatives[0].content)
 
     def test_monthly_report_review_notification_still_uses_test_email_when_configured(self):
         app_setting = AppSetting.get_solo()
