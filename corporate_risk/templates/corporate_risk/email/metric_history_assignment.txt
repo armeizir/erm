@@ -1,4 +1,4 @@
-Yth. {{ recipient.get_full_name|default:recipient.username }},
+Yth. {% if recipient %}{{ recipient.get_full_name|default:recipient.username }}{% else %}Pengguna ERM{% endif %},
 
 Anda ditugaskan untuk mengisi data histori risiko berikut:
 Metrik: {{ history.metric.name }}

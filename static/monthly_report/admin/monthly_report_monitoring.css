@@ -1,0 +1,58 @@
+.monitoring-help { background: var(--darkened-bg); border-left: 4px solid var(--link-fg); margin: 0; padding: 10px 14px; }
+.risk-quick-nav { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 10px; }
+.risk-quick-nav a { background: var(--button-bg); border-radius: 4px; color: var(--button-fg); padding: 5px 9px; text-decoration: none; }
+.monitoring-risk { border: 0 !important; margin: 0 0 10px !important; }
+.monitoring-risk-details { border: 1px solid var(--hairline-color); border-radius: 5px; overflow: hidden; }
+.monitoring-risk-details > summary { background: var(--darkened-bg); cursor: pointer; display: grid; gap: 4px; grid-template-columns: 1fr auto; padding: 12px 14px; }
+.risk-summary-title { font-size: 15px; font-weight: 700; }
+.risk-summary-event, .risk-summary-meta { color: var(--body-quiet-color); grid-column: 1; }
+.risk-summary-meta { font-size: 12px; }
+.risk-summary-missing { color: #765b00; font-size: 12px; grid-column: 1; }
+.completion-badge { align-self: start; border-radius: 999px; font-size: 11px; font-weight: 700; grid-column: 2; grid-row: 1 / span 3; padding: 5px 9px; }
+.completion-badge.is-complete { background: #dff2e5; color: #176b32; }
+.completion-badge.is-incomplete { background: #fff3cd; color: #765b00; }
+.completion-badge.needs-check { background: #f8d7da; color: #842029; }
+.monitoring-risk-body { padding: 10px; }
+.active-period-context { background: var(--darkened-bg); font-weight: 600; margin: 0 0 12px; padding: 8px 10px; }
+.monitoring-risk-body fieldset { margin-bottom: 12px; }
+.monitoring-risk-body fieldset.profile-reference { background: var(--darkened-bg); }
+.monitoring-risk-body fieldset.profile-reference summary { font-weight: 700; }
+.monitoring-risk-body fieldset.kri-current { border-left: 4px solid var(--link-fg); }
+.monitoring-risk-body fieldset.kri-current .field-realisasi_nilai_kri input { font-size: 16px; max-width: 280px; padding: 9px 10px; }
+.monitoring-risk-body fieldset.residual-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.monitoring-risk-body fieldset.residual-grid > h2 { grid-column: 1 / -1; }
+.monitoring-risk-body fieldset.residual-grid .form-row { border: 1px solid var(--hairline-color); padding: 10px; }
+.monitoring-risk-body fieldset.residual-grid .field-realisasi_asumsi_dampak { grid-column: 1 / -1; }
+.monitoring-risk-body fieldset.residual-grid .readonly {
+  background: var(--darkened-bg);
+  border-radius: 4px;
+  padding: 8px;
+}
+.monitoring-risk-body fieldset.residual-grid .readonly::before {
+  content: "🧮 Dihitung otomatis";
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.monitoring-risk-body textarea { min-height: 70px; width: min(100%, 900px); }
+.monitoring-risk-footer { align-items: center; border-top: 1px solid var(--hairline-color); display: flex; gap: 14px; justify-content: flex-end; padding: 10px; }
+.monitoring-delete { color: var(--body-quiet-color); font-size: 12px; opacity: .75; }
+.kri-status-badge { border-radius: 999px; display: inline-block; font-weight: 700; padding: 4px 10px; }
+.kri-green { background: #dff2e5; color: #176b32; }
+.kri-yellow { background: #fff3cd; color: #765b00; }
+.kri-red { background: #f8d7da; color: #842029; }
+@media (max-width: 900px) {
+  .monitoring-risk-details > summary { grid-template-columns: 1fr; }
+  .completion-badge { grid-column: 1; grid-row: auto; justify-self: start; }
+  .monitoring-risk-body .form-row { overflow-wrap: anywhere; }
+  .monitoring-risk-body fieldset.residual-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .monitoring-risk-body fieldset.residual-grid { grid-template-columns: 1fr; }
+  .monitoring-risk-body fieldset.residual-grid .field-realisasi_asumsi_dampak { grid-column: 1; }
+}

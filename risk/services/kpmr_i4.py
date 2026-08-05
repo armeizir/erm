@@ -105,29 +105,40 @@ def calculate_i4(
             f"{_weighted_score(quant_raw, 25)}."
         )
 
-    plan_raw = (
-        Decimal("90")
-        if force_i4_all_a or (comparable and not above_target)
-        else Decimal("50")
-    )
+    comparison_complete = len(comparable) == item_count and item_count > 0
+    if force_i4_all_a:
+        plan_raw = Decimal("90")
+    elif not comparison_complete:
+        plan_raw = None
+    elif above_target:
+        plan_raw = Decimal("50")
+    else:
+        plan_raw = Decimal("90")
     plan_note = (
-        "Rencana perlakuan menurunkan risiko sampai target residual pada item "
-        "yang bisa dihitung."
-        if plan_raw == Decimal("90")
-        else "Masih ada risiko di atas target residual atau target residual belum lengkap."
+        "Data target/aktual belum lengkap; I4.3 perlu verifikasi data."
+        if plan_raw is None
+        else (
+            "Rencana perlakuan menurunkan risiko sampai target residual pada item yang bisa dihitung."
+            if plan_raw == Decimal("90")
+            else "Masih ada risiko di atas target residual."
+        )
     )
     plan_detail = (
         "Sumber: III.A realisasi residual dibanding target residual dan III.B "
         "rencana perlakuan.\n"
         f"Item yang bisa dibandingkan: {len(comparable)}; item di atas target "
-        f"residual: {above_target}.\n"
+        f"residual: {above_target}; item tidak lengkap: {item_count - len(comparable)}.\n"
         "Aturan jawaban: a jika rencana perlakuan menurunkan risiko sampai target; "
-        "b jika masih ada risiko di atas target atau data target belum lengkap.\n"
-        f"Jawaban: {'a' if plan_raw >= Decimal('90') else 'b'} -> "
-        f"Hasil Penilaian {plan_raw}.\n"
-        f"Penilaian subindikator: {plan_raw} x bobot subindikator 25% = "
-        f"{_weighted_score(plan_raw, 25)}."
+        "b jika masih ada risiko di atas target atau data target/aktual belum lengkap.\n"
+        f"Jawaban: {'perlu verifikasi data' if plan_raw is None else ('a' if plan_raw >= Decimal('90') else 'b')}.\n"
+        f"Hasil Penilaian: {plan_raw if plan_raw is not None else '-'}."
     )
+    if plan_raw == Decimal("50") and comparison_complete and above_target:
+        plan_detail += (
+            "\nParameter 4.3 memperoleh nilai b karena masih terdapat risiko yang "
+            "berada di atas target residual. Jumlah risiko di atas target: "
+            f"{above_target} dari {item_count}."
+        )
 
     priority_raw = Decimal("90")
     priority_note = (
@@ -160,16 +171,25 @@ def calculate_i4(
         ("RENCANA", plan_raw, plan_detail),
         ("PRIORITISASI", priority_raw, priority_detail),
     ]
-    i4_raw = sum(score for _, score, _ in sub_scores) / Decimal(len(sub_scores))
+    complete_sub_scores = [score for _, score, _ in sub_scores if score is not None]
+    i4_raw = (
+        sum(complete_sub_scores) / Decimal(len(sub_scores))
+        if len(complete_sub_scores) == len(sub_scores)
+        else None
+    )
     i4_note = "Rata-rata sub indikator ketepatan penilaian risiko."
 
     notes.append(
         "I4 Ketepatan penilaian risiko:\n"
-        f"Nilai subindikator: {', '.join(str(score) for _, score, _ in sub_scores)}.\n"
-        f"Rumus rata-rata: ({' + '.join(str(score) for _, score, _ in sub_scores)}) "
-        f"/ {len(sub_scores)} = {quantize_score(i4_raw)}.\n"
-        f"Penilaian per parameter: {quantize_score(i4_raw)} x bobot 30% = "
-        f"{_weighted_score(i4_raw, 30)}."
+        f"Nilai subindikator: {', '.join(str(score) if score is not None else '-' for _, score, _ in sub_scores)}.\n"
+        + (
+            f"Rumus rata-rata: ({' + '.join(str(score) for _, score, _ in sub_scores)}) "
+            f"/ {len(sub_scores)} = {quantize_score(i4_raw)}.\n"
+            f"Penilaian per parameter: {quantize_score(i4_raw)} x bobot 30% = "
+            f"{_weighted_score(i4_raw, 30)}."
+            if i4_raw is not None
+            else "I4 perlu verifikasi data karena ada subindikator yang tidak lengkap."
+        )
     )
 
     return i4_raw, i4_note, sub_scores

@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.contrib.auth.models import Group
+from django.db.models import Prefetch
 
 from .kpmr_aggregation import (
     _aggregate_budget_absorption,
@@ -13,6 +14,7 @@ from .kpmr_i1 import calculate_i1
 from .kpmr_i2 import calculate_i2
 from .kpmr_i3 import calculate_i3
 from .kpmr_i4 import calculate_i4
+from .kpmr_diagnostics import build_kpmr_diagnostics
 from .kpmr_scoring import (
     INDICATOR_DEFINITIONS,
     _weighted_score,
@@ -25,7 +27,7 @@ from .kpmr_scoring import (
 )
 from .kpmr_types import KPMRCalculation
 
-from monthly_report.models import MonthlyRiskReport
+from monthly_report.models import MonthlyRiskReport, MonthlyRiskReportItem
 from risk.models import (
     KPMRIndikatorResmi,
     KPMRPeriode,
@@ -60,6 +62,11 @@ def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_
                 for sub in indicator.subindikator.order_by("kode")
             ]
         indicators.append(indicator_data)
+    assessed = [item for item in indicators if item["hasil"] is not None]
+    assessed_weight = quantize_score(sum(item["bobot"] for item in assessed))
+    is_complete = len(assessed) == 4 and assessed_weight == Decimal("100.00")
+    final_score = period.skor_total if is_complete else None
+    final_rating = (period.rating or rating_for_score(final_score)) if final_score is not None else None
     return KPMRCalculation(
         year=period.tahun,
         quarter=period.triwulan,
@@ -67,9 +74,21 @@ def _calculation_from_saved_period(period: KPMRPeriode, report_count: int, item_
         report_count=report_count,
         item_count=item_count,
         score_total=period.skor_total,
-        rating=period.rating or rating_for_score(period.skor_total),
+        rating=final_rating or "",
         indicators=indicators,
         notes=[period.catatan] if period.catatan else [],
+        is_complete=is_complete,
+        requires_verification=not is_complete,
+        assessed_weight=assessed_weight,
+        unassessed_weight=quantize_score(Decimal("100") - assessed_weight),
+        provisional_score=period.skor_total,
+        final_score=final_score,
+        final_rating=final_rating,
+        normalized_indicative_score=(
+            quantize_score(period.skor_total / assessed_weight * Decimal("100"))
+            if assessed_weight > 0 and not is_complete else None
+        ),
+        data_status="valid" if is_complete else "perlu_verifikasi_data",
     )
 
 
@@ -234,7 +253,18 @@ def calculate_kpmr_for_unit(
     candidates = list(
         report_qs
         .select_related("periode", "reassessment", "reassessment__unit_bisnis")
-        .prefetch_related("items__risk_event")
+        .prefetch_related(Prefetch(
+            "items",
+            queryset=MonthlyRiskReportItem.objects.select_related(
+                "risk_event",
+                "risk_event__summary",
+                "risk_event__summary__risk_matrix",
+                f"risk_event__skala_dampak_q{quarter}",
+                f"risk_event__skala_probabilitas_q{quarter}",
+                "realisasi_skala_dampak",
+                "realisasi_skala_probabilitas",
+            ),
+        ))
         .order_by("periode__tanggal_mulai", "reassessment_id", "-versi", "-id")
     )
 
@@ -312,6 +342,9 @@ def calculate_kpmr_for_unit(
         period_note + " Perhitungan tidak merata-ratakan laporan bulan lain dalam triwulan."
     ]
     item_count = len(report_items)
+    diagnostics = build_kpmr_diagnostics(
+        reports[0], report_items=report_items, quarter=quarter
+    ) if reports else None
     comparable = [
         item
         for item in report_items
@@ -330,6 +363,12 @@ def calculate_kpmr_for_unit(
             same_target += 1
         else:
             below_target += 1
+
+    if diagnostics and diagnostics["needs_verification"]:
+        notes.append(
+            "STATUS DATA KPMR: PERLU VERIFIKASI DATA. "
+            + diagnostics["fallback_reason"]
+        )
 
     i1_raw, i1_option, i1_note, i1_detail = calculate_i1(
         report_items=report_items,
@@ -400,6 +439,7 @@ def calculate_kpmr_for_unit(
         indicators=indicators,
         notes=notes,
         month=selected_month,
+        diagnostics=diagnostics,
     )
 
 

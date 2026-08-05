@@ -1,0 +1,13 @@
+[Unit]
+Description=ERM Daily Incomplete Risk Profile Reminder
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=adminsvr
+Group=adminsvr
+WorkingDirectory=/home/adminsvr/erm
+EnvironmentFile=-/home/adminsvr/erm/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/adminsvr/erm/venv/bin/python /home/adminsvr/erm/manage.py notify_incomplete_risk_profiles --current-year --send

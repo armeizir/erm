@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from core.models import TimeStampedModel
 from masterdata.models import (
+    OrganizationUnit,
     PeriodeLaporan,
     SkalaDampak,
     SkalaProbabilitas,
@@ -232,6 +233,10 @@ class MonthlyRiskReport(TimeStampedModel):
 
 
 class MonthlyRiskReportItem(TimeStampedModel):
+    RISK_TYPE_CHOICES = [
+        ("kuantitatif", "Kuantitatif"),
+        ("kualitatif", "Kualitatif"),
+    ]
     TREND_CHOICES = [
         ("up", "Meningkat"),
         ("down", "Menurun"),
@@ -247,7 +252,6 @@ class MonthlyRiskReportItem(TimeStampedModel):
 
     EFFECTIVENESS_CHOICES = [
         ("efektif", "Efektif"),
-        ("cukup_efektif", "Cukup Efektif"),
         ("tidak_efektif", "Tidak Efektif"),
     ]
     TREATMENT_STATUS_CHOICES = [
@@ -292,6 +296,14 @@ class MonthlyRiskReportItem(TimeStampedModel):
         max_length=30, choices=MITIGATION_STATUS_CHOICES, null=True, blank=True
     )
 
+    jenis_risiko = models.CharField(
+        max_length=20,
+        choices=RISK_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name="Jenis Risiko",
+    )
+
     realisasi_asumsi_dampak = models.TextField(
         null=True,
         blank=True,
@@ -327,8 +339,14 @@ class MonthlyRiskReportItem(TimeStampedModel):
         related_name="monthly_report_realisasi_probabilitas",
         verbose_name="Skala Probabilitas Bulan Ini",
     )
+    realisasi_skala_dampak_kbumn = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Skala Dampak KBUMN"
+    )
+    realisasi_skala_probabilitas_kbumn = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Skala Probabilitas KBUMN"
+    )
     realisasi_eksposur = models.DecimalField(
-        max_digits=18,
+        max_digits=24,
         decimal_places=2,
         null=True,
         blank=True,
@@ -344,6 +362,15 @@ class MonthlyRiskReportItem(TimeStampedModel):
         null=True,
         blank=True,
         verbose_name="Level Risiko Bulan Ini",
+    )
+    realisasi_skala_nilai_risiko_kbumn = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Skala Nilai Risiko KBUMN"
+    )
+    realisasi_level_risiko_bumn = models.CharField(
+        max_length=100, null=True, blank=True, verbose_name="Level Risiko BUMN"
+    )
+    realisasi_level_risiko_kbumn = models.CharField(
+        max_length=100, null=True, blank=True, verbose_name="Level Risiko KBUMN"
     )
     efektivitas_perlakuan_risiko = models.CharField(
         max_length=100,
@@ -382,6 +409,14 @@ class MonthlyRiskReportItem(TimeStampedModel):
         blank=True,
         verbose_name="Realisasi PIC",
     )
+    realisasi_pic_organization_unit = models.ForeignKey(
+        OrganizationUnit,
+        on_delete=models.PROTECT,
+        related_name="monthly_risk_report_items",
+        null=True,
+        blank=True,
+        verbose_name="Realisasi PIC",
+    )
     status_rencana_perlakuan = models.CharField(
         max_length=30,
         choices=TREATMENT_STATUS_CHOICES,
@@ -406,6 +441,13 @@ class MonthlyRiskReportItem(TimeStampedModel):
         null=True,
         blank=True,
         verbose_name="Realisasi Threshold KRI Bulan Ini",
+    )
+    realisasi_nilai_kri = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        verbose_name="Nilai Realisasi KRI",
     )
     realisasi_threshold_kri_skor = models.CharField(
         max_length=100,
@@ -448,6 +490,40 @@ class MonthlyRiskReportItem(TimeStampedModel):
                 errors["realisasi_nilai_probabilitas"] = (
                     "Nilai probabilitas harus berada di antara 0 sampai 100."
                 )
+        if self.realisasi_nilai_dampak is not None and self.realisasi_nilai_dampak < 0:
+            errors["realisasi_nilai_dampak"] = "Nilai dampak tidak boleh negatif."
+        if self.realisasi_eksposur is not None and self.realisasi_eksposur < 0:
+            errors["realisasi_eksposur"] = "Nilai eksposur risiko tidak boleh negatif."
+        for field_name in (
+            "realisasi_skala_dampak_kbumn",
+            "realisasi_skala_probabilitas_kbumn",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and not 1 <= value <= 5:
+                errors[field_name] = "Skala harus berada di antara 1 sampai 5."
+        if (
+            self.realisasi_skala_nilai_risiko_kbumn is not None
+            and not 1 <= self.realisasi_skala_nilai_risiko_kbumn <= 25
+        ):
+            errors["realisasi_skala_nilai_risiko_kbumn"] = (
+                "Skala nilai risiko harus berada di antara 1 sampai 25."
+            )
+        if (
+            self.realisasi_skor_risiko is not None
+            and not 1 <= self.realisasi_skor_risiko <= 25
+        ):
+            errors["realisasi_skor_risiko"] = (
+                "Skala nilai risiko BUMN harus antara 1 sampai 25."
+            )
+        if self.efektivitas_perlakuan_risiko not in (
+            None,
+            "",
+            "efektif",
+            "tidak_efektif",
+        ):
+            errors["efektivitas_perlakuan_risiko"] = (
+                "Efektivitas harus Efektif atau Tidak Efektif."
+            )
         if self.persentase_serapan_biaya is not None:
             if self.persentase_serapan_biaya < 0:
                 errors["persentase_serapan_biaya"] = (
@@ -458,6 +534,23 @@ class MonthlyRiskReportItem(TimeStampedModel):
                 errors["progress_pelaksanaan_percent"] = (
                     "Progress pelaksanaan harus berada di antara 0 sampai 100."
                 )
+        if (
+            self.realisasi_nilai_kri is not None
+            and self.risk_event_id
+            and self.report_id
+            and self.report.status in {"draft", "revision"}
+        ):
+            from .kri_services import evaluate_kri_threshold
+
+            try:
+                result = evaluate_kri_threshold(
+                    self.risk_event, self.realisasi_nilai_kri
+                )
+            except ValidationError as exc:
+                errors["realisasi_nilai_kri"] = exc.messages
+            else:
+                self.realisasi_threshold_kri = result.status
+                self.realisasi_threshold_kri_skor = result.threshold_range
         if errors:
             raise ValidationError(errors)
 
@@ -473,14 +566,6 @@ class MonthlyRiskReportItem(TimeStampedModel):
         return RiskMatrix.objects.filter(aktif=True, is_default=True).first()
 
     def _calculate_realisasi(self):
-        if self.realisasi_nilai_dampak is not None and self.realisasi_nilai_probabilitas is not None:
-            self.realisasi_eksposur = (
-                self.realisasi_nilai_dampak
-                * (self.realisasi_nilai_probabilitas / Decimal("100"))
-            ).quantize(Decimal("0.01"))
-        else:
-            self.realisasi_eksposur = None
-
         self.persentase_serapan_biaya = None
         if self.realisasi_biaya_perlakuan is not None and self.risk_event_id:
             anggaran = self.risk_event.biaya_perlakuan_risiko
@@ -489,20 +574,31 @@ class MonthlyRiskReportItem(TimeStampedModel):
                     self.realisasi_biaya_perlakuan / anggaran * Decimal("100")
                 ).quantize(Decimal("0.01"))
 
-        self.realisasi_skor_risiko = None
-        self.realisasi_level_risiko = None
-        if self.realisasi_skala_dampak_id and self.realisasi_skala_probabilitas_id:
-            matrix = self._get_active_matrix()
-            cell = (
-                matrix.get_cell(self.realisasi_skala_dampak, self.realisasi_skala_probabilitas)
-                if matrix
-                else None
-            )
-            if cell:
-                self.realisasi_skor_risiko = cell.skor
-                self.realisasi_level_risiko = cell.level_risiko.nama
+        # Nilai eksposur, skala nilai risiko, dan level risiko pada laporan
+        # bulanan mengikuti Kertas Kerja III.A (input manual atau import).
+        # Jangan hitung ulang atau timpa nilainya saat item disimpan.
 
     def save(self, *args, **kwargs):
+        if self.realisasi_pic_organization_unit_id:
+            self.realisasi_pic = str(self.realisasi_pic_organization_unit)
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"realisasi_pic"}
+        if (
+            self.realisasi_nilai_kri is not None
+            and self.risk_event_id
+            and self.report_id
+            and self.report.status in {"draft", "revision"}
+        ):
+            from .kri_services import evaluate_kri_threshold
+
+            result = evaluate_kri_threshold(self.risk_event, self.realisasi_nilai_kri)
+            self.realisasi_threshold_kri = result.status
+            self.realisasi_threshold_kri_skor = result.threshold_range
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                    "realisasi_threshold_kri",
+                    "realisasi_threshold_kri_skor",
+                }
         if self.risk_event_id:
             canonical_km_item_id = self.risk_event.km_item_id
             if canonical_km_item_id and self.km_item_id != canonical_km_item_id:

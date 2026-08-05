@@ -3,6 +3,7 @@ import string
 
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -186,6 +187,15 @@ class AppSetting(models.Model):
             "bukan ke Prepared/Reviewed/Approved by. Kosongkan saat sudah produksi."
         ),
     )
+    monthly_report_deadline_day = models.PositiveSmallIntegerField(
+        default=7,
+        validators=[MinValueValidator(1), MaxValueValidator(28)],
+        verbose_name="Batas Waktu Laporan Bulanan",
+        help_text=(
+            "Tanggal pada bulan berikutnya sebagai batas penyelesaian laporan. "
+            "Gunakan angka 1 sampai 28."
+        ),
+    )
     support_email = models.EmailField(
         blank=True,
         default="",
@@ -294,12 +304,17 @@ class KnowledgeBaseArticle(models.Model):
     )
 
     TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL = "monthly_report_email"
+    TUTORIAL_PLACEMENT_PROFILE_COMPLETENESS_EMAIL = "profile_completeness_email"
     TUTORIAL_PLACEMENT_METRIC_HISTORY_INPUT = "metric_history_input"
     TUTORIAL_PLACEMENT_CHOICES = (
         ("", "Tidak digunakan sebagai video tutorial"),
         (
             TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL,
             "Email Laporan Risiko Bulanan",
+        ),
+        (
+            TUTORIAL_PLACEMENT_PROFILE_COMPLETENESS_EMAIL,
+            "Email Kelengkapan Profil Risiko",
         ),
         (
             TUTORIAL_PLACEMENT_METRIC_HISTORY_INPUT,
@@ -1634,6 +1649,17 @@ class RKMItem(models.Model):
 # =========================================================
 
 class ReAssessmentSummary(models.Model):
+    STATUS_LEGACY = "legacy"
+    STATUS_DRAFT = "draft"
+    STATUS_APPROVED = "approved"
+    STATUS_FINAL = "final"
+    STATUS_CHOICES = (
+        (STATUS_LEGACY, "Legacy / Belum diklasifikasikan"),
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_FINAL, "Final"),
+    )
+
     judul = models.CharField(max_length=200, verbose_name="Judul Profil Risiko")
     tahun = models.PositiveIntegerField(verbose_name="Tahun")
     unit_bisnis = models.ForeignKey(
@@ -1665,6 +1691,12 @@ class ReAssessmentSummary(models.Model):
         related_name="reassessments",
         verbose_name="RKM",
     )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_DRAFT,
+        verbose_name="Status",
+    )
 
     class Meta:
         verbose_name = "Profil Risiko Unit/Bidang"
@@ -1673,6 +1705,43 @@ class ReAssessmentSummary(models.Model):
 
     def __str__(self):
         return self.judul
+
+
+class ProfileCompletenessNotificationLog(models.Model):
+    STATUS_SENT = "sent"
+    STATUS_FAILED = "failed"
+    STATUS_RESOLVED = "resolved"
+    STATUS_CHOICES = (
+        (STATUS_SENT, "Terkirim"),
+        (STATUS_FAILED, "Gagal"),
+        (STATUS_RESOLVED, "Selesai"),
+    )
+
+    profile = models.ForeignKey(
+        ReAssessmentSummary,
+        on_delete=models.CASCADE,
+        related_name="completeness_notification_logs",
+    )
+    unit_bisnis = models.ForeignKey(Group, on_delete=models.PROTECT)
+    recipient_to = models.JSONField(default=list, blank=True)
+    recipient_cc = models.JSONField(default=list, blank=True)
+    risk_officer_ids = models.JSONField(default=list, blank=True)
+    pairing_ids = models.JSONField(default=list, blank=True)
+    issue_fingerprint = models.CharField(max_length=64, db_index=True)
+    issue_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=("profile", "issue_fingerprint", "status")),
+        ]
+        verbose_name = "Log Notifikasi Kelengkapan Profil"
+        verbose_name_plural = "Log Notifikasi Kelengkapan Profil"
 
 
 class ReAssessmentItem(models.Model):
@@ -1771,6 +1840,16 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Threshold Bahaya",
+    )
+    kri_threshold_direction = models.CharField(
+        max_length=20,
+        choices=(
+            ("higher_better", "Semakin besar semakin baik"),
+            ("lower_better", "Semakin kecil semakin baik"),
+        ),
+        null=True,
+        blank=True,
+        verbose_name="Arah Threshold KRI",
     )
 
     jenis_existing_control = models.ForeignKey(

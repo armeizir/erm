@@ -74,30 +74,16 @@ def calculate_i1(
             "tidak terduplikasi meskipun satu risiko memiliki beberapa penyebab/perlakuan."
         )
     else:
-        # Fallback untuk unit yang belum memiliki data eksposur target/residual lengkap.
-        if not comparable:
-            i1_raw = None
-            i1_option = ""
-            i1_note = "Belum ada data eksposur lengkap maupun pasangan skor residual-target yang dapat dihitung."
-            notes.append(i1_note)
-        elif above_target:
-            i1_raw = Decimal("40")
-            i1_option = "c"
-            i1_note = (
-                f"Fallback skor: {above_target} risiko di atas target residual, "
-                f"{same_target} sama target, {below_target} lebih rendah dari target."
-            )
-        elif same_target:
-            i1_raw = Decimal("60")
-            i1_option = "b"
-            i1_note = (
-                f"Fallback skor: {same_target} risiko sama dengan target residual, "
-                f"{below_target} lebih rendah dari target."
-            )
-        else:
-            i1_raw = Decimal("90")
-            i1_option = "a"
-            i1_note = f"Fallback skor: seluruh {below_target} risiko berada di bawah target residual."
+        # Tidak ada dasar konfigurasi bisnis yang mengizinkan substitusi nilai
+        # eksposur dengan score matriks. Jangan menghasilkan jawaban a/b/c saat
+        # data eksposur kelompok belum lengkap.
+        i1_raw = None
+        i1_option = ""
+        i1_note = (
+            "Data eksposur kelompok belum lengkap. Parameter I1 perlu verifikasi "
+            "data dan fallback skor matriks tidak digunakan."
+        )
+        notes.append(i1_note)
 
         exposure_reason = "Data eksposur belum lengkap."
         if exposure_summary is not None:
@@ -107,12 +93,13 @@ def calculate_i1(
             )
 
         i1_detail = (
-            "[FALLBACK]\n"
+            "[DATA TIDAK LENGKAP — FALLBACK TIDAK DIGUNAKAN]\n"
             f"{exposure_reason}\n"
-            "ERM sementara memakai perbandingan skor residual-target per item.\n"
-            f"Rincian skor: {below_target} di bawah; {same_target} sama; {above_target} di atas.\n"
-            f"Jawaban fallback '{i1_option or '-'}' -> Hasil Penilaian {_fmt(i1_raw)}.\n"
-            f"Skor berbobot = {_fmt(i1_raw)} x 30% = {_weighted_score(i1_raw, 30)}."
+            "Perbandingan skor matriks per item hanya ditampilkan untuk diagnosis dan "
+            "tidak menggantikan perbandingan total eksposur tanpa aturan bisnis eksplisit.\n"
+            f"Rincian diagnostik skor: {below_target} di bawah; {same_target} sama; "
+            f"{above_target} di atas; {len(report_items) - len(comparable)} tidak lengkap.\n"
+            "Jawaban I1: perlu verifikasi data; skor I1 tidak diberikan."
         )
 
     return i1_raw, i1_option, i1_note, i1_detail

@@ -36,6 +36,7 @@ from .history_notifications import (
     metric_history_pairing_officer,
     send_metric_history_assignment_notification,
 )
+from .workspace import MonteCarloWorkspaceMixin
 
 
 def risk_item_label_html(item):
@@ -991,7 +992,7 @@ class AIInsightKorporatAdmin(admin.ModelAdmin):
 
 
 @admin.register(RiskMetric)
-class RiskMetricAdmin(admin.ModelAdmin):
+class RiskMetricAdmin(MonteCarloWorkspaceMixin, admin.ModelAdmin):
     list_display = (
         "corporate_risk_item_display",
         "name",
@@ -1056,10 +1057,9 @@ class RiskMetricAdmin(admin.ModelAdmin):
 
     def input_history_button(self, obj):
         url = reverse(
-            "risk_admin:risk_profilrisikokorporatsummary_change",
-            args=[obj.corporate_risk_item.summary_id],
+            f"{self.admin_site.name}:corporate_risk_riskmetric_workspace",
         )
-        url = f"{url}#monte-carlo-korporat"
+        url = f"{url}?item={obj.corporate_risk_item_id}"
         return format_html('<a class="button" href="{}">Input Histori</a>', url)
 
     input_history_button.short_description = "Data Historis"

@@ -361,7 +361,10 @@ def _fill_iiib(workbook, report, items, items_by_month, items_by_quarter):
             threshold_col = 39 + ((month - 1) * 2)
             score_col = threshold_col + 1
             ws.cell(row, threshold_col, _safe_text(history_item.realisasi_threshold_kri))
-            ws.cell(row, score_col, _number(history_item.realisasi_threshold_kri_skor))
+            actual_kri = history_item.realisasi_nilai_kri
+            if actual_kri is None:
+                actual_kri = history_item.realisasi_threshold_kri_skor
+            ws.cell(row, score_col, _number(actual_kri))
 
 
 def _fill_iiic(workbook, report, items):

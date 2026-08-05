@@ -18,3 +18,13 @@ class KPMRCalculation:
     indicators: list[dict]
     notes: list[str]
     month: int | None = None
+    data_status: str = "valid"
+    diagnostics: dict | None = None
+    is_complete: bool = True
+    requires_verification: bool = False
+    assessed_weight: Decimal = Decimal("100.00")
+    unassessed_weight: Decimal = Decimal("0.00")
+    provisional_score: Decimal = Decimal("0.00")
+    final_score: Decimal | None = None
+    final_rating: str | None = None
+    normalized_indicative_score: Decimal | None = None
