@@ -62,7 +62,7 @@ from .import_services import (
     normalize_treatment_code,
     report_quarter,
 )
-from .notifications import send_monthly_report_notification
+from .notifications import monthly_report_deadline, send_monthly_report_notification
 from .kri_services import evaluate_kri_threshold
 from .recipient_services import build_approved_report_recipients
 from .services import (
@@ -2304,7 +2304,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIn("Pairing Officer", mail.outbox[0].body)
         self.assertIn("Input Laporan Risiko Bulanan", mail.outbox[0].subject)
         self.assertIn("Februari 2026", mail.outbox[0].body)
-        self.assertIn("5 Maret 2026", mail.outbox[0].body)
+        self.assertIn("7 Maret 2026", mail.outbox[0].body)
         self.assertIn(
             "https://erm.plnbatam.com/admin/monthly_report/monthlyriskreport/",
             mail.outbox[0].body,
@@ -2312,6 +2312,18 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertNotIn("KPMR Bulan", mail.outbox[0].body)
         self.assertNotIn("Total KPMR", mail.outbox[0].body)
         self.assertNotIn("KPMR Bulan", mail.outbox[0].alternatives[0].content)
+
+    def test_monthly_report_deadline_uses_admin_setting(self):
+        app_setting = AppSetting.get_solo()
+        app_setting.monthly_report_deadline_day = 12
+        app_setting.save(update_fields=["monthly_report_deadline_day"])
+        report = self._report("BID DEADLINE SETTING")
+
+        deadline = monthly_report_deadline(report)
+
+        self.assertEqual(deadline.day, 12)
+        self.assertEqual(deadline.month, 3)
+        self.assertEqual(deadline.year, 2026)
 
     def test_monthly_report_review_notification_still_uses_test_email_when_configured(self):
         app_setting = AppSetting.get_solo()

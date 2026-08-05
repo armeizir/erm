@@ -378,6 +378,15 @@ class AppSettingAdmin(admin.ModelAdmin):
                 "Database hanya menyimpan ciphertext yang dienkripsi dengan APP_ENCRYPTION_KEY."
             ),
         }),
+        ("Laporan Risiko Bulanan", {
+            "fields": (
+                "monthly_report_deadline_day",
+            ),
+            "description": (
+                "Atur tanggal batas penyelesaian laporan bulan sebelumnya. "
+                "Nilai ini digunakan pada isi dan tanggal batas waktu email pengingat."
+            ),
+        }),
         ("Lain-lain", {
             "fields": (
                 "support_email",

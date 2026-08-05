@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from risk.models import (
     AppSetting,
+    KnowledgeBaseArticle,
     PenugasanUnitBisnis,
     ProfileCompletenessNotificationLog,
     ReAssessmentSummary,
@@ -260,6 +261,20 @@ def profile_mail_connection():
     return get_connection()
 
 
+def profile_completeness_email_tutorial():
+    return (
+        KnowledgeBaseArticle.objects.filter(
+            status=KnowledgeBaseArticle.STATUS_PUBLISHED,
+            tutorial_placement=(
+                KnowledgeBaseArticle.TUTORIAL_PLACEMENT_PROFILE_COMPLETENESS_EMAIL
+            ),
+        )
+        .exclude(video_youtube_url="")
+        .order_by("-dipublikasikan_pada", "-diperbarui_pada", "-pk")
+        .first()
+    )
+
+
 def should_send_notification(result, recipients, force=False, now=None):
     if result.is_complete or not recipients["to"]:
         return False, "Profil lengkap" if result.is_complete else "Penerima utama tidak tersedia"
@@ -301,6 +316,7 @@ def send_profile_completeness_notification(result, recipients, base_url=None, co
     context = {
         "profile": result.profile, "result": result, "groups": result.grouped(),
         "recipients": recipients, "profile_url": profile_admin_url(result.profile, base_url),
+        "tutorial": profile_completeness_email_tutorial(),
     }
     subject = f"[ERM PLN Batam] Perbaikan Kelengkapan Profil Risiko – {result.profile.unit_bisnis.name} – {result.profile.tahun}"
     app_setting = AppSetting.objects.first()

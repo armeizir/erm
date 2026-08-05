@@ -17,6 +17,16 @@
       <ul>{% for finding in findings %}<li>{% if finding.item_label %}<strong>{{ finding.item_label }}</strong>: {% endif %}{{ finding.message }}</li>{% endfor %}</ul>
     {% endfor %}
     <p style="margin:24px 0"><a href="{{ profile_url }}" style="background:#3f7c91;color:white;padding:10px 16px;text-decoration:none;border-radius:5px">Buka Profil Risiko</a></p>
+    {% if tutorial %}
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:28px 0;background:#eef7fc;border:1px solid #c9e3f2">
+      <tr><td style="padding:20px 22px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:#145f8f;margin-bottom:8px">▶ Tutorial Perbaikan Profil Risiko</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:6px">{{ tutorial.judul }}</div>
+        <div style="color:#4b5563;margin-bottom:18px">{{ tutorial.ringkasan|default:"Pelajari cara melengkapi Profil Risiko melalui video tutorial." }}</div>
+        <a href="{{ tutorial.video_youtube_url }}" style="background:#dc2626;color:white;text-decoration:none;padding:11px 22px;border-radius:6px;font-weight:700;display:inline-block">Tonton Video Tutorial</a>
+      </td></tr>
+    </table>
+    {% endif %}
     <p>Email ini ditembuskan kepada pairing Bidang Manajemen Risiko dan Kepatuhan untuk mendampingi penyelesaian dan verifikasi perbaikan data.</p>
     <p style="color:#607d8b;font-size:13px">Notifikasi ini dibuat otomatis oleh ERM. Sistem tidak mengubah data profil secara otomatis.</p>
     {% if profile.status == 'approved' or profile.status == 'final' %}<p><strong>Profil ini telah berstatus {{ profile.get_status_display }}.</strong> Perbaikan memerlukan mekanisme revisi; sistem tidak membuka status secara otomatis.</p>{% endif %}

@@ -15,6 +15,12 @@ Jumlah Temuan : {{ result.findings|length }} ({{ result.error_count }} error, {{
 Mohon melakukan perbaikan melalui ERM:
 {{ profile_url }}
 
+{% if tutorial %}Tutorial Perbaikan Profil Risiko: {{ tutorial.judul }}
+{{ tutorial.ringkasan|default:"Pelajari cara melengkapi Profil Risiko melalui video tutorial." }}
+Tonton video tutorial:
+{{ tutorial.video_youtube_url }}
+{% endif %}
+
 Email ini ditembuskan kepada pairing Bidang Manajemen Risiko dan Kepatuhan untuk mendampingi penyelesaian dan verifikasi perbaikan data.
 
 Notifikasi ini dibuat otomatis oleh ERM. Sistem tidak mengubah data profil secara otomatis.

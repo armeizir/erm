@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from risk.services.profile_completeness import (
     check_profile_completeness,
@@ -17,6 +18,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--year", type=int)
+        parser.add_argument("--current-year", action="store_true")
         parser.add_argument("--profile-id", type=int)
         parser.add_argument("--unit-id", type=int)
         parser.add_argument("--status", choices=("legacy", "draft", "approved", "final"))
@@ -28,7 +30,11 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if options["force"] and not options["send"]:
             raise CommandError("--force hanya dapat digunakan bersama --send.")
+        if options["year"] and options["current_year"]:
+            raise CommandError("Gunakan salah satu --year atau --current-year.")
         queryset = profile_completeness_queryset()
+        if options["current_year"]:
+            queryset = queryset.filter(tahun=timezone.localdate().year)
         for option, lookup in (("year", "tahun"), ("profile_id", "pk"), ("unit_id", "unit_bisnis_id"), ("status", "status")):
             if options[option] is not None:
                 queryset = queryset.filter(**{lookup: options[option]})

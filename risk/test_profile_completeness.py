@@ -9,6 +9,8 @@ from django.test import TestCase, override_settings
 from risk.models import (
     AppSetting,
     ItemKontrakManajemen,
+    KnowledgeBaseArticle,
+    KnowledgeBaseCategory,
     KontrakManajemen,
     MasterBagianKM,
     MasterTemplateKM,
@@ -145,6 +147,33 @@ class ProfileCompletenessTests(TestCase):
         log = ProfileCompletenessNotificationLog.objects.get()
         self.assertEqual(log.recipient_to, ["officer@example.com"])
         self.assertEqual(log.recipient_cc, ["pairing@example.com"])
+
+    def test_email_includes_published_profile_completeness_tutorial(self):
+        category = KnowledgeBaseCategory.objects.create(
+            nama="Tutorial Profil Risiko", slug="tutorial-profil-risiko"
+        )
+        KnowledgeBaseArticle.objects.create(
+            kategori=category,
+            judul="Cara Melengkapi Profil Risiko",
+            konten="Panduan",
+            ringkasan="Langkah perbaikan data profil.",
+            status=KnowledgeBaseArticle.STATUS_PUBLISHED,
+            tutorial_placement=(
+                KnowledgeBaseArticle.TUTORIAL_PLACEMENT_PROFILE_COMPLETENESS_EMAIL
+            ),
+            video_youtube_url="https://www.youtube.com/watch?v=profile123",
+        )
+        self.assignment("officer", "officer@example.com", PenugasanUnitBisnis.ROLE_RISK_OFFICER)
+        result = check_profile_completeness(self.profile)
+
+        sent, error = send_profile_completeness_notification(
+            result, resolve_profile_recipients(self.profile)
+        )
+
+        self.assertTrue(sent, error)
+        self.assertIn("Cara Melengkapi Profil Risiko", mail.outbox[0].body)
+        self.assertIn("https://www.youtube.com/watch?v=profile123", mail.outbox[0].body)
+        self.assertIn("Tonton Video Tutorial", mail.outbox[0].alternatives[0].content)
 
     def test_same_findings_and_recipients_are_deduplicated_for_three_days(self):
         self.assignment("officer", "officer@example.com", PenugasanUnitBisnis.ROLE_RISK_OFFICER)

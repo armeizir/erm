@@ -35,7 +35,8 @@ MONTH_NAMES = {
 def monthly_report_deadline(report):
     if report.periode_id and report.periode.tanggal_selesai:
         first_next_month = report.periode.tanggal_selesai + timedelta(days=1)
-        return first_next_month.replace(day=5)
+        deadline_day = AppSetting.get_solo().monthly_report_deadline_day
+        return first_next_month.replace(day=deadline_day)
     return None
 
 
@@ -108,6 +109,7 @@ def _risk_officers_for_report(report):
 def monthly_report_notification_stage(report):
     normalized_status = (report.status or "").strip().lower()
     if normalized_status in {"draft", "revision"}:
+        deadline_day = AppSetting.get_solo().monthly_report_deadline_day
         return {
             "stage": STAGE_PREPARE,
             "recipients": _risk_officers_for_report(report),
@@ -118,7 +120,7 @@ def monthly_report_notification_stage(report):
             "title": "Input Laporan Risiko Bulanan",
             "instruction": (
                 "Mohon Risk Office menyiapkan dan melengkapi laporan risiko bulan sebelumnya "
-                "paling lambat tanggal 5. Pairing Officer unit terkait menerima salinan email ini "
+                f"paling lambat tanggal {deadline_day}. Pairing Officer unit terkait menerima salinan email ini "
                 "sebagai pendamping pemantauan."
             ),
         }

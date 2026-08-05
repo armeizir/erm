@@ -3,6 +3,7 @@ import string
 
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -186,6 +187,15 @@ class AppSetting(models.Model):
             "bukan ke Prepared/Reviewed/Approved by. Kosongkan saat sudah produksi."
         ),
     )
+    monthly_report_deadline_day = models.PositiveSmallIntegerField(
+        default=7,
+        validators=[MinValueValidator(1), MaxValueValidator(28)],
+        verbose_name="Batas Waktu Laporan Bulanan",
+        help_text=(
+            "Tanggal pada bulan berikutnya sebagai batas penyelesaian laporan. "
+            "Gunakan angka 1 sampai 28."
+        ),
+    )
     support_email = models.EmailField(
         blank=True,
         default="",
@@ -294,12 +304,17 @@ class KnowledgeBaseArticle(models.Model):
     )
 
     TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL = "monthly_report_email"
+    TUTORIAL_PLACEMENT_PROFILE_COMPLETENESS_EMAIL = "profile_completeness_email"
     TUTORIAL_PLACEMENT_METRIC_HISTORY_INPUT = "metric_history_input"
     TUTORIAL_PLACEMENT_CHOICES = (
         ("", "Tidak digunakan sebagai video tutorial"),
         (
             TUTORIAL_PLACEMENT_MONTHLY_REPORT_EMAIL,
             "Email Laporan Risiko Bulanan",
+        ),
+        (
+            TUTORIAL_PLACEMENT_PROFILE_COMPLETENESS_EMAIL,
+            "Email Kelengkapan Profil Risiko",
         ),
         (
             TUTORIAL_PLACEMENT_METRIC_HISTORY_INPUT,

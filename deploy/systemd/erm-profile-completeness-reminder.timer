@@ -1,0 +1,11 @@
+[Unit]
+Description=Check incomplete ERM risk profiles every day at 07:00 Asia/Jakarta
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 Asia/Jakarta
+Persistent=true
+AccuracySec=1min
+Unit=erm-profile-completeness-reminder.service
+
+[Install]
+WantedBy=timers.target
