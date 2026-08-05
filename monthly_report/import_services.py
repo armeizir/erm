@@ -44,6 +44,7 @@ IMPORTABLE_FIELDS = (
     "progress_pelaksanaan_percent",
     "realisasi_threshold_kri",
     "realisasi_threshold_kri_skor",
+    "realisasi_nilai_kri",
 )
 IMPORT_PARSER_VERSION = 5
 
@@ -101,6 +102,7 @@ FIELD_LABELS = {
     "progress_pelaksanaan_percent": "Progress",
     "realisasi_threshold_kri": "Nilai KRI",
     "realisasi_threshold_kri_skor": "Threshold KRI",
+    "realisasi_nilai_kri": "Nilai realisasi KRI",
 }
 
 
@@ -901,6 +903,11 @@ def _parse_workbook(batch, include_diagnostics=False):
                         if len(row) > threshold_col + 1
                         else ""
                     ),
+                    "realisasi_nilai_kri": _decimal(
+                        row[threshold_col + 1]
+                        if len(row) > threshold_col + 1
+                        else None
+                    ),
                 },
             }
         )
@@ -1372,6 +1379,15 @@ def apply_import_batch(batch, user):
         applied = {}
         for field_name, raw_value in row.proposed_data.items():
             if field_name not in IMPORTABLE_FIELDS:
+                continue
+            if (
+                field_name in {
+                    "realisasi_nilai_kri",
+                    "realisasi_threshold_kri",
+                    "realisasi_threshold_kri_skor",
+                }
+                and raw_value in (None, "")
+            ):
                 continue
             previous[field_name] = _field_value(item, field_name)
             model_field = field_name[:-3] if field_name.endswith("_id") else field_name

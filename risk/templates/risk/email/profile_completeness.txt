@@ -1,0 +1,26 @@
+Yth. Risk Officer {{ profile.unit_bisnis.name }},
+
+Berdasarkan pemeriksaan otomatis ERM, profil berikut masih perlu dilengkapi atau diperbaiki.
+
+Profil Risiko : {{ profile.judul }}
+Unit          : {{ profile.unit_bisnis.name }}
+Tahun         : {{ profile.tahun }}
+Status        : {{ profile.get_status_display }}
+Jumlah Temuan : {{ result.findings|length }} ({{ result.error_count }} error, {{ result.warning_count }} warning)
+
+{% for section, findings in groups.items %}{{ section }}:
+{% for finding in findings %}{% if finding.item_label %}{{ finding.item_label }} — {% endif %}{{ finding.message }}
+{% endfor %}
+{% endfor %}
+Mohon melakukan perbaikan melalui ERM:
+{{ profile_url }}
+
+Email ini ditembuskan kepada pairing Bidang Manajemen Risiko dan Kepatuhan untuk mendampingi penyelesaian dan verifikasi perbaikan data.
+
+Notifikasi ini dibuat otomatis oleh ERM. Sistem tidak mengubah data profil secara otomatis.
+{% if profile.status == 'approved' or profile.status == 'final' %}Profil ini telah berstatus {{ profile.get_status_display }}. Perbaikan memerlukan mekanisme revisi; sistem tidak membuka status secara otomatis.
+{% endif %}
+
+Terima kasih.
+Tim Manajemen Risiko
+PT PLN Batam

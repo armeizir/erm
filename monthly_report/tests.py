@@ -63,6 +63,7 @@ from .import_services import (
     report_quarter,
 )
 from .notifications import send_monthly_report_notification
+from .kri_services import evaluate_kri_threshold
 from .recipient_services import build_approved_report_recipients
 from .services import (
     duplicate_approved_report_to_next_month,
@@ -298,7 +299,7 @@ class MonthlyRiskReportAdminTests(TestCase):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-    def _official_july_workbook(self, *, q3_probability=25, q3_impact=2):
+    def _official_july_workbook(self, *, q3_probability=25, q3_impact=2, kri_value=100):
         workbook = Workbook()
         iiia = workbook.active
         iiia.title = "III.A"
@@ -333,8 +334,8 @@ class MonthlyRiskReportAdminTests(TestCase):
         iiib.cell(11, 3, "Risiko BID BIS")
         iiib.cell(11, 6, "BID BIS-1-a")
         iiib.cell(11, 11, "Realisasi Juli")
-        iiib.cell(11, 51, "3. Hijau")  # AY / July threshold
-        iiib.cell(11, 52, 100)  # AZ / July score
+        iiib.cell(11, 51, "3. Hijau" if kri_value is not None else None)  # AY / July threshold
+        iiib.cell(11, 52, kri_value)  # AZ / July actual/legacy score
         stream = BytesIO()
         workbook.save(stream)
         return SimpleUploadedFile(
@@ -432,6 +433,42 @@ class MonthlyRiskReportAdminTests(TestCase):
         apply_import_batch(batch, self.admin_user)
         item.refresh_from_db()
         self.assertIsNone(item.realisasi_nilai_probabilitas)
+
+    def test_excel_import_blank_kri_cells_do_not_delete_existing_value(self):
+        july = PeriodeLaporan.objects.create(
+            tahun_buku=self.tahun_buku, kode_periode="2026-07-kri",
+            nama_periode="Juli 2026 KRI", jenis_periode="bulanan",
+            tanggal_mulai=date(2026, 7, 1), tanggal_selesai=date(2026, 7, 31),
+        )
+        report = self._report("BID KRI IMPORT BLANK")
+        report.periode = july
+        report.save(update_fields=["periode"])
+        risk_event = self._risk_item(
+            report, no_item=1, no_risiko=1,
+            no_penyebab_risiko="a", peristiwa_risiko="Risiko BID BIS",
+        )
+        risk_event.kri_threshold_direction = "higher_better"
+        risk_event.threshold_aman = "> 92"
+        risk_event.threshold_hati_hati = "70-92"
+        risk_event.threshold_bahaya = "< 70"
+        risk_event.save()
+        item = MonthlyRiskReportItem.objects.create(
+            report=report, risk_event=risk_event, realisasi_nilai_kri=Decimal("85")
+        )
+
+        with tempfile.TemporaryDirectory() as media_root, self.settings(MEDIA_ROOT=media_root):
+            batch = MonthlyRiskReportImportBatch.objects.create(
+                report=report, source_file=self._official_july_workbook(kri_value=None),
+                original_filename="blank_kri.xlsx", file_sha256="7" * 64,
+                uploaded_by=self.admin_user,
+            )
+            analyze_import_batch(batch)
+            apply_import_batch(batch, self.admin_user)
+
+        item.refresh_from_db()
+        self.assertEqual(item.realisasi_nilai_kri, Decimal("85"))
+        self.assertEqual(item.realisasi_threshold_kri, "yellow")
+        self.assertEqual(item.realisasi_threshold_kri_skor, "70-92")
 
     def test_excel_import_is_staged_then_applied_after_confirmation(self):
         report = self._report("BID BIS")
@@ -1408,7 +1445,10 @@ class MonthlyRiskReportAdminTests(TestCase):
         )
 
     def test_monthly_report_form_uses_searchable_autocomplete_fields(self):
-        self.assertEqual(getattr(MonthlyRiskReportItemInline, "autocomplete_fields", ()), ())
+        self.assertEqual(
+            MonthlyRiskReportItemInline.autocomplete_fields,
+            ("realisasi_pic_organization_unit",),
+        )
         self.assertEqual(
             MonthlyRiskReportAdmin.autocomplete_fields,
             ("reassessment",),
@@ -1753,7 +1793,7 @@ class MonthlyRiskReportAdminTests(TestCase):
             "realisasi_rencana_perlakuan": "Realisasi Rencana Perlakuan Risiko",
             "realisasi_output_perlakuan": "Realisasi Output atas Masing-masing Breakdown Perlakuan Risiko",
             "realisasi_biaya_perlakuan": "Realisasi Biaya Perlakuan Risiko (Rp/USD)",
-            "realisasi_pic": "Realisasi PIC",
+            "realisasi_pic_organization_unit": "Realisasi PIC",
             "status_rencana_perlakuan": "Status Rencana Perlakuan Risiko",
             "penjelasan_status_rencana": "Penjelasan Status Rencana Perlakuan",
             "progress_pelaksanaan_percent": "Progress Pelaksanaan Rencana Perlakuan (%)",
@@ -1776,9 +1816,152 @@ class MonthlyRiskReportAdminTests(TestCase):
         form = MonthlyRiskReportItemForm(instance=item)
 
         self.assertEqual(
-            form.fields["realisasi_threshold_kri"].label,
-            "Realisasi Threshold KRI Februari",
+            form.fields["realisasi_nilai_kri"].label,
+            "Nilai Realisasi KRI Februari",
         )
+
+    def test_monthly_monitoring_pic_uses_active_master_organization(self):
+        report = self._report("BID PIC MASTER")
+        risk_event = self._risk_item(report)
+        organization = OrganizationUnit.objects.create(
+            code="MAN-KOM", name="Manajemen Komunikasi", aktif=True
+        )
+        inactive = OrganizationUnit.objects.create(
+            code="OLD-PIC", name="PIC Tidak Aktif", aktif=False
+        )
+        item = MonthlyRiskReportItem.objects.create(report=report, risk_event=risk_event)
+
+        form = MonthlyRiskReportItemForm(instance=item)
+
+        self.assertIn(organization, form.fields["realisasi_pic_organization_unit"].queryset)
+        self.assertNotIn(inactive, form.fields["realisasi_pic_organization_unit"].queryset)
+        item.realisasi_pic_organization_unit = organization
+        item.save()
+        self.assertEqual(item.realisasi_pic, "MAN-KOM - Manajemen Komunikasi")
+
+    def test_monthly_monitoring_legacy_pic_is_suggested_from_master(self):
+        report = self._report("BID PIC LEGACY")
+        risk_event = self._risk_item(report)
+        organization = OrganizationUnit.objects.create(
+            code="MAN KOM", name="Manajemen Komunikasi", aktif=True
+        )
+        item = MonthlyRiskReportItem.objects.create(
+            report=report, risk_event=risk_event, realisasi_pic="MAN KOM"
+        )
+
+        form = MonthlyRiskReportItemForm(instance=item)
+
+        self.assertEqual(
+            form.initial["realisasi_pic_organization_unit"], organization.pk
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.realisasi_pic, "MAN KOM")
+
+    def test_kri_threshold_higher_is_better_and_boundaries(self):
+        report = self._report("BID KRI HIGHER")
+        risk_event = self._risk_item(report)
+        risk_event.unit_satuan_kri = "%"
+        risk_event.kri_threshold_direction = "higher_better"
+        risk_event.threshold_aman = "> 92%"
+        risk_event.threshold_hati_hati = "70%-92%"
+        risk_event.threshold_bahaya = "< 70%"
+        risk_event.save()
+
+        self.assertEqual(evaluate_kri_threshold(risk_event, 93).status, "green")
+        self.assertEqual(evaluate_kri_threshold(risk_event, 70).status, "yellow")
+        self.assertEqual(evaluate_kri_threshold(risk_event, 92).status, "yellow")
+        self.assertEqual(evaluate_kri_threshold(risk_event, 69).status, "red")
+
+    def test_kri_threshold_lower_is_better(self):
+        report = self._report("BID KRI LOWER")
+        risk_event = self._risk_item(report)
+        risk_event.unit_satuan_kri = "hari"
+        risk_event.kri_threshold_direction = "lower_better"
+        risk_event.threshold_aman = "<= 2 hari"
+        risk_event.threshold_hati_hati = "> 2 sampai 5 hari"
+        risk_event.threshold_bahaya = "> 5 hari"
+        risk_event.save()
+
+        self.assertEqual(evaluate_kri_threshold(risk_event, 2).status, "green")
+        self.assertEqual(evaluate_kri_threshold(risk_event, 3).status, "yellow")
+        self.assertEqual(evaluate_kri_threshold(risk_event, 5).status, "yellow")
+        self.assertEqual(evaluate_kri_threshold(risk_event, 6).status, "red")
+
+    def test_kri_threshold_blank_value_does_not_require_configuration(self):
+        report = self._report("BID KRI BLANK")
+        risk_event = self._risk_item(report)
+
+        self.assertIsNone(evaluate_kri_threshold(risk_event, None))
+
+    def test_kri_threshold_rejects_missing_direction_and_overlapping_ranges(self):
+        report = self._report("BID KRI INVALID")
+        risk_event = self._risk_item(report)
+        risk_event.threshold_aman = ">= 70"
+        risk_event.threshold_hati_hati = "70-92"
+        risk_event.threshold_bahaya = "< 70"
+
+        with self.assertRaisesMessage(ValidationError, "Arah threshold KRI"):
+            evaluate_kri_threshold(risk_event, 80)
+
+        risk_event.kri_threshold_direction = "higher_better"
+        with self.assertRaisesMessage(ValidationError, "tumpang tindih"):
+            evaluate_kri_threshold(risk_event, 80)
+
+    def test_kri_status_is_recalculated_server_side(self):
+        report = self._report("BID KRI SERVER")
+        risk_event = self._risk_item(report)
+        risk_event.unit_satuan_kri = "%"
+        risk_event.kri_threshold_direction = "higher_better"
+        risk_event.threshold_aman = "> 92%"
+        risk_event.threshold_hati_hati = "70%-92%"
+        risk_event.threshold_bahaya = "< 70%"
+        risk_event.save()
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            realisasi_nilai_kri=Decimal("85"),
+            realisasi_threshold_kri="red",
+            realisasi_threshold_kri_skor="manipulated",
+        )
+
+        self.assertEqual(item.realisasi_threshold_kri, "yellow")
+        self.assertEqual(item.realisasi_threshold_kri_skor, "70%-92%")
+
+    def test_kri_legacy_value_is_preserved_without_actual_value(self):
+        report = self._report("BID KRI LEGACY")
+        risk_event = self._risk_item(report)
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            realisasi_threshold_kri="Kuning",
+            realisasi_threshold_kri_skor="70%-92%",
+        )
+
+        item.save()
+        self.assertEqual(item.realisasi_threshold_kri, "Kuning")
+        self.assertEqual(item.realisasi_threshold_kri_skor, "70%-92%")
+
+    def test_kri_approved_report_preserves_frozen_legacy_result(self):
+        report = self._report("BID KRI APPROVED")
+        report.status = "approved"
+        report.save(update_fields=["status"])
+        risk_event = self._risk_item(report)
+        risk_event.kri_threshold_direction = "higher_better"
+        risk_event.threshold_aman = "> 92"
+        risk_event.threshold_hati_hati = "70-92"
+        risk_event.threshold_bahaya = "< 70"
+        risk_event.save()
+
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            realisasi_nilai_kri=Decimal("85"),
+            realisasi_threshold_kri="Hijau",
+            realisasi_threshold_kri_skor="> 92",
+        )
+
+        self.assertEqual(item.realisasi_threshold_kri, "Hijau")
+        self.assertEqual(item.realisasi_threshold_kri_skor, "> 92")
 
     def test_monthly_monitoring_form_uses_excel_control_types(self):
         form = MonthlyRiskReportItemForm()
@@ -1788,6 +1971,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertIsInstance(form.fields["realisasi_skala_dampak"].widget, forms.Select)
         self.assertIsInstance(form.fields["realisasi_skala_probabilitas"].widget, forms.Select)
         self.assertIsInstance(form.fields["realisasi_level_risiko_bumn"].widget, forms.TextInput)
+        self.assertIsInstance(form.fields["realisasi_nilai_kri"].widget, forms.NumberInput)
         self.assertNotIsInstance(form.fields["realisasi_level_risiko_bumn"].widget, forms.Select)
         for field_name in (
             "realisasi_skala_dampak_kbumn",
@@ -1830,8 +2014,11 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertContains(response, "monthly_report/admin/monthly_report_monitoring.js")
         self.assertContains(response, "Kembali ke Daftar Risiko")
         self.assertContains(response, "Belum Lengkap")
-        self.assertContains(response, "III.A – REALISASI RISIKO RESIDUAL BULANAN")
-        self.assertContains(response, "III.B – REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA")
+        self.assertContains(response, "REFERENSI PROFIL RISIKO (klik untuk membuka)")
+        self.assertContains(response, "REALISASI RESIDUAL RISK – Q1 / FEBRUARI 2026")
+        self.assertContains(response, "III.B – REALISASI PERLAKUAN RISIKO BULAN INI")
+        self.assertContains(response, "REALISASI KEY RISK INDICATOR BULAN INI")
+        self.assertContains(response, "Belum diisi: skala dampak")
         self.assertContains(response, "CATATAN TAMBAHAN ERM")
         self.assertContains(response, "Quarter aktif: Q1 | Periode laporan: Februari 2026")
         self.assertNotContains(response, "A. IDENTITAS RISIKO")
@@ -1841,12 +2028,12 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertNotContains(response, "E. TINDAK LANJUT")
         content = response.content.decode()
         self.assertLess(
-            content.index("III.A – REALISASI RISIKO RESIDUAL BULANAN"),
-            content.index("III.B – REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA"),
+            content.index("REALISASI RESIDUAL RISK – Q1 / FEBRUARI 2026"),
+            content.index("III.B – REALISASI PERLAKUAN RISIKO BULAN INI"),
         )
         self.assertLess(
             content.index("Level Risiko KBUMN"),
-            content.index("III.B – REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA"),
+            content.index("III.B – REALISASI PERLAKUAN RISIKO BULAN INI"),
         )
 
     def test_monitoring_form_with_validation_error_is_marked_to_open(self):

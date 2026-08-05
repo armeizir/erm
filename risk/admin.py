@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group, User
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
+from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
 
@@ -55,6 +56,7 @@ from .models import (
     RKMItem,
     ReAssessmentSummary,
     ReAssessmentItem,
+    ProfileCompletenessNotificationLog,
     KPMRSummary,
     KPMRItem,
     ProfilRisikoKorporatSummary,
@@ -109,6 +111,14 @@ from risk.services.reassessment_excel import (
     ProfileWorkbookError,
     build_reassessment_profile_workbook,
     profile_workbook_filename,
+)
+from risk.services.profile_completeness import (
+    check_profile_completeness,
+    resolve_profile_recipients,
+    profile_completeness_queryset,
+    send_profile_completeness_notification,
+    should_send_notification,
+    log_undeliverable_notification,
 )
 
 
@@ -2714,6 +2724,7 @@ REASSESSMENT_ITEM_IDENTITY_FIELDS = (
     "threshold_aman",
     "threshold_hati_hati",
     "threshold_bahaya",
+    "kri_threshold_direction",
     "jenis_existing_control",
     "existing_control",
     "penilaian_efektivitas_kontrol",
@@ -3042,6 +3053,7 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
 
 @admin.register(ReAssessmentSummary)
 class ReAssessmentSummaryAdmin(admin.ModelAdmin):
+    actions = ("check_profile_completeness_action", "check_and_notify_profile_completeness_action")
     list_display = (
         "judul",
         "tahun",
@@ -3063,6 +3075,7 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         "kontrak_manajemen",
         "rkm",
         "risk_matrix",
+        "status",
     )
 
     autocomplete_fields = (
@@ -3073,6 +3086,59 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
     )
 
     inlines = [ReAssessmentItemInline]
+
+    @admin.action(description="Periksa Kelengkapan Profil")
+    def check_profile_completeness_action(self, request, queryset):
+        incomplete = errors = warnings = 0
+        profiles = profile_completeness_queryset().filter(pk__in=queryset.values("pk"))
+        for profile in profiles:
+            result = check_profile_completeness(profile)
+            incomplete += int(not result.is_complete)
+            errors += result.error_count
+            warnings += result.warning_count
+        self.message_user(
+            request,
+            f"Pemeriksaan selesai. {queryset.count()} profil diperiksa, "
+            f"{incomplete} belum lengkap, {errors} error, dan {warnings} warning.",
+            messages.WARNING if incomplete else messages.SUCCESS,
+        )
+
+    @admin.action(description="Periksa dan Kirim Notifikasi")
+    def check_and_notify_profile_completeness_action(self, request, queryset):
+        allowed_groups = {"Admin ERM", "ERM Admin", "Risk Admin", "Risk Administrator", "Admin Risiko"}
+        if not request.user.is_superuser and not request.user.groups.filter(name__in=allowed_groups).exists():
+            raise PermissionDenied("Hanya administrator ERM yang dapat mengirim notifikasi massal.")
+        profiles = list(profile_completeness_queryset().filter(pk__in=queryset.values("pk")))
+        preview = []
+        for profile in profiles:
+            result = check_profile_completeness(profile)
+            recipients = resolve_profile_recipients(profile)
+            allowed, reason = should_send_notification(result, recipients)
+            preview.append({"profile": profile, "result": result, "recipients": recipients, "allowed": allowed, "reason": reason})
+        if request.POST.get("confirm_send") == "yes":
+            sent = failed = 0
+            for row in preview:
+                if not row["recipients"]["to"] and not row["result"].is_complete:
+                    log_undeliverable_notification(row["result"], row["recipients"], row["reason"])
+                    failed += 1
+                    continue
+                if not row["allowed"]:
+                    continue
+                ok, _error = send_profile_completeness_notification(row["result"], row["recipients"])
+                sent += int(ok)
+                failed += int(not ok)
+            self.message_user(request, f"Notifikasi selesai: {sent} email berhasil dan {failed} gagal.", messages.SUCCESS if not failed else messages.WARNING)
+            return None
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Konfirmasi Notifikasi Kelengkapan Profil",
+            "opts": self.model._meta,
+            "queryset": queryset,
+            "preview": preview,
+            "action_checkbox_name": admin.helpers.ACTION_CHECKBOX_NAME,
+            "action_name": "check_and_notify_profile_completeness_action",
+        }
+        return TemplateResponse(request, "admin/risk/reassessmentsummary/profile_completeness_confirm.html", context)
 
     def get_urls(self):
         urls = super().get_urls()
@@ -3391,6 +3457,29 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         elements.append(table)
         doc.build(elements)
         return response
+
+
+@admin.register(ProfileCompletenessNotificationLog)
+class ProfileCompletenessNotificationLogAdmin(admin.ModelAdmin):
+    list_display = (
+        "profile", "unit_bisnis", "issue_count", "status", "sent_at", "created_at",
+    )
+    list_filter = ("status", "unit_bisnis", "created_at")
+    search_fields = ("profile__judul", "unit_bisnis__name", "recipient_to", "recipient_cc")
+    readonly_fields = (
+        "profile", "unit_bisnis", "recipient_to", "recipient_cc",
+        "risk_officer_ids", "pairing_ids", "issue_fingerprint", "issue_count",
+        "status", "sent_at", "resolved_at", "error_message", "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
 
 class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
     model = ProfilRisikoKorporatSumber

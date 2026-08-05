@@ -30,9 +30,10 @@
               Kode: {{ inline_admin_form.form.system_code }} · Skor residual: {{ inline_admin_form.form.instance.realisasi_skor_risiko|default:"-" }} ·
               Status mitigasi: {{ inline_admin_form.form.status_mitigasi_display|default:"-" }} ·
               Progres: {{ inline_admin_form.form.instance.progress_pelaksanaan_percent|default:"-" }}% ·
-              Status KRI: {{ inline_admin_form.form.instance.realisasi_threshold_kri|default:"-" }}
+              Status KRI: {{ inline_admin_form.form.kri_status_display }}
             </span>
             <span class="completion-badge {% if inline_admin_form.form.completion_status == 'Lengkap' %}is-complete{% elif inline_admin_form.form.completion_status == 'Perlu Diperiksa' %}needs-check{% else %}is-incomplete{% endif %}">{{ inline_admin_form.form.completion_status }}</span>
+            {% if inline_admin_form.form.missing_fields_display %}<span class="risk-summary-missing">Belum diisi: {{ inline_admin_form.form.missing_fields_display }}</span>{% endif %}
           </summary>
 
           <div class="monitoring-risk-body">

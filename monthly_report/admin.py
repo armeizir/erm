@@ -43,7 +43,7 @@ from .models import (
     validate_https_evidence_url,
 )
 
-from masterdata.models import TahunBuku
+from masterdata.models import OrganizationUnit, TahunBuku
 from risk.access_policy import organizational_groups_for_user
 from risk.models import (
     MasterSkalaDampak,
@@ -508,12 +508,11 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             "realisasi_rencana_perlakuan": "Realisasi Rencana Perlakuan Risiko",
             "realisasi_output_perlakuan": "Realisasi Output atas Masing-masing Breakdown Perlakuan Risiko",
             "realisasi_biaya_perlakuan": "Realisasi Biaya Perlakuan Risiko (Rp/USD)",
-            "realisasi_pic": "Realisasi PIC",
+            "realisasi_pic_organization_unit": "Realisasi PIC",
             "status_rencana_perlakuan": "Status Rencana Perlakuan Risiko",
             "penjelasan_status_rencana": "Penjelasan Status Rencana Perlakuan",
             "progress_pelaksanaan_percent": "Progress Pelaksanaan Rencana Perlakuan (%)",
-            "realisasi_threshold_kri": "Realisasi Threshold KRI",
-            "realisasi_threshold_kri_skor": "Skor",
+            "realisasi_nilai_kri": "Nilai Realisasi KRI",
             "next_action": "Tindak Lanjut Bulan Berikutnya",
             "escalation_note": "Catatan Eskalasi",
         }
@@ -527,7 +526,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             "realisasi_output_perlakuan": "Isi realisasi output untuk masing-masing rencana perlakuan risiko yang relevan.",
             "realisasi_biaya_perlakuan": "Isi realisasi biaya perlakuan risiko beserta satuan mata uang yang digunakan.",
             "progress_pelaksanaan_percent": "Isi progress pelaksanaan rencana perlakuan antara 0 sampai 100.",
-            "realisasi_threshold_kri": "Pilih realisasi threshold KRI sesuai kategori threshold yang ditetapkan.",
+            "realisasi_nilai_kri": "Status threshold dihitung otomatis berdasarkan nilai realisasi dan konfigurasi KRI.",
             "realisasi_skala_dampak_kbumn": "Isi skala dampak KBUMN antara 1 sampai 5 sesuai Kertas Kerja III.A.",
             "realisasi_skala_probabilitas_kbumn": "Isi skala probabilitas KBUMN antara 1 sampai 5 sesuai Kertas Kerja III.A.",
             "realisasi_eksposur": "Isi nilai eksposur risiko dalam Rupiah/USD sesuai Kertas Kerja III.A. Diisi manual atau melalui import Excel.",
@@ -574,9 +573,26 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             self.fields["realisasi_skala_nilai_risiko_kbumn"].label = f"Skala Nilai Risiko KBUMN Q{quarter}"
             self.fields["realisasi_level_risiko_bumn"].label = f"Level Risiko BUMN Q{quarter}"
             self.fields["realisasi_level_risiko_kbumn"].label = f"Level Risiko KBUMN Q{quarter}"
-            self.fields["realisasi_threshold_kri"].label = (
-                f"Realisasi Threshold KRI {month_name}"
-            )
+            self.fields["realisasi_nilai_kri"].label = f"Nilai Realisasi KRI {month_name}"
+        risk = self.instance.risk_event if self.instance and self.instance.risk_event_id else None
+        pic_field = self.fields["realisasi_pic_organization_unit"]
+        pic_field.queryset = OrganizationUnit.objects.filter(aktif=True).order_by("code")
+        pic_field.help_text = "Pilih unit PIC aktif dari Master Organisasi. Ketik kode atau nama untuk mencari."
+        if self.instance and not self.instance.realisasi_pic_organization_unit_id and self.instance.realisasi_pic:
+            legacy_pic = self.instance.realisasi_pic.strip()
+            match = pic_field.queryset.filter(code__iexact=legacy_pic).first()
+            if match is None:
+                match = pic_field.queryset.filter(name__iexact=legacy_pic).first()
+            if match:
+                self.initial["realisasi_pic_organization_unit"] = match.pk
+        if risk:
+            self.fields["realisasi_nilai_kri"].widget.attrs.update({
+                "data-kri-direction": risk.kri_threshold_direction or "",
+                "data-kri-green": risk.threshold_aman or "",
+                "data-kri-yellow": risk.threshold_hati_hati or "",
+                "data-kri-red": risk.threshold_bahaya or "",
+                "data-kri-unit": risk.unit_satuan_kri or "",
+            })
         widgets = {
             "realisasi_asumsi_dampak": forms.Textarea(attrs={"rows": 3}),
             "realisasi_rencana_perlakuan": forms.Textarea(attrs={"rows": 3}),
@@ -619,19 +635,42 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
     def completion_status(self):
         if self.errors:
             return "Perlu Diperiksa"
-        required_values = [
-            self._value("risk_event"),
-            self._value("realisasi_skala_dampak"),
-            self._value("realisasi_skala_probabilitas"),
-            self._value("realisasi_eksposur"),
-            self._value("realisasi_skor_risiko"),
-            self._value("realisasi_level_risiko_bumn"),
-            self._value("status_rencana_perlakuan"),
-            self._value("progress_pelaksanaan_percent"),
+        required_values = [self._value(name) for name, _label in self.required_monitoring_fields]
+        return "Lengkap" if all(value not in (None, "") for value in required_values) else "Belum Lengkap"
+
+    @property
+    def required_monitoring_fields(self):
+        fields = [
+            ("risk_event", "risiko"),
+            ("realisasi_skala_dampak", "skala dampak"),
+            ("realisasi_skala_probabilitas", "skala probabilitas"),
+            ("realisasi_eksposur", "nilai eksposur"),
+            ("realisasi_skor_risiko", "skala nilai risiko"),
+            ("realisasi_level_risiko_bumn", "level risiko"),
+            ("status_rencana_perlakuan", "status mitigasi"),
+            ("progress_pelaksanaan_percent", "progres mitigasi"),
         ]
         if self.risk and (self.risk.key_risk_indicators or "").strip():
-            required_values.append(self._value("realisasi_threshold_kri"))
-        return "Lengkap" if all(value not in (None, "") for value in required_values) else "Belum Lengkap"
+            fields.append(("realisasi_nilai_kri", "nilai KRI"))
+        return fields
+
+    @property
+    def missing_fields_display(self):
+        missing = [
+            label for name, label in self.required_monitoring_fields
+            if self._value(name) in (None, "")
+        ]
+        return ", ".join(missing)
+
+    @property
+    def kri_status_display(self):
+        value = (self.instance.realisasi_threshold_kri or "").strip().casefold()
+        labels = {
+            "green": "Hijau", "hijau": "Hijau", "3. hijau": "Hijau",
+            "yellow": "Kuning", "kuning": "Kuning", "2. kuning": "Kuning",
+            "red": "Merah", "merah": "Merah", "1. merah": "Merah",
+        }
+        return labels.get(value, self.instance.realisasi_threshold_kri or "Belum diisi")
 
     @property
     def should_open(self):
@@ -647,6 +686,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     form = MonthlyRiskReportItemForm
     template = "admin/monthly_report/monthlyriskreport/edit_inline/monitoring_stacked.html"
     extra = 0
+    autocomplete_fields = ("realisasi_pic_organization_unit",)
     readonly_fields = (
         "risk_event",
         "data_item_profil",
@@ -674,6 +714,9 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         "threshold_aman_profil",
         "threshold_hati_hati_profil",
         "threshold_bahaya_profil",
+        "satuan_kri_otomatis",
+        "status_threshold_kri",
+        "rentang_threshold_kri",
         "persentase_serapan_biaya",
         "serapan_biaya_mitigasi",
     )
@@ -681,22 +724,16 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     verbose_name_plural = "III.A & III.B – Pemantauan Risiko Bulanan"
     fieldsets = (
         (
-            "III.A – REALISASI RISIKO RESIDUAL BULANAN",
+            "REFERENSI PROFIL RISIKO (klik untuk membuka)",
             {
-                "description": "IDENTITAS RISIKO",
+                "classes": ("collapse", "profile-reference"),
+                "description": "Data sumber dari profil risiko. Gunakan sebagai referensi; bagian ini tidak perlu diisi ulang.",
                 "fields": (
                     "data_item_profil",
                     "nomor_risiko_profil",
                     "peristiwa_risiko_profil",
                     "jenis_risiko",
                     "asumsi_dampak_inheren",
-                ),
-            },
-        ),
-        (
-            "RISIKO INHEREN",
-            {
-                "fields": (
                     "nilai_dampak_inheren",
                     "skala_dampak_bumn_inheren",
                     "skala_dampak_kbumn_inheren",
@@ -712,6 +749,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             "REALISASI RESIDUAL RISK – QUARTER AKTIF",
             {
                 "classes": ("residual-grid",),
+                "description": "Isi hasil pemantauan residual untuk quarter aktif. Field berlabel dihitung otomatis tidak perlu diketik.",
                 "fields": (
                     "realisasi_asumsi_dampak",
                     "realisasi_nilai_dampak",
@@ -730,9 +768,10 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             },
         ),
         (
-            "III.B – REALISASI PELAKSANAAN PERLAKUAN RISIKO DAN BIAYA",
+            "REFERENSI RENCANA PERLAKUAN (klik untuk membuka)",
             {
-                "description": "RENCANA DAN REALISASI PERLAKUAN RISIKO",
+                "classes": ("collapse", "profile-reference"),
+                "description": "Rencana, target output, biaya, PIC, dan timeline dari profil risiko.",
                 "fields": (
                     "deskripsi_peristiwa_risiko_profil",
                     "nomor_penyebab_risiko_profil",
@@ -741,12 +780,20 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
                     "rencana_perlakuan_risiko_profil",
                     "output_perlakuan_risiko_profil",
                     "biaya_perlakuan_risiko_profil",
+                    "realisasi_timeline_profil",
+                ),
+            },
+        ),
+        (
+            "III.B – REALISASI PERLAKUAN RISIKO BULAN INI",
+            {
+                "description": "Isi hanya perkembangan yang benar-benar terjadi pada bulan laporan.",
+                "fields": (
                     "realisasi_rencana_perlakuan",
                     "realisasi_output_perlakuan",
                     "realisasi_biaya_perlakuan",
                     "serapan_biaya_mitigasi",
-                    "realisasi_pic",
-                    "realisasi_timeline_profil",
+                    "realisasi_pic_organization_unit",
                     "status_rencana_perlakuan",
                     "penjelasan_status_rencana",
                     "progress_pelaksanaan_percent",
@@ -754,22 +801,36 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             },
         ),
         (
-            "KEY RISK INDICATORS",
+            "REFERENSI KONFIGURASI KRI (klik untuk membuka)",
             {
+                "classes": ("collapse", "profile-reference"),
+                "description": "Indikator, satuan, dan batas kategori yang ditetapkan pada profil risiko.",
                 "fields": (
                     "key_risk_indicators_profil",
                     "unit_satuan_kri_profil",
                     "threshold_aman_profil",
                     "threshold_hati_hati_profil",
                     "threshold_bahaya_profil",
-                    "realisasi_threshold_kri",
-                    "realisasi_threshold_kri_skor",
+                ),
+            },
+        ),
+        (
+            "REALISASI KEY RISK INDICATOR BULAN INI",
+            {
+                "classes": ("kri-current",),
+                "description": "Masukkan nilai aktual saja. Status dan rentang threshold dihitung otomatis oleh sistem.",
+                "fields": (
+                    "realisasi_nilai_kri",
+                    "satuan_kri_otomatis",
+                    "status_threshold_kri",
+                    "rentang_threshold_kri",
                 ),
             },
         ),
         (
             "CATATAN TAMBAHAN ERM",
             {
+                "classes": ("collapse",),
                 "description": (
                     "Bagian ini merupakan catatan tambahan aplikasi ERM dan tidak "
                     "termasuk kolom standar Lampiran III.A atau III.B."
@@ -788,9 +849,9 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             period_date = obj.periode.tanggal_mulai
             quarter = ((period_date.month - 1) // 3) + 1
             month_name = BULAN_LABELS[period_date.month].upper()
-            fieldsets[2] = (
+            fieldsets[1] = (
                 f"REALISASI RESIDUAL RISK – Q{quarter} / {month_name} {period_date.year}",
-                fieldsets[2][1],
+                fieldsets[1][1],
             )
         return tuple(fieldsets)
 
@@ -906,6 +967,33 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
     @admin.display(description="Kategori Threshold Bahaya")
     def threshold_bahaya_profil(self, obj):
         return self._risk_value(obj, "threshold_bahaya")
+
+    @admin.display(description="Satuan KRI")
+    def satuan_kri_otomatis(self, obj):
+        return self._risk_value(obj, "unit_satuan_kri")
+
+    @admin.display(description="Status Threshold")
+    def status_threshold_kri(self, obj):
+        from .kri_services import STATUS_LABELS
+
+        value = (obj.realisasi_threshold_kri or "").strip().casefold() if obj else ""
+        legacy = {
+            "3. hijau": "green", "hijau": "green", "green": "green",
+            "2. kuning": "yellow", "kuning": "yellow", "yellow": "yellow",
+            "1. merah": "red", "merah": "red", "red": "red",
+        }
+        status = legacy.get(value)
+        if not status:
+            return "Belum diisi" if not value else f"Legacy: {obj.realisasi_threshold_kri}"
+        return format_html(
+            '<span class="kri-status-badge kri-{}">{}</span>',
+            status,
+            STATUS_LABELS[status],
+        )
+
+    @admin.display(description="Rentang Threshold")
+    def rentang_threshold_kri(self, obj):
+        return obj.realisasi_threshold_kri_skor or "Belum diisi" if obj else "Belum diisi"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "risk_event":

@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from core.models import TimeStampedModel
 from masterdata.models import (
+    OrganizationUnit,
     PeriodeLaporan,
     SkalaDampak,
     SkalaProbabilitas,
@@ -408,6 +409,14 @@ class MonthlyRiskReportItem(TimeStampedModel):
         blank=True,
         verbose_name="Realisasi PIC",
     )
+    realisasi_pic_organization_unit = models.ForeignKey(
+        OrganizationUnit,
+        on_delete=models.PROTECT,
+        related_name="monthly_risk_report_items",
+        null=True,
+        blank=True,
+        verbose_name="Realisasi PIC",
+    )
     status_rencana_perlakuan = models.CharField(
         max_length=30,
         choices=TREATMENT_STATUS_CHOICES,
@@ -432,6 +441,13 @@ class MonthlyRiskReportItem(TimeStampedModel):
         null=True,
         blank=True,
         verbose_name="Realisasi Threshold KRI Bulan Ini",
+    )
+    realisasi_nilai_kri = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        verbose_name="Nilai Realisasi KRI",
     )
     realisasi_threshold_kri_skor = models.CharField(
         max_length=100,
@@ -518,6 +534,23 @@ class MonthlyRiskReportItem(TimeStampedModel):
                 errors["progress_pelaksanaan_percent"] = (
                     "Progress pelaksanaan harus berada di antara 0 sampai 100."
                 )
+        if (
+            self.realisasi_nilai_kri is not None
+            and self.risk_event_id
+            and self.report_id
+            and self.report.status in {"draft", "revision"}
+        ):
+            from .kri_services import evaluate_kri_threshold
+
+            try:
+                result = evaluate_kri_threshold(
+                    self.risk_event, self.realisasi_nilai_kri
+                )
+            except ValidationError as exc:
+                errors["realisasi_nilai_kri"] = exc.messages
+            else:
+                self.realisasi_threshold_kri = result.status
+                self.realisasi_threshold_kri_skor = result.threshold_range
         if errors:
             raise ValidationError(errors)
 
@@ -546,6 +579,26 @@ class MonthlyRiskReportItem(TimeStampedModel):
         # Jangan hitung ulang atau timpa nilainya saat item disimpan.
 
     def save(self, *args, **kwargs):
+        if self.realisasi_pic_organization_unit_id:
+            self.realisasi_pic = str(self.realisasi_pic_organization_unit)
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"realisasi_pic"}
+        if (
+            self.realisasi_nilai_kri is not None
+            and self.risk_event_id
+            and self.report_id
+            and self.report.status in {"draft", "revision"}
+        ):
+            from .kri_services import evaluate_kri_threshold
+
+            result = evaluate_kri_threshold(self.risk_event, self.realisasi_nilai_kri)
+            self.realisasi_threshold_kri = result.status
+            self.realisasi_threshold_kri_skor = result.threshold_range
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                    "realisasi_threshold_kri",
+                    "realisasi_threshold_kri_skor",
+                }
         if self.risk_event_id:
             canonical_km_item_id = self.risk_event.km_item_id
             if canonical_km_item_id and self.km_item_id != canonical_km_item_id:

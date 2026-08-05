@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="id"><body style="font-family:Arial,sans-serif;color:#263238;line-height:1.5">
+<div style="max-width:760px;margin:auto;border:1px solid #dbe4e8;border-radius:8px;overflow:hidden">
+  <div style="background:#3f7c91;color:white;padding:18px 24px"><h2 style="margin:0">Pemeriksaan Kelengkapan Profil Risiko</h2></div>
+  <div style="padding:22px 24px">
+    <p>Yth. Risk Officer {{ profile.unit_bisnis.name }},</p>
+    <p>Berdasarkan pemeriksaan otomatis ERM, profil berikut masih perlu dilengkapi atau diperbaiki.</p>
+    <table style="border-collapse:collapse;width:100%;margin:16px 0">
+      <tr><td><strong>Profil Risiko</strong></td><td>{{ profile.judul }}</td></tr>
+      <tr><td><strong>Unit</strong></td><td>{{ profile.unit_bisnis.name }}</td></tr>
+      <tr><td><strong>Tahun</strong></td><td>{{ profile.tahun }}</td></tr>
+      <tr><td><strong>Status</strong></td><td>{{ profile.get_status_display }}</td></tr>
+      <tr><td><strong>Jumlah Temuan</strong></td><td>{{ result.findings|length }} ({{ result.error_count }} error, {{ result.warning_count }} warning)</td></tr>
+    </table>
+    {% for section, findings in groups.items %}
+      <h3 style="color:#28596a;border-bottom:1px solid #dbe4e8;padding-bottom:5px">{{ section }}</h3>
+      <ul>{% for finding in findings %}<li>{% if finding.item_label %}<strong>{{ finding.item_label }}</strong>: {% endif %}{{ finding.message }}</li>{% endfor %}</ul>
+    {% endfor %}
+    <p style="margin:24px 0"><a href="{{ profile_url }}" style="background:#3f7c91;color:white;padding:10px 16px;text-decoration:none;border-radius:5px">Buka Profil Risiko</a></p>
+    <p>Email ini ditembuskan kepada pairing Bidang Manajemen Risiko dan Kepatuhan untuk mendampingi penyelesaian dan verifikasi perbaikan data.</p>
+    <p style="color:#607d8b;font-size:13px">Notifikasi ini dibuat otomatis oleh ERM. Sistem tidak mengubah data profil secara otomatis.</p>
+    {% if profile.status == 'approved' or profile.status == 'final' %}<p><strong>Profil ini telah berstatus {{ profile.get_status_display }}.</strong> Perbaikan memerlukan mekanisme revisi; sistem tidak membuka status secara otomatis.</p>{% endif %}
+    <p>Terima kasih.<br>Tim Manajemen Risiko<br>PT PLN Batam</p>
+  </div>
+</div>
+</body></html>

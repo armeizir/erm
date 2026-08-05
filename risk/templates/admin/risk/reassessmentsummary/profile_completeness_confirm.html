@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>Periksa penerima dan jumlah temuan sebelum mengirim. Satu email akan dikirim untuk setiap profil yang memenuhi aturan deduplikasi.</p>
+<table id="result_list">
+  <thead><tr><th>Profil Risiko</th><th>Unit</th><th>Risk Officer (To)</th><th>Pairing (CC)</th><th>Error</th><th>Warning</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for row in preview %}
+    <tr>
+      <td>{{ row.profile }}</td><td>{{ row.profile.unit_bisnis.name }}</td>
+      <td>{{ row.recipients.to|join:", "|default:"Belum ditetapkan" }}</td>
+      <td>{{ row.recipients.cc|join:", "|default:"Belum ditetapkan" }}</td>
+      <td>{{ row.result.error_count }}</td><td>{{ row.result.warning_count }}</td>
+      <td>{% if row.allowed %}Akan dikirim{% else %}Lewati — {{ row.reason }}{% endif %}{% for warning in row.recipients.warnings %}<br><span class="help">{{ warning }}</span>{% endfor %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<form method="post">{% csrf_token %}
+  {% for profile in queryset %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ profile.pk }}">{% endfor %}
+  <input type="hidden" name="action" value="{{ action_name }}">
+  <input type="hidden" name="confirm_send" value="yes">
+  <input type="hidden" name="select_across" value="0">
+  <button type="submit" class="default">Konfirmasi dan Kirim</button>
+  <a href="../" class="button cancel-link">Batal</a>
+</form>
+{% endblock %}
