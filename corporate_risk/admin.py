@@ -30,7 +30,10 @@ from .services import (
     generate_rule_based_ai_insight_for_multi_metric_result,
     recommend_monte_carlo_distribution,
 )
-from .pdf_reports import render_multi_metric_pdf
+from .pdf_reports import (
+    multi_metric_pdf_filename,
+    render_multi_metric_pdf,
+)
 from .monte_carlo_email import (
     MultiMetricResultEmailForm,
     send_multi_metric_result_email,
@@ -1535,7 +1538,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
 
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = (
-            f'attachment; filename="multi_metric_monte_carlo_result_{result.pk}.pdf"'
+            f'attachment; filename="{multi_metric_pdf_filename(result)}"'
         )
         return response
 
