@@ -123,6 +123,10 @@ class MultiMetricResultEmailFormTests(TestCase):
         )
 
     @patch(
+        "corporate_risk.history_notifications."
+        "_mail_connection",
+    )
+    @patch(
         "corporate_risk.monte_carlo_email."
         "render_multi_metric_pdf",
         return_value=b"%PDF-1.4 test",
@@ -130,7 +134,12 @@ class MultiMetricResultEmailFormTests(TestCase):
     def test_email_sent_separately_with_pdf(
         self,
         render_pdf_mock,
+        mail_connection_mock,
     ):
+        mail_connection_mock.return_value = (
+            mail.get_connection()
+        )
+
         sent_count = send_multi_metric_result_email(
             result=self.result,
             recipients=[
@@ -180,3 +189,4 @@ class MultiMetricResultEmailFormTests(TestCase):
         render_pdf_mock.assert_called_once_with(
             self.result
         )
+        mail_connection_mock.assert_called_once()
