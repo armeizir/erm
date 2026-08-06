@@ -89,8 +89,9 @@ class MultiMetricResultEmailForm(forms.Form):
             is_stacked=False,
         ),
         help_text=(
-            "Pilih satu atau beberapa pengguna aktif yang "
-            "memiliki alamat email."
+            "Cari berdasarkan nama atau alamat email, lalu "
+            "pindahkan penerima dari kolom Tersedia ke "
+            "kolom Dipilih."
         ),
     )
 
