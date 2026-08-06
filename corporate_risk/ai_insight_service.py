@@ -20,7 +20,7 @@ def generate_ai_insight_for_result(result_id: int, model_name: str | None = None
     payload = {
         "risk_name": result.corporate_risk_item.peristiwa_risiko,
         "metric_name": result.metric_name,
-        "target_value": float(result.target_value) if result.target_value else None,
+        "target_value": float(result.target_value) if result.target_value is not None else None,
         "mean": float(result.mean_value) if result.mean_value is not None else None,
         "p80": float(result.p80_value) if result.p80_value is not None else None,
         "probability": float(result.probability_meet_target)

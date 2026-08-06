@@ -156,7 +156,7 @@
                         </td>
                         <td>{{ row.metric.corporate_risk_item }}</td>
                         <td>{% if row.metric.is_target_metric %}<span class="badge">Ya</span>{% else %}<span class="muted">Tidak</span>{% endif %}</td>
-                        <td>{{ row.metric.target_value|default:"-" }}</td>
+                        <td>{{ row.metric.target_value|default_if_none:"-" }}</td>
                         <td>{{ row.history_count }} baris</td>
                         <td><a class="button" href="{{ row.input_url }}">Input Histori</a></td>
                     </tr>

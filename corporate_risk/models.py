@@ -269,8 +269,8 @@ class RiskMetric(models.Model):
 
     def clean(self):
         errors = {}
-        if self.target_value is not None and self.target_value <= 0:
-            errors["target_value"] = "Target RKAP harus lebih besar dari 0."
+        if self.target_value is not None and self.target_value < 0:
+            errors["target_value"] = ("Target RKAP tidak boleh lebih kecil dari 0. ""Nilai 0 diperbolehkan untuk metric zero tolerance.")
         if self.average_selling_price is not None and self.average_selling_price < 0:
             errors["average_selling_price"] = "Harga jual rata-rata tidak boleh negatif."
         if self.risk_appetite_threshold is not None and not (0 <= self.risk_appetite_threshold <= 100):
