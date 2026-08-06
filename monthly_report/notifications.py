@@ -220,6 +220,17 @@ def _workflow_cc_emails(report):
     ]
 
 
+def _notification_kpmr(report):
+    if report.status not in {
+        "submitted",
+        "under_review",
+        "approved",
+    }:
+        return None
+
+    return calculate_kpmr_for_report(report)
+
+
 def resolve_monthly_report_notification_recipients(
     report,
     stage=None,
@@ -228,7 +239,9 @@ def resolve_monthly_report_notification_recipients(
     test_email_override="",
 ):
     if delivery_mode not in {"auto", "test", "final"}:
-        raise ValidationError("Mode pengiriman notifikasi tidak dikenal.")
+        raise ValidationError(
+            "Mode pengiriman notifikasi tidak dikenal."
+        )
 
     stage = stage or monthly_report_notification_stage(report)
     if not stage:
@@ -237,141 +250,215 @@ def resolve_monthly_report_notification_recipients(
         )
 
     app_setting = AppSetting.get_solo()
-    recipient_users = stage.get("recipients")
-    recipient = stage.get("recipient")
-    bcc_recipient = stage.get("bcc_recipient")
-    cc_recipient_users = stage.get("cc_recipients") or []
-    recipient_names = []
 
     if delivery_mode == "test":
         test_email = (test_email_override or "").strip()
         if not test_email:
-            raise ValidationError("Email tujuan uji coba wajib diisi.")
-    elif delivery_mode == "final":
+            raise ValidationError(
+                "Email tujuan uji coba wajib diisi."
+            )
+        return {
+            "recipients": [test_email],
+            "cc_recipients": [],
+            "bcc_recipients": [],
+            "recipient": None,
+            "recipient_names": [],
+            "test_email": test_email,
+        }
+
+    if delivery_mode == "final":
         test_email = ""
     else:
         test_email = (
             ""
             if stage.get("ignore_test_email")
-            else app_setting.monthly_report_notification_test_email
+            else (
+                app_setting.monthly_report_notification_test_email
+                or ""
+            ).strip()
         )
 
-    bcc_recipients = []
-    cc_recipients = []
-    organization_superior_emails = []
     if test_email:
-        recipients = [test_email]
-        recipient = None
-    else:
-        approved_recipients = stage.get("approved_recipients")
-        if approved_recipients is not None:
-            if not approved_recipients.to:
-                raise ValidationError(
-                    approved_recipients.reason
-                    or "Pairing Officer aktif tidak memiliki email valid."
-                )
-            recipients = approved_recipients.to
-            organization_superior_emails = approved_recipients.cc
-            recipient = (
-                approved_recipients.to_users[0]
-                if approved_recipients.to_users
-                else None
-            )
-            recipient_names = [
-                user.get_full_name().strip() or user.get_username()
-                for user in approved_recipients.to_users
-                if _valid_recipient_user_email(user, recipients)
-            ]
-        elif recipient_users is not None:
-            if not recipient_users:
-                raise ValidationError(
-                    "Belum ada Risk Officer aktif pada BID/Unit Bisnis laporan."
-                )
-            users_without_email = [
-                user.get_username()
-                for user in recipient_users
-                if not user.email
-            ]
-            if users_without_email:
-                raise ValidationError(
-                    "Email Risk Officer belum diisi: "
-                    + ", ".join(users_without_email)
-                )
-            recipients = list(
-                dict.fromkeys(user.email for user in recipient_users)
-            )
-            recipient = recipient_users[0]
-            recipient_names = [
-                user.get_full_name().strip() or user.get_username()
-                for user in recipient_users
-            ]
-        elif not recipient:
-            role = stage.get("recipient_role") or f"tahap {stage['title']}"
-            raise ValidationError(
-                f"Penerima {role} untuk laporan ini belum diisi."
-            )
-        else:
-            if not recipient.email:
-                raise ValidationError(
-                    f"Email user {recipient.get_username()} belum diisi."
-                )
-            recipients = [recipient.email]
-            recipient_names = [
-                recipient.get_full_name().strip()
-                or recipient.get_username()
-            ]
+        return {
+            "recipients": [test_email],
+            "cc_recipients": [],
+            "bcc_recipients": [],
+            "recipient": None,
+            "recipient_names": [],
+            "test_email": test_email,
+        }
 
-        if "bcc_recipient" in stage:
-            if not bcc_recipient:
-                role = stage.get("bcc_recipient_role") or "BCC"
-                raise ValidationError(
-                    f"Penerima BCC {role} untuk laporan ini belum diisi."
-                )
-            if not bcc_recipient.email:
-                raise ValidationError(
-                    f"Email user {bcc_recipient.get_username()} belum diisi."
-                )
-            bcc_recipients = [bcc_recipient.email]
+    def unique_users(users):
+        result = []
+        seen = set()
+
+        for user in users or []:
+            if user is None:
+                continue
+
+            key = getattr(user, "pk", None)
+            if key is None:
+                key = (
+                    getattr(user, "email", "")
+                    or getattr(user, "username", "")
+                    or str(id(user))
+                ).strip().casefold()
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            result.append(user)
+
+        return result
+
+    def emails_for(users, role_label):
+        emails = []
+        missing = []
+
+        for user in unique_users(users):
+            email = (getattr(user, "email", "") or "").strip()
+            if email:
+                emails.append(email)
+                continue
+
+            username = (
+                user.get_username()
+                if hasattr(user, "get_username")
+                else str(user)
+            )
+            missing.append(username)
+
+        if missing:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Penerima notifikasi dilewati karena email "
+                "belum diisi. Peran=%s; pengguna=%s",
+                role_label,
+                ", ".join(missing),
+            )
+
+        return _merge_unique_emails(emails)
+
+    status = report.status
+    prepared_by = getattr(report, "prepared_by", None)
+    reviewed_by = getattr(report, "reviewed_by", None)
+    approved_by = getattr(report, "approved_by", None)
+
+    stage_recipients = list(stage.get("recipients") or [])
+    stage_recipient = stage.get("recipient")
+    pairing = stage.get("bcc_recipient")
+
+    prepared_users = (
+        stage_recipients
+        if stage_recipients
+        else ([prepared_by] if prepared_by is not None else [])
+    )
+
+    if reviewed_by is None and status == "submitted":
+        reviewed_by = stage_recipient
+
+    if approved_by is None and status == "under_review":
+        approved_by = stage_recipient
+
+    pairing_users = [pairing] if pairing is not None else []
+
+    to_users = []
+    cc_users = []
+    bcc_users = []
+
+    if status in {"draft", "revision"}:
+        to_users = prepared_users
+        cc_users = [reviewed_by, approved_by]
+        bcc_users = pairing_users
+        to_emails = emails_for(to_users, "Prepared")
+
+    elif status == "submitted":
+        to_users = [reviewed_by]
+        cc_users = [approved_by, *prepared_users]
+        bcc_users = pairing_users
+        to_emails = emails_for(to_users, "Reviewed")
+
+    elif status == "under_review":
+        to_users = [approved_by]
+        cc_users = [reviewed_by, *prepared_users]
+        bcc_users = pairing_users
+        to_emails = emails_for(to_users, "Approved")
+
+    elif status == "approved":
+        approved_recipients = stage.get(
+            "approved_recipients"
+        )
 
         if approved_recipients is None:
-            users_without_email = [
-                user.get_username()
-                for user in cc_recipient_users
-                if not user.email
-            ]
-            if users_without_email:
-                raise ValidationError(
-                    "Email penerima CC tahap notifikasi belum diisi: "
-                    + ", ".join(users_without_email)
-                )
-            cc_recipients = [
-                user.email
-                for user in cc_recipient_users
-                if user.email
-            ]
-            organization_superior_emails = (
-                build_approved_report_recipients(report).cc
+            from .recipient_services import (
+                build_approved_report_recipients,
             )
 
-        cc_recipients = _merge_unique_emails(
-            cc_recipients,
-            _workflow_cc_emails(report),
-            excluded=recipients,
-        )
-        bcc_recipients = _merge_unique_emails(
-            bcc_recipients,
-            organization_superior_emails,
-            excluded=[*recipients, *cc_recipients],
+            approved_recipients = (
+                build_approved_report_recipients(report)
+            )
+
+        to_emails = _merge_unique_emails(
+            list(getattr(approved_recipients, "to", []) or []),
+            list(getattr(approved_recipients, "cc", []) or []),
         )
 
+        if not to_emails:
+            reason = getattr(approved_recipients, "reason", "")
+            raise ValidationError(
+                reason
+                or "Email Pairing dan atasan organisasi belum tersedia."
+            )
+
+        to_users = list(
+            getattr(approved_recipients, "to_users", [])
+            or pairing_users
+        )
+        cc_users = [
+            approved_by,
+            reviewed_by,
+            *prepared_users,
+        ]
+        bcc_users = []
+
+    else:
+        raise ValidationError(
+            f"Status laporan {status!r} belum memiliki konfigurasi penerima."
+        )
+
+    if not to_emails:
+        raise ValidationError(
+            "Penerima utama notifikasi belum tersedia."
+        )
+
+    cc_emails = _merge_unique_emails(
+        emails_for(cc_users, "penerima CC"),
+        excluded=to_emails,
+    )
+
+    bcc_emails = _merge_unique_emails(
+        emails_for(bcc_users, "Pairing"),
+        excluded=[*to_emails, *cc_emails],
+    )
+
+    to_users = unique_users(to_users)
+    recipient = to_users[0] if to_users else None
+    recipient_names = [
+        user.get_full_name().strip() or user.get_username()
+        for user in to_users
+    ]
+
     return {
-        "recipients": recipients,
-        "cc_recipients": cc_recipients,
-        "bcc_recipients": bcc_recipients,
+        "recipients": to_emails,
+        "cc_recipients": cc_emails,
+        "bcc_recipients": bcc_emails,
         "recipient": recipient,
         "recipient_names": recipient_names,
-        "test_email": test_email,
+        "test_email": "",
     }
+
 
 
 def send_monthly_report_notification(
@@ -452,7 +539,7 @@ def send_monthly_report_notification(
         "app_setting": app_setting,
         "show_kpmr": show_kpmr,
         "kpmr_is_preview": show_kpmr and normalized_status != "approved",
-        "kpmr": kpmr,
+        "kpmr": _notification_kpmr(report),
         "correction_note": correction_note,
         "tutorial": monthly_report_email_tutorial(),
     }
