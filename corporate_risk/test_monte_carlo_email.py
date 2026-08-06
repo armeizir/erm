@@ -82,6 +82,25 @@ class MultiMetricResultEmailFormTests(TestCase):
             available_ids,
         )
 
+    def test_recipient_widget_loads_search_media(self):
+        form = MultiMetricResultEmailForm(
+            result=self.result,
+        )
+
+        media_html = str(form.media)
+
+        self.assertIn(
+            "SelectFilter2.js",
+            media_html,
+        )
+
+        widget_html = str(form["recipients"])
+
+        self.assertIn(
+            "selectfilter",
+            widget_html,
+        )
+
     def test_selected_and_manual_emails_are_combined(self):
         form = MultiMetricResultEmailForm(
             data={
