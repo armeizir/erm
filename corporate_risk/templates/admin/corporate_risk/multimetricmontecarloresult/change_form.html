@@ -10,6 +10,11 @@
                 Export PDF Laporan Manajemen
             </a>
         </li>
+        <li>
+            <a href="{% url opts|admin_urlname:'send_email' original.pk|admin_urlquote %}" class="historylink">
+                Kirim Email
+            </a>
+        </li>
     {% endif %}
 {% endblock %}
 

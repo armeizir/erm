@@ -1,0 +1,8 @@
+{{ body }}
+
+{% if result_url %}
+Hasil pada aplikasi ERM:
+{{ result_url }}
+{% endif %}
+
+Email ini dikirim melalui aplikasi Enterprise Risk Management PLN Batam.

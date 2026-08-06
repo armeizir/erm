@@ -1,0 +1,142 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrahead %}
+    {{ block.super }}
+    {{ form.media }}
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <div class="module" style="padding:16px;margin-bottom:16px;">
+        <h2 style="margin-top:0;">
+            Kirim Hasil Multi Metric Monte Carlo
+        </h2>
+
+        <table style="width:100%;border-collapse:collapse;">
+            <tbody>
+                <tr>
+                    <th style="text-align:left;width:220px;padding:7px;">
+                        Risiko Korporat
+                    </th>
+                    <td style="padding:7px;">
+                        {{ result.corporate_risk_item }}
+                    </td>
+                </tr>
+                <tr>
+                    <th style="text-align:left;padding:7px;">
+                        Periode Forecast
+                    </th>
+                    <td style="padding:7px;">
+                        {{ result.forecast_periode }}
+                    </td>
+                </tr>
+                <tr>
+                    <th style="text-align:left;padding:7px;">
+                        Status Target
+                    </th>
+                    <td style="padding:7px;">
+                        {{ result.target_status|default:"-" }}
+                    </td>
+                </tr>
+                <tr>
+                    <th style="text-align:left;padding:7px;">
+                        Lampiran
+                    </th>
+                    <td style="padding:7px;">
+                        PDF hasil Multi Metric Monte Carlo
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <p class="errornote">
+                {{ form.non_field_errors }}
+            </p>
+        {% endif %}
+
+        <fieldset class="module aligned">
+            <h2>Penerima Email</h2>
+
+            <div class="form-row">
+                {{ form.recipients.errors }}
+                <div>
+                    <label for="{{ form.recipients.id_for_label }}">
+                        <strong>
+                            {{ form.recipients.label }}
+                        </strong>
+                    </label>
+                    {{ form.recipients }}
+                    {% if form.recipients.help_text %}
+                        <div class="help">
+                            {{ form.recipients.help_text }}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="form-row">
+                {{ form.additional_emails.errors }}
+                <div>
+                    <label for="{{ form.additional_emails.id_for_label }}">
+                        <strong>
+                            {{ form.additional_emails.label }}
+                        </strong>
+                    </label>
+                    {{ form.additional_emails }}
+                    {% if form.additional_emails.help_text %}
+                        <div class="help">
+                            {{ form.additional_emails.help_text }}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </fieldset>
+
+        <fieldset class="module aligned">
+            <h2>Isi Email</h2>
+
+            <div class="form-row">
+                {{ form.subject.errors }}
+                <div>
+                    <label for="{{ form.subject.id_for_label }}">
+                        <strong>{{ form.subject.label }}</strong>
+                    </label>
+                    {{ form.subject }}
+                </div>
+            </div>
+
+            <div class="form-row">
+                {{ form.message.errors }}
+                <div>
+                    <label for="{{ form.message.id_for_label }}">
+                        <strong>{{ form.message.label }}</strong>
+                    </label>
+                    {{ form.message }}
+                </div>
+            </div>
+        </fieldset>
+
+        <div class="submit-row">
+            <input
+                type="submit"
+                value="Kirim Email dengan Lampiran PDF"
+                class="default"
+            >
+            <a href="{{ cancel_url }}" class="button cancel-link">
+                Batal
+            </a>
+        </div>
+
+        <p class="help">
+            Email dikirim secara terpisah kepada setiap penerima.
+            Alamat penerima lain tidak akan terlihat.
+        </p>
+    </form>
+</div>
+{% endblock %}
