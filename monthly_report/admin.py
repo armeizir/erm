@@ -843,6 +843,33 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         ),
     )
 
+    @staticmethod
+    def _is_approved_report(obj):
+        return bool(
+            obj
+            and getattr(obj, "status", None) == "approved"
+        )
+
+    def has_change_permission(self, request, obj=None):
+        if self._is_approved_report(obj):
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request, obj=None):
+        if self._is_approved_report(obj):
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if self._is_approved_report(obj):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_extra(self, request, obj=None, **kwargs):
+        if self._is_approved_report(obj):
+            return 0
+        return super().get_extra(request, obj, **kwargs)
+
     def get_fieldsets(self, request, obj=None):
         fieldsets = list(super().get_fieldsets(request, obj))
         if obj and obj.periode_id and obj.periode.tanggal_mulai:
@@ -1233,6 +1260,23 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "Risk Administrator",
         "Admin Risiko",
     }
+
+    @staticmethod
+    def _is_approved_report(obj):
+        return bool(
+            obj
+            and getattr(obj, "status", None) == "approved"
+        )
+
+    def has_change_permission(self, request, obj=None):
+        if self._is_approved_report(obj):
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if self._is_approved_report(obj):
+            return False
+        return super().has_delete_permission(request, obj)
 
     def _can_manage_notifications(self, request):
         user = request.user
