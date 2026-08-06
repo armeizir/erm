@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <title>Hasil Multi Metric Monte Carlo</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f6f8;">
+    <div style="
+        max-width:760px;
+        margin:24px auto;
+        background:#ffffff;
+        border:1px solid #d8dee4;
+        border-radius:8px;
+        overflow:hidden;
+        font-family:Arial,sans-serif;
+        color:#263238;
+    ">
+        <div style="
+            background:#2d6373;
+            color:#ffffff;
+            padding:18px 24px;
+        ">
+            <h2 style="margin:0;font-size:20px;">
+                Hasil Multi Metric Monte Carlo
+            </h2>
+            <div style="margin-top:6px;font-size:13px;">
+                Enterprise Risk Management PLN Batam
+            </div>
+        </div>
+
+        <div style="padding:24px;">
+            <div style="line-height:1.6;margin-bottom:20px;">
+                {{ body|linebreaksbr }}
+            </div>
+
+            <table style="
+                width:100%;
+                border-collapse:collapse;
+                margin:16px 0;
+            ">
+                <tbody>
+                    <tr>
+                        <th style="
+                            text-align:left;
+                            padding:9px;
+                            border:1px solid #d8dee4;
+                            background:#f6f8fa;
+                            width:190px;
+                        ">
+                            Risiko
+                        </th>
+                        <td style="
+                            padding:9px;
+                            border:1px solid #d8dee4;
+                        ">
+                            {{ result.corporate_risk_item }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th style="
+                            text-align:left;
+                            padding:9px;
+                            border:1px solid #d8dee4;
+                            background:#f6f8fa;
+                        ">
+                            Periode Forecast
+                        </th>
+                        <td style="
+                            padding:9px;
+                            border:1px solid #d8dee4;
+                        ">
+                            {{ result.forecast_periode }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th style="
+                            text-align:left;
+                            padding:9px;
+                            border:1px solid #d8dee4;
+                            background:#f6f8fa;
+                        ">
+                            Status Target
+                        </th>
+                        <td style="
+                            padding:9px;
+                            border:1px solid #d8dee4;
+                        ">
+                            {{ result.target_status|default:"-" }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th style="
+                            text-align:left;
+                            padding:9px;
+                            border:1px solid #d8dee4;
+                            background:#f6f8fa;
+                        ">
+                            Status Risiko
+                        </th>
+                        <td style="
+                            padding:9px;
+                            border:1px solid #d8dee4;
+                        ">
+                            {{ result.risk_status|default:"-" }}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <p style="line-height:1.6;">
+                Laporan lengkap telah dilampirkan dalam format PDF.
+            </p>
+
+            {% if result_url %}
+                <p style="margin:24px 0;">
+                    <a
+                        href="{{ result_url }}"
+                        style="
+                            display:inline-block;
+                            padding:10px 16px;
+                            background:#2d6373;
+                            color:#ffffff;
+                            text-decoration:none;
+                            border-radius:4px;
+                        "
+                    >
+                        Buka Hasil di Aplikasi ERM
+                    </a>
+                </p>
+            {% endif %}
+        </div>
+
+        <div style="
+            padding:14px 24px;
+            background:#f6f8fa;
+            border-top:1px solid #d8dee4;
+            font-size:12px;
+            color:#64748b;
+        ">
+            Email ini dikirim melalui aplikasi Enterprise Risk
+            Management PLN Batam.
+        </div>
+    </div>
+</body>
+</html>

@@ -31,6 +31,10 @@ from .services import (
     recommend_monte_carlo_distribution,
 )
 from .pdf_reports import render_multi_metric_pdf
+from .monte_carlo_email import (
+    MultiMetricResultEmailForm,
+    send_multi_metric_result_email,
+)
 from .history_services import duplicate_metric_history_to_next_month
 from .history_notifications import (
     metric_history_pairing_officer,
@@ -1492,6 +1496,11 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 name="corporate_risk_multimetricmontecarloresult_export_pdf",
             ),
             path(
+                "<int:result_id>/send-email/",
+                self.admin_site.admin_view(self.send_email_view),
+                name="corporate_risk_multimetricmontecarloresult_send_email",
+            ),
+            path(
                 "<int:result_id>/generate-ai-insight-multi-metric/",
                 self.admin_site.admin_view(self.generate_ai_insight_multi_metric_view),
                 name="corporate_risk_generate_ai_insight_multi_metric",
@@ -1529,6 +1538,119 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             f'attachment; filename="multi_metric_monte_carlo_result_{result.pk}.pdf"'
         )
         return response
+
+    def send_email_view(
+        self,
+        request,
+        result_id,
+        *args,
+        **kwargs,
+    ):
+        result = get_object_or_404(
+            MultiMetricMonteCarloResult.objects.select_related(
+                "corporate_risk_item",
+                "corporate_risk_item__summary",
+                "forecast_periode",
+            ),
+            pk=result_id,
+        )
+
+        change_url = reverse(
+            f"{self.admin_site.name}:"
+            "corporate_risk_"
+            "multimetricmontecarloresult_change",
+            args=[result.pk],
+        )
+
+        if not self.has_change_permission(request, result):
+            self.message_user(
+                request,
+                "Anda tidak memiliki izin untuk mengirim "
+                "hasil Monte Carlo.",
+                level=messages.ERROR,
+            )
+            return redirect(change_url)
+
+        if request.method == "POST":
+            form = MultiMetricResultEmailForm(
+                request.POST,
+                result=result,
+            )
+
+            if form.is_valid():
+                result_url = request.build_absolute_uri(
+                    change_url
+                )
+
+                try:
+                    sent_count = (
+                        send_multi_metric_result_email(
+                            result=result,
+                            recipients=form.cleaned_data[
+                                "recipient_emails"
+                            ],
+                            subject=form.cleaned_data[
+                                "subject"
+                            ],
+                            body=form.cleaned_data[
+                                "message"
+                            ],
+                            sent_by=request.user,
+                            result_url=result_url,
+                        )
+                    )
+                except Exception as exc:
+                    form.add_error(
+                        None,
+                        "Gagal mengirim email hasil "
+                        f"Monte Carlo: {exc}",
+                    )
+                else:
+                    self.log_change(
+                        request,
+                        result,
+                        (
+                            "Mengirim hasil Multi Metric "
+                            "Monte Carlo melalui email "
+                            f"kepada {sent_count} penerima."
+                        ),
+                    )
+                    self.message_user(
+                        request,
+                        (
+                            "Hasil Multi Metric Monte Carlo "
+                            f"berhasil dikirim kepada "
+                            f"{sent_count} penerima."
+                        ),
+                        level=messages.SUCCESS,
+                    )
+                    return redirect(change_url)
+        else:
+            form = MultiMetricResultEmailForm(
+                result=result,
+            )
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": (
+                "Kirim Hasil Multi Metric Monte Carlo"
+            ),
+            "opts": self.model._meta,
+            "original": result,
+            "result": result,
+            "form": form,
+            "cancel_url": change_url,
+        }
+
+        return TemplateResponse(
+            request,
+            (
+                "admin/corporate_risk/"
+                "multimetricmontecarloresult/"
+                "send_email.html"
+            ),
+            context,
+        )
 
     def generate_ai_insight_multi_metric_view(self, request, result_id, *args, **kwargs):
         result = get_object_or_404(MultiMetricMonteCarloResult, pk=result_id)
