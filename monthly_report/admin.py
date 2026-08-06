@@ -2106,6 +2106,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 request=request,
                 correction_note=correction_note,
                 approved_transition=approved_transition,
+                delivery_mode="final",
             )
         except ValidationError as exc:
             message = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
@@ -2242,11 +2243,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 f"Flow laporan berhasil diproses. Status sekarang: {report.get_status_display()}.",
                 level=messages.SUCCESS,
             )
-            self.message_user(
+            self._send_next_notification(
                 request,
-                "Notifikasi belum dikirim. Admin ERM dapat membuka Konfigurasi "
-                "Notifikasi, mengirim email test, lalu mengirim notifikasi final.",
-                level=messages.INFO,
+                report,
+                correction_note=correction_note,
+                approved_transition=flow_action == "approve",
             )
         return HttpResponseRedirect(
             reverse(
