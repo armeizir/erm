@@ -222,7 +222,7 @@ def build_multi_metric_pdf_context(result):
         "distribution_selected": _distribution_label(result.distribution_type),
         "distribution_recommended": _distribution_label(result.recommended_distribution),
         "chart_values": target_analysis.get("distribution_sample") or [],
-        "target_value": target_analysis.get("target_value") or result.target_value,
+        "target_value": target_analysis.get("target_value") if target_analysis.get("target_value") is not None else result.target_value,
     }
 
 
@@ -772,7 +772,7 @@ def render_multi_metric_pdf(result):
     certainty = _fmt_pct(target.get("probability_achieve_target") or result.probability_achieve_target)
     forecast_dmp = _fmt_num(target.get("forecast_total") or result.baseline_value, 0)
     var_95 = _fmt_num(target.get("var_95") or result.var_95, 0)
-    cut_off = _fmt_num(target.get("target_value") or result.target_value, 0)
+    cut_off = _fmt_num(target.get("target_value") if target.get("target_value") is not None else result.target_value, 0)
     summary_paragraphs = [
         f"Laporan ini menyajikan hasil simulasi Multi Metric Monte Carlo untuk {item_label}. Simulasi digunakan untuk memperkirakan distribusi kemungkinan hasil risiko berdasarkan data historis, bobot metric, serta parameter forecast yang dipilih oleh user.",
         f"Model dijalankan dengan { _fmt_int(context['trials']) } trials, periode forecast {result.forecast_periode}, metode {context['forecasting_method']}, dan prediction interval {context['prediction_interval']}. Pendekatan ini memberi gambaran rentang hasil yang mungkin terjadi, bukan satu angka deterministik.",

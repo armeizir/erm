@@ -313,7 +313,7 @@
             <div class="meta">
                 <strong>{{ metric.name }}</strong><br>
                 {{ metric.corporate_risk_item }}<br>
-                Satuan: {{ metric.unit|default:"-" }} · Bobot: {{ metric.weight }} · Target RKAP: {{ metric.target_value|default:"-" }}
+                Satuan: {{ metric.unit|default:"-" }} · Bobot: {{ metric.weight }} · Target RKAP: {{ metric.target_value|default_if_none:"-" }}
             </div>
         </div>
         <div class="toolbar">
