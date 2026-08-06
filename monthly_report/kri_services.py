@@ -20,6 +20,29 @@ def _numbers(expression):
 
 
 def _matches(expression, value):
+
+    # BEGIN KRI CATEGORICAL THRESHOLD SUPPORT
+    normalized_expression = (
+        str(expression or "")
+        .strip()
+        .casefold()
+    )
+
+    categorical_values = {
+        "ada": Decimal("1"),
+        "ya": Decimal("1"),
+        "yes": Decimal("1"),
+        "tersedia": Decimal("1"),
+        "tidak": Decimal("0"),
+        "tidak ada": Decimal("0"),
+        "no": Decimal("0"),
+        "tidak tersedia": Decimal("0"),
+    }
+
+    if normalized_expression in categorical_values:
+        return value == categorical_values[normalized_expression]
+    # END KRI CATEGORICAL THRESHOLD SUPPORT
+
     text = (expression or "").strip().casefold().replace("–", "-").replace("—", "-")
     values = _numbers(text)
     if not values:
@@ -63,10 +86,48 @@ def evaluate_kri_threshold(risk_event, actual_value):
         ("yellow", risk_event.threshold_hati_hati),
         ("red", risk_event.threshold_bahaya),
     )
-    matches = [(status, expression) for status, expression in configured if _matches(expression, value)]
-    if len(matches) != 1:
+    matches = [
+        (status, expression)
+        for status, expression in configured
+        if _matches(expression, value)
+    ]
+
+    if not matches:
         raise ValidationError(
-            "Konfigurasi threshold KRI tumpang tindih atau memiliki celah. Hubungi administrator."
+            "Nilai realisasi tidak masuk ke rentang threshold KRI "
+            "yang dikonfigurasi. Hubungi administrator."
         )
-    status, expression = matches[0]
+
+    if len(matches) > 1:
+        normalized_expressions = {
+            "".join(str(expression or "").split()).casefold()
+            for _, expression in matches
+        }
+
+        # KRI dua tingkat dapat menggunakan expression yang sama
+        # untuk status Kuning dan Merah, misalnya:
+        #
+        #   Ada / Tidak / Tidak
+        #   100% / <100% / <100%
+        #
+        # Untuk expression yang identik, gunakan status paling
+        # konservatif. Overlap dengan expression berbeda tetap ditolak.
+        if len(normalized_expressions) != 1:
+            raise ValidationError(
+                "Konfigurasi threshold KRI tumpang tindih atau "
+                "memiliki celah. Hubungi administrator."
+            )
+
+        severity = {
+            "green": 1,
+            "yellow": 2,
+            "red": 3,
+        }
+
+        status, expression = max(
+            matches,
+            key=lambda match: severity.get(match[0], 0),
+        )
+    else:
+        status, expression = matches[0]
     return KRIThresholdResult(status, STATUS_LABELS[status], str(expression).strip())
