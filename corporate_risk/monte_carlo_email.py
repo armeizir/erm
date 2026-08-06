@@ -7,9 +7,11 @@ from django import forms
 from django.conf import settings
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from django.contrib.auth import get_user_model
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.template.loader import render_to_string
+
+from risk.models import AppSetting
 
 from .pdf_reports import render_multi_metric_pdf
 
@@ -253,13 +255,29 @@ def send_multi_metric_result_email(
         context,
     )
 
-    from_email = getattr(
-        settings,
-        "DEFAULT_FROM_EMAIL",
-        None,
+    app_setting = AppSetting.get_solo()
+
+    # Gunakan konfigurasi SMTP dari Pengaturan Aplikasi.
+    # EMAIL_BACKEND global production boleh tetap console backend.
+    from .history_notifications import _mail_connection
+
+    from_email = (
+        app_setting.default_from_email
+        or getattr(
+            settings,
+            "DEFAULT_FROM_EMAIL",
+            None,
+        )
     )
 
-    connection = get_connection()
+    connection = _mail_connection(app_setting)
+
+    if connection is None:
+        raise RuntimeError(
+            "Konfigurasi SMTP pada Pengaturan Aplikasi "
+            "belum aktif atau belum lengkap."
+        )
+
     messages = []
 
     # Dibuat sebagai email terpisah agar penerima tidak
