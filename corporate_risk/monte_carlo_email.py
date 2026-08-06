@@ -13,7 +13,10 @@ from django.template.loader import render_to_string
 
 from risk.models import AppSetting
 
-from .pdf_reports import render_multi_metric_pdf
+from .pdf_reports import (
+    multi_metric_pdf_filename,
+    render_multi_metric_pdf,
+)
 
 
 MAX_RECIPIENTS = 50
@@ -233,7 +236,7 @@ def send_multi_metric_result_email(
         )
 
     filename = (
-        f"multi_metric_monte_carlo_result_{result.pk}.pdf"
+        multi_metric_pdf_filename(result)
     )
 
     context = {

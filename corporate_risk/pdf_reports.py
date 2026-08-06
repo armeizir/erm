@@ -7,6 +7,7 @@ from statistics import mean
 from xml.sax.saxutils import escape
 
 from django.utils import timezone
+from django.utils.text import slugify
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -226,6 +227,84 @@ def build_multi_metric_pdf_context(result):
     }
 
 
+def multi_metric_item_label(result) -> str:
+    """
+    Menghasilkan nama risiko yang ringkas untuk judul laporan.
+
+    Mengutamakan nomor dan peristiwa risiko agar nama profil
+    tidak ikut masuk ke judul.
+    """
+    item = getattr(result, "corporate_risk_item", None)
+
+    if item is None:
+        result_id = getattr(result, "pk", None)
+        return (
+            f"Hasil Monte Carlo #{result_id}"
+            if result_id is not None
+            else "Hasil Monte Carlo"
+        )
+
+    event_name = getattr(
+        item,
+        "peristiwa_risiko",
+        None,
+    )
+
+    risk_number = (
+        getattr(item, "no_risiko", None)
+        or getattr(item, "no_item", None)
+    )
+
+    if event_name:
+        event_name = str(event_name).strip()
+
+        if risk_number not in (None, ""):
+            number_text = str(risk_number).strip()
+
+            if not event_name.startswith("#"):
+                return f"#{number_text} - {event_name}"
+
+        return event_name
+
+    display_label = getattr(
+        item,
+        "get_display_label",
+        None,
+    )
+
+    if callable(display_label):
+        return str(display_label())
+
+    return str(item)
+
+
+def multi_metric_pdf_filename(result) -> str:
+    """
+    Nama file aman untuk browser, email, Windows, dan Linux.
+    """
+    item_label = multi_metric_item_label(result)
+
+    period = getattr(
+        result,
+        "forecast_periode",
+        None,
+    )
+    period_label = str(period) if period is not None else "periode"
+
+    safe_name = slugify(
+        f"monte-carlo-{item_label}-{period_label}",
+        allow_unicode=False,
+    )
+
+    safe_name = safe_name[:150].rstrip("-")
+
+    if not safe_name:
+        result_id = getattr(result, "pk", "result")
+        safe_name = f"monte-carlo-result-{result_id}"
+
+    return f"{safe_name}.pdf"
+
+
 def generate_distribution_chart(result, width=1100, height=520):
     context = build_multi_metric_pdf_context(result)
     values = [_safe_float(value) for value in context["chart_values"] if value not in (None, "")]
@@ -389,11 +468,11 @@ def _styles():
         name="ReportTitle",
         parent=base["Title"],
         fontName="Helvetica-Bold",
-        fontSize=23,
-        leading=28,
+        fontSize=18,
+        leading=22,
         alignment=TA_LEFT,
         textColor=PRIMARY,
-        spaceAfter=8,
+        spaceAfter=10,
     ))
     base.add(ParagraphStyle(
         name="CoverKicker",
@@ -878,15 +957,11 @@ def render_multi_metric_pdf(result):
         leftMargin=1.35 * cm,
         topMargin=1.70 * cm,
         bottomMargin=1.50 * cm,
-        title=f"Multi Metric Monte Carlo Result {result.pk}",
+        title=f"{multi_metric_item_label(result)} - Monte Carlo Risk Forecast",
     )
     story = []
     target = context["target_analysis"]
-    item_label = getattr(
-        context["item"],
-        "get_display_label",
-        lambda: str(context["item"]),
-    )()
+    item_label = multi_metric_item_label(result)
     summary = context["summary"]
 
     status = (
@@ -911,11 +986,6 @@ def render_multi_metric_pdf(result):
             result.probability_not_achieve_target
         )
 
-    certainty = _fmt_pct(probability_achieve)
-    probability_not_achieve_text = _fmt_pct(
-        probability_not_achieve
-    )
-
     forecast_value = target.get("forecast_total")
     if forecast_value is None:
         forecast_value = result.baseline_value
@@ -928,42 +998,49 @@ def render_multi_metric_pdf(result):
     if target_value is None:
         target_value = result.target_value
 
+    certainty = _fmt_pct(probability_achieve)
+    probability_not_achieve_text = _fmt_pct(
+        probability_not_achieve
+    )
     forecast_dmp = _fmt_num(forecast_value, 0)
     var_95 = _fmt_num(var_value, 0)
     cut_off = _fmt_num(target_value, 0)
 
+    period = getattr(result, "forecast_periode", None)
+    period_label = str(period) if period is not None else "-"
+
     # --------------------------------------------------------
-    # Identitas sampul
+    # Identitas laporan
     # --------------------------------------------------------
-    logo = _lmr_logo(
-        width=3.15 * cm,
-        height=1.45 * cm,
-    )
-
-    brand_text = Paragraph(
-        "<b>ENTERPRISE RISK MANAGEMENT</b><br/>"
-        "<font size='8' color='#64748B'>"
-        "PT PLN Batam"
-        "</font>",
-        styles["MetaValue"],
-    )
-
-    classification = Paragraph(
-        "<b>DOKUMEN INTERNAL</b><br/>"
-        "<font size='7' color='#F97316'>RAHASIA</font>",
-        styles["MetaLabel"],
-    )
-
-    brand_table = Table(
-        [[logo, brand_text, classification]],
+    header_table = Table(
+        [[
+            _lmr_logo(
+                width=2.8 * cm,
+                height=1.3 * cm,
+            ),
+            Paragraph(
+                "<b>ENTERPRISE RISK MANAGEMENT</b><br/>"
+                "<font size='8' color='#64748B'>"
+                "PT PLN Batam"
+                "</font>",
+                styles["Body"],
+            ),
+            Paragraph(
+                "<b>DOKUMEN INTERNAL</b><br/>"
+                "<font size='7' color='#F97316'>"
+                "RAHASIA"
+                "</font>",
+                styles["Small"],
+            ),
+        ]],
         colWidths=[
-            3.4 * cm,
-            9.4 * cm,
-            3.7 * cm,
+            3.1 * cm,
+            10.0 * cm,
+            4.9 * cm,
         ],
         hAlign="LEFT",
     )
-    brand_table.setStyle(TableStyle([
+    header_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ALIGN", (2, 0), (2, 0), "RIGHT"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -972,127 +1049,141 @@ def render_multi_metric_pdf(result):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
 
-    story.append(brand_table)
-    story.append(Spacer(1, 0.18 * cm))
+    story.append(header_table)
+    story.append(Spacer(1, 0.20 * cm))
 
-    accent = Table(
+    accent_table = Table(
         [[""]],
-        colWidths=[16.5 * cm],
+        colWidths=[18.0 * cm],
         rowHeights=[0.10 * cm],
         hAlign="LEFT",
     )
-    accent.setStyle(TableStyle([
+    accent_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), PLN_TEAL),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story.append(accent)
-    story.append(Spacer(1, 0.55 * cm))
 
-    story.append(
-        _p(
-            styles,
-            "LAPORAN ANALISIS RISIKO",
-            "CoverKicker",
-        )
-    )
-    story.append(
-        _p(
-            styles,
-            "Multi Metric Monte Carlo<br/>"
-            "Risk Forecast",
-            "ReportTitle",
-        )
-    )
-    story.append(
-        _p(
-            styles,
-            "Analisis probabilistik untuk mendukung "
-            "pengambilan keputusan dan prioritas mitigasi.",
-            "CoverSubtitle",
-        )
-    )
+    story.append(accent_table)
+    story.append(Spacer(1, 0.45 * cm))
 
-    story.append(
-        _p(
-            styles,
-            "Informasi Dokumen",
-            "CoverSection",
-        )
-    )
+    # Jenis laporan menjadi subjudul.
+    story.append(Paragraph(
+        "<font size='9' color='#075D73'>"
+        "<b>LAPORAN MULTI METRIC MONTE CARLO "
+        "RISK FORECAST</b>"
+        "</font>",
+        styles["Body"],
+    ))
+    story.append(Spacer(1, 0.12 * cm))
+
+    # Judul utama sesuai item risiko korporat.
+    story.append(Paragraph(
+        _html(item_label),
+        styles["ReportTitle"],
+    ))
+
+    story.append(Paragraph(
+        f"<font size='9' color='#64748B'>"
+        f"Periode Forecast: {_html(period_label)}"
+        f"</font>",
+        styles["Body"],
+    ))
+    story.append(Spacer(1, 0.45 * cm))
 
     cover_rows = [
         [
             Paragraph(
-                "Item Risiko Korporat",
-                styles["MetaLabel"],
+                "<b>Item Risiko Korporat</b>",
+                styles["Small"],
             ),
             Paragraph(
                 _html(item_label),
-                styles["MetaValue"],
+                styles["Body"],
             ),
         ],
         [
             Paragraph(
-                "Profil Risiko",
-                styles["MetaLabel"],
+                "<b>Profil Risiko Korporat</b>",
+                styles["Small"],
             ),
             Paragraph(
                 _html(str(summary) if summary else "-"),
-                styles["MetaValue"],
+                styles["Body"],
             ),
         ],
         [
             Paragraph(
-                "Periode Forecast",
-                styles["MetaLabel"],
+                "<b>Periode Forecast</b>",
+                styles["Small"],
             ),
             Paragraph(
-                _html(
-                    str(result.forecast_periode)
-                    if result.forecast_periode_id
-                    else "-"
-                ),
-                styles["MetaValue"],
+                _html(period_label),
+                styles["Body"],
             ),
         ],
         [
             Paragraph(
-                "Metode Forecast",
-                styles["MetaLabel"],
+                "<b>Metode Forecast</b>",
+                styles["Small"],
             ),
             Paragraph(
                 _html(context["forecasting_method"]),
-                styles["MetaValue"],
+                styles["Body"],
             ),
         ],
         [
             Paragraph(
-                "Tanggal Cetak",
-                styles["MetaLabel"],
+                "<b>Tanggal Cetak</b>",
+                styles["Small"],
             ),
             Paragraph(
                 _html(
                     f"{context['printed_at']:%d %B %Y %H:%M}"
                 ),
-                styles["MetaValue"],
+                styles["Body"],
+            ),
+        ],
+        [
+            Paragraph(
+                "<b>Aplikasi / Perusahaan</b>",
+                styles["Small"],
+            ),
+            Paragraph(
+                "ERM PLN Batam",
+                styles["Body"],
             ),
         ],
     ]
 
     cover_table = Table(
-        cover_rows,
+        [[
+            Paragraph(
+                "<b>Informasi</b>",
+                styles["Small"],
+            ),
+            Paragraph(
+                "<b>Keterangan</b>",
+                styles["Small"],
+            ),
+        ]] + cover_rows,
         colWidths=[
-            4.1 * cm,
-            12.4 * cm,
+            4.3 * cm,
+            13.7 * cm,
         ],
+        repeatRows=1,
         hAlign="LEFT",
     )
     cover_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), LIGHT_BG),
-        ("BACKGROUND", (1, 0), (1, -1), colors.white),
+        ("BACKGROUND", (0, 0), (-1, 0), PRIMARY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 1), (0, -1), LIGHT_BG),
+        ("ROWBACKGROUNDS", (1, 1), (1, -1), [
+            colors.white,
+            colors.HexColor("#F8FAFC"),
+        ]),
         ("GRID", (0, 0), (-1, -1), 0.45, GRID),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
@@ -1100,103 +1191,71 @@ def render_multi_metric_pdf(result):
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
-    story.append(cover_table)
-    story.append(Spacer(1, 0.50 * cm))
 
-    story.append(
-        _p(
-            styles,
-            "Ringkasan Hasil Utama",
-            "CoverSection",
-        )
-    )
+    story.append(KeepTogether([cover_table]))
+    story.append(Spacer(1, 0.45 * cm))
 
-    cards = Table(
+    result_cards = Table(
         [
             [
                 Paragraph(
                     "STATUS TARGET",
-                    styles["CardLabel"],
+                    styles["Small"],
                 ),
                 Paragraph(
                     "PROB. TIDAK TERCAPAI",
-                    styles["CardLabel"],
+                    styles["Small"],
                 ),
                 Paragraph(
                     "FORECAST DMP",
-                    styles["CardLabel"],
+                    styles["Small"],
                 ),
                 Paragraph(
                     "VAR / P95",
-                    styles["CardLabel"],
+                    styles["Small"],
                 ),
             ],
             [
                 Paragraph(
-                    _html(status),
-                    styles["CardValue"],
+                    f"<b>{_html(status)}</b>",
+                    styles["Body"],
                 ),
                 Paragraph(
-                    _html(probability_not_achieve_text),
-                    styles["CardValue"],
+                    f"<b>{_html(probability_not_achieve_text)}</b>",
+                    styles["Body"],
                 ),
                 Paragraph(
-                    _html(forecast_dmp),
-                    styles["CardValue"],
+                    f"<b>{_html(forecast_dmp)}</b>",
+                    styles["Body"],
                 ),
                 Paragraph(
-                    _html(var_95),
-                    styles["CardValue"],
+                    f"<b>{_html(var_95)}</b>",
+                    styles["Body"],
                 ),
             ],
         ],
         colWidths=[
-            4.125 * cm,
-            4.125 * cm,
-            4.125 * cm,
-            4.125 * cm,
+            4.5 * cm,
+            4.5 * cm,
+            4.5 * cm,
+            4.5 * cm,
         ],
         hAlign="LEFT",
     )
-    cards.setStyle(TableStyle([
+    result_cards.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
-        ("LINEABOVE", (0, 0), (-1, 0), 2.5, PLN_TEAL),
-        ("BOX", (0, 0), (-1, -1), 0.5, GRID),
-        ("INNERGRID", (0, 0), (-1, -1), 0.5, GRID),
+        ("LINEABOVE", (0, 0), (-1, 0), 2, PLN_TEAL),
+        ("BOX", (0, 0), (-1, -1), 0.45, GRID),
+        ("INNERGRID", (0, 0), (-1, -1), 0.45, GRID),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, 0), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 3),
-        ("TOPPADDING", (0, 1), (-1, 1), 3),
-        ("BOTTOMPADDING", (0, 1), (-1, 1), 8),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
     ]))
 
-    story.append(KeepTogether([cards]))
-    story.append(Spacer(1, 0.45 * cm))
-
-    note = Table(
-        [[Paragraph(
-            "<b>Catatan penggunaan:</b> "
-            "Hasil simulasi merupakan estimasi probabilistik "
-            "berdasarkan histori, asumsi model, dan parameter "
-            "yang tersedia. Keputusan manajemen tetap perlu "
-            "mempertimbangkan expert judgement, risk appetite, "
-            "serta efektivitas mitigasi.",
-            styles["CoverNote"],
-        )]],
-        colWidths=[16.5 * cm],
-        hAlign="LEFT",
-    )
-    note.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EFF6FF")),
-        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#BFDBFE")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 9),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 9),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    story.append(note)
+    story.append(KeepTogether([result_cards]))
     story.append(PageBreak())
 
     story.append(
