@@ -58,7 +58,7 @@
         <option value="">— Pilih risiko —</option>
         {% for item in items %}
           <option value="{{ item.pk }}"{% if selected_item.pk == item.pk %} selected{% endif %}>
-            Risiko {{ item.no_risiko|default:item.no_item }} — {{ item.peristiwa_risiko|truncatechars:120 }}
+            Risiko {{ item.no_item }} — {{ item.peristiwa_risiko|truncatechars:120 }}
           </option>
         {% endfor %}
       </select>
@@ -91,11 +91,11 @@
       {% if next_history_year %}<a class="button" href="?item={{ selected_item.pk }}&amp;history_year={{ next_history_year }}">Tahun Berikutnya</a>{% endif %}
     </div>
     <section class="mc-card">
-      <h2>Risiko {{ selected_item.no_risiko|default:selected_item.no_item }} — {{ selected_item.peristiwa_risiko }}</h2>
+      <h2>Risiko {{ selected_item.no_item }} — {{ selected_item.peristiwa_risiko }}</h2>
       <div class="mc-summary">
         <div><small>Profil</small>{{ selected_item.summary.judul }}</div>
         <div><small>Tahun profil</small>{{ selected_item.summary.tahun }}</div>
-        <div><small>Nomor risiko</small>{{ selected_item.no_risiko|default:selected_item.no_item }}</div>
+        <div><small>Nomor risiko</small>{{ selected_item.no_item }}</div>
         <div><small>Metric aktif</small>{{ metrics|length }}</div>
         <div><small>Histori valid</small>{{ total_history }}</div>
         <div><small>Simulasi terbaru</small>{% if latest_result %}{{ latest_result.created_at|date:"d M Y H:i" }}{% else %}Belum ada{% endif %}</div>
