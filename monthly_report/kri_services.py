@@ -44,6 +44,55 @@ def _matches(expression, value):
     # END KRI CATEGORICAL THRESHOLD SUPPORT
 
     text = (expression or "").strip().casefold().replace("–", "-").replace("—", "-")
+
+    # BEGIN KRI SIGNED RANGE SUPPORT V2
+    # Parse signed numeric expressions BEFORE legacy _numbers().
+    # Supports:
+    #   -5--1.0001
+    #   -5 - -1.0001
+    #   99-99.9999
+    #   >=-1
+    #   <-5
+    #   100%
+    number_pattern = r"[+-]?\d+(?:[.,]\d+)?"
+
+    signed_range = re.fullmatch(
+        rf"\s*(?P<lower>{number_pattern})\s*%?\s*"
+        rf"(?:-|s/d|sd|to)\s*"
+        rf"(?P<upper>{number_pattern})\s*%?\s*",
+        text,
+    )
+    if signed_range:
+        lower = Decimal(signed_range.group("lower").replace(",", "."))
+        upper = Decimal(signed_range.group("upper").replace(",", "."))
+        if lower > upper:
+            raise ValidationError(
+                "Batas bawah threshold KRI tidak boleh lebih besar dari batas atas."
+            )
+        return lower <= value <= upper
+
+    signed_boundary = re.fullmatch(
+        rf"\s*(?P<op>>=|<=|>|<|≥|≤)?\s*"
+        rf"(?P<boundary>{number_pattern})\s*%?\s*",
+        text,
+    )
+    if signed_boundary:
+        op = signed_boundary.group("op") or ""
+        boundary = Decimal(
+            signed_boundary.group("boundary").replace(",", ".")
+        )
+        if op in (">=", "≥"):
+            return value >= boundary
+        if op in ("<=", "≤"):
+            return value <= boundary
+        if op == ">":
+            return value > boundary
+        if op == "<":
+            return value < boundary
+        return value == boundary
+    # END KRI SIGNED RANGE SUPPORT V2
+
+
     values = _numbers(text)
     if not values:
         raise ValidationError("Konfigurasi threshold KRI belum lengkap. Hubungi administrator.")
