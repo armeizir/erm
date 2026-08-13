@@ -725,6 +725,128 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* BOD_EXECUTIVE_DASHBOARD_V3_CSS */
+        .bodx{margin:0 0 20px;border:1px solid #cfd9e7;border-radius:20px;background:#fff;box-shadow:var(--shadow);overflow:hidden}
+        .bodx-head{display:flex;justify-content:space-between;gap:18px;padding:22px 24px 18px;border-bottom:1px solid #e4eaf2}
+        .bodx-eyebrow{color:#1d4e89;font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:6px}
+        .bodx h2,.bodx h3{margin:0;color:#0d2e5e}.bodx h2{font-size:24px}.bodx h3{font-size:16px}
+        .bodx-sub{margin:7px 0 0;color:#6b7a90;font-size:13px;line-height:1.5}
+        .bodx-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}
+        .bodx-chip,.bodx-btn{min-height:34px;border-radius:9px;font-size:12px;font-weight:700}
+        .bodx-chip{display:flex;align-items:center;padding:0 11px;border:1px solid #d5deea;background:#f7f9fc;color:#41536a}
+        .bodx-btn{padding:0 12px;border:1px solid #b9c8da;background:#fff;color:#0d2e5e;cursor:pointer}
+        .bodx-btn.primary{background:#1d4e89;color:#fff;border-color:#1d4e89}
+        .bodx-warn{margin:16px 24px 0;padding:12px 14px;border:1px solid #f3cf95;border-left:4px solid #f59e0b;border-radius:10px;background:#fffaf2;color:#7a4308;font-size:12px}
+        .bodx-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;padding:18px 24px}
+        .bodx-kpi{padding:14px;border:1px solid #dde5ef;border-radius:14px;min-height:105px}
+        .bodx-kpi.danger{background:#fff4f2;border-color:#efc1bc}.bodx-kpi.warning{background:#fff9ef;border-color:#f2d4a5}
+        .bodx-label{min-height:30px;color:#6b7a90;font-size:11px;font-weight:700}.bodx-val{display:block;margin:6px 0 4px;color:#0d2e5e;font-size:26px}
+        .bodx-kpi.danger .bodx-val{color:#b42318}.bodx-kpi.warning .bodx-val{color:#b54708}.bodx-note{color:#8a98a9;font-size:10px}
+        .bodx-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:12px;padding:0 24px 18px}
+        .bodx-panel,.bodx-top{border:1px solid #dde5ef;border-radius:14px;background:#fff;padding:16px}
+        .bodx-ph{display:flex;justify-content:space-between;gap:12px;margin-bottom:12px}.bodx-kicker{color:#1d4e89;font-size:10px;font-weight:800;letter-spacing:.08em;margin-bottom:4px}
+        .bodx-count{min-width:28px;height:28px;border-radius:99px;background:#0d2e5e;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+        .bodx-att{display:grid;gap:8px}.bodx-att-item{display:grid;grid-template-columns:8px 1fr;gap:10px;padding:10px;border:1px solid #e6ebf2;border-radius:10px}
+        .bodx-sig{border-radius:99px;background:#94a3b8}.bodx-sig.red{background:#d92d20}.bodx-sig.amber{background:#f79009}.bodx-sig.green{background:#12b76a}
+        .bodx-atitle{font-size:12px;font-weight:800;color:#26374a}.bodx-atext{font-size:11px;color:#6b7a90;line-height:1.45;margin-top:3px}
+        .bodx-health{display:grid;gap:10px}.bodx-hrow{display:flex;justify-content:space-between;color:#6b7a90;font-size:12px}.bodx-hrow strong{color:#0d2e5e}
+        .bodx-bar{height:8px;background:#e7edf5;border-radius:99px;overflow:hidden}.bodx-bar span{display:block;height:100%;background:linear-gradient(90deg,#2e90fa,#12b76a)}
+        .bodx-top{margin:0 24px 18px}.bodx-table{width:100%;border-collapse:collapse;font-size:11px}.bodx-table th{background:#f7f9fc;color:#627388;font-size:10px;text-align:left;padding:9px 8px;border-bottom:1px solid #dce5ef}.bodx-table td{padding:9px 8px;border-bottom:1px solid #eef2f6}
+        .bodx-level{display:inline-flex;padding:3px 7px;border-radius:99px;background:#edf1f5;font-size:9.5px;font-weight:800}.bodx-level.high{background:#fee4e2;color:#912018}.bodx-level.medium{background:#fef0c7;color:#92400e}.bodx-level.low{background:#d1fadf;color:#05603a}
+        .bodx-footer{padding:0 24px 18px;color:#7b8999;font-size:10.5px}
+        @media(max-width:1180px){.bodx-kpis{grid-template-columns:repeat(3,1fr)}}@media(max-width:860px){.bodx-head{flex-direction:column}.bodx-grid{grid-template-columns:1fr}}@media(max-width:620px){.bodx-kpis{grid-template-columns:repeat(2,1fr)}}
+
+
+        /* BOD_EXECUTIVE_DASHBOARD_PHASE2_CSS */
+        .bodp2{padding:0 24px 18px}
+        .bodp2-grid{display:grid;gap:12px}
+        .bodp2-kpis{grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px}
+        .bodp2-card,.bodp2-panel{border:1px solid #dde5ef;border-radius:14px;background:#fff;padding:14px}
+        .bodp2-card span{display:block;min-height:28px;color:#6b7a90;font-size:11px;font-weight:700}
+        .bodp2-card strong{display:block;margin:5px 0;color:#0d2e5e;font-size:24px}
+        .bodp2-card small{color:#8a98a9;font-size:10px;line-height:1.35}
+        .bodp2-main{grid-template-columns:1.55fr 1fr;margin-bottom:12px}
+        .bodp2-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:12px}
+        .bodp2-head h3{margin:0;color:#0d2e5e;font-size:16px}
+        .bodp2-trend{display:flex;align-items:flex-end;gap:8px;min-height:150px;padding:10px 4px 0}
+        .bodp2-month{flex:1;min-width:34px;text-align:center}
+        .bodp2-bars{height:110px;display:flex;align-items:flex-end;justify-content:center;gap:3px}
+        .bodp2-bar-high,.bodp2-bar-kri{width:11px;min-height:2px;border-radius:5px 5px 0 0}
+        .bodp2-bar-high{background:#d92d20}.bodp2-bar-kri{background:#f79009}
+        .bodp2-month-label{margin-top:5px;color:#7d8b9b;font-size:9px}
+        .bodp2-health{display:grid;gap:10px}
+        .bodp2-health div{display:flex;justify-content:space-between;border-bottom:1px solid #eef2f6;padding-bottom:8px;color:#6b7a90;font-size:12px}
+        .bodp2-health strong{color:#0d2e5e}
+        .bodp2-signal-list{display:grid;gap:8px}
+        .bodp2-signal{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,2fr);gap:12px;padding:10px;border:1px solid #e6ebf2;border-radius:10px}
+        .bodp2-signal strong{display:block;color:#26374a;font-size:12px}
+        .bodp2-signal span,.bodp2-signal small{color:#6b7a90;font-size:10.5px;line-height:1.4}
+        @media(max-width:1180px){.bodp2-kpis{grid-template-columns:repeat(3,1fr)}}
+        @media(max-width:860px){.bodp2-main{grid-template-columns:1fr}.bodp2-signal{grid-template-columns:1fr}}
+        @media(max-width:620px){.bodp2-kpis{grid-template-columns:1fr 1fr}}
+
+
+        /* BOD_EXECUTIVE_DASHBOARD_PHASE2_1_ALIGNMENT_CSS */
+        .bodp2-scope{
+            display:flex;justify-content:space-between;gap:18px;align-items:flex-start;
+            margin-bottom:12px;padding:14px 16px;border:1px solid #d8e2ee;
+            border-radius:14px;background:linear-gradient(180deg,#f9fbfd,#f4f8fc)
+        }
+        .bodp2-scope h3{margin:0;color:#0d2e5e;font-size:16px}
+        .bodp2-scope p{margin:5px 0 0;max-width:760px;color:#6b7a90;font-size:11px;line-height:1.45}
+        .bodp2-scope-meta{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+        .bodp2-scope-meta span{
+            display:inline-flex;align-items:center;min-height:28px;padding:0 9px;
+            border:1px solid #d6e0eb;border-radius:999px;background:#fff;
+            color:#52667d;font-size:10px;font-weight:700
+        }
+        .bodp2-legend{
+            display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+            margin-bottom:6px;color:#6b7a90;font-size:10px
+        }
+        .bodp2-legend span{display:inline-flex;align-items:center;gap:5px}
+        .bodp2-legend em{margin-left:auto;color:#8a98a9;font-style:normal}
+        .bodp2-dot{display:inline-block;width:8px;height:8px;border-radius:50%}
+        .bodp2-dot-high{background:#d92d20}
+        .bodp2-dot-kri{background:#f79009}
+        @media(max-width:860px){
+            .bodp2-scope{flex-direction:column}
+            .bodp2-scope-meta{justify-content:flex-start}
+            .bodp2-legend em{width:100%;margin-left:0}
+        }
+
+
+        /* BOD_EXECUTIVE_DASHBOARD_PHASE3_V3_CSS */
+        .bodp3{margin:0 24px 18px;padding:16px;border:1px solid #d8e2ee;border-radius:14px;background:linear-gradient(180deg,#fbfcfe,#f7f9fc)}
+        .bodp3-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:12px}
+        .bodp3-head h3{margin:0;color:#0d2e5e;font-size:16px}
+        .bodp3-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:12px}
+        .bodp3-kpis article{padding:11px;border:1px solid #e1e7ef;border-radius:10px;background:#fff}
+        .bodp3-kpis article.good{background:#f0fdf4}.bodp3-kpis article.bad{background:#fff1f0}
+        .bodp3-kpis span,.bodp3-effect span,.bodp3-quality span{display:block;color:#758497;font-size:9.5px}
+        .bodp3-kpis strong{display:block;margin:4px 0;color:#0d2e5e;font-size:20px}
+        .bodp3-kpis small{color:#8a98a9;font-size:9px}
+        .bodp3-grid{display:grid;grid-template-columns:1.6fr .8fr;gap:12px}
+        .bodp3-panel{padding:14px;border:1px solid #dde5ef;border-radius:12px;background:#fff}
+        .bodp3-title{margin-bottom:10px;color:#26374a;font-size:12px;font-weight:800}
+        .bodp3-table-wrap{overflow-x:auto}.bodp3-table{width:100%;border-collapse:collapse;font-size:10.5px}
+        .bodp3-table th{padding:8px 7px;background:#f7f9fc;color:#627388;text-align:left;font-size:9.5px;border-bottom:1px solid #dde5ef}
+        .bodp3-table td{padding:8px 7px;border-bottom:1px solid #eef2f6;vertical-align:top}
+        .bodp3-status{display:inline-flex;padding:3px 7px;border-radius:99px;font-size:9px;font-weight:800}
+        .bodp3-status.within{background:#d1fadf;color:#05603a}
+        .bodp3-status.breach{background:#fee4e2;color:#912018}
+        .bodp3-status.na{background:#edf1f5;color:#64748b}
+        .bodp3-effect{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}
+        .bodp3-effect div{padding:10px;border:1px solid #edf1f5;border-radius:9px;background:#fafbfd}
+        .bodp3-effect .good{background:#f0fdf4}.bodp3-effect .mid{background:#fffbeb}.bodp3-effect .bad{background:#fff1f0}
+        .bodp3-effect strong{display:block;margin-top:4px;color:#0d2e5e;font-size:19px}
+        .bodp3-quality{display:flex;justify-content:space-between;align-items:center;margin-top:9px;padding:9px;border-radius:9px;background:#f7f9fc}
+        .bodp3-quality span{display:inline}.bodp3-quality strong{color:#0d2e5e;font-size:11px}
+        @media(max-width:1180px){.bodp3-kpis{grid-template-columns:repeat(3,1fr)}}
+        @media(max-width:900px){.bodp3-grid{grid-template-columns:1fr}}
+        @media(max-width:620px){.bodp3{margin-left:14px;margin-right:14px}.bodp3-kpis{grid-template-columns:repeat(2,1fr)}}
+
     </style>
 </head>
 <body>
@@ -742,6 +864,171 @@
             </a>
         </div>
     </section>
+    <!-- BOD_EXECUTIVE_DASHBOARD_V3 -->
+    <section class="bodx" id="bodExecutiveV3">
+      <div class="bodx-head">
+        <div>
+          <div class="bodx-eyebrow">BOARD OF DIRECTORS · EXECUTIVE RISK VIEW</div>
+          <h2>Executive Risk Dashboard</h2>
+          <p class="bodx-sub">Ringkasan kondisi risiko untuk prioritas, eskalasi, dan pengambilan keputusan manajemen. Data mengikuti filter RCC aktif.</p>
+        </div>
+        <div class="bodx-actions">
+          <span class="bodx-chip" id="bodMode">Mode: –</span>
+          <button class="bodx-btn primary" type="button" id="bodResidual">Gunakan Residual</button>
+          <button class="bodx-btn" type="button" id="bodDetail">Detail RCC</button>
+        </div>
+      </div>
+      <div class="bodx-warn" id="bodWarn" hidden></div>
+      <div class="bodx-kpis">
+        <article class="bodx-kpi"><div class="bodx-label">Total Risiko Korporat</div><strong class="bodx-val" id="bodTotal">–</strong><div class="bodx-note">Scope RCC aktif</div></article>
+        <article class="bodx-kpi danger"><div class="bodx-label">High / Very High</div><strong class="bodx-val" id="bodHigh">–</strong><div class="bodx-note">Prioritas eskalasi</div></article>
+        <article class="bodx-kpi warning"><div class="bodx-label">Belum Dipetakan</div><strong class="bodx-val" id="bodUnmapped">–</strong><div class="bodx-note">Blind spot risiko</div></article>
+        <article class="bodx-kpi"><div class="bodx-label">KPMR Perlu Atensi</div><strong class="bodx-val" id="bodKpmrAtt">–</strong><div class="bodx-note" id="bodKpmrAvg">Rata-rata KPMR: –</div></article>
+        <article class="bodx-kpi"><div class="bodx-label">Reporting Coverage</div><strong class="bodx-val" id="bodCoverage">–</strong><div class="bodx-note" id="bodCoverageNote">Unit melapor: –</div></article>
+        <article class="bodx-kpi"><div class="bodx-label">Data Readiness</div><strong class="bodx-val" id="bodReady">–</strong><div class="bodx-note">Risiko sudah dipetakan</div></article>
+      </div>
+      <div class="bodx-grid">
+        <section class="bodx-panel">
+          <div class="bodx-ph"><div><div class="bodx-kicker">MANAGEMENT SIGNAL</div><h3>BoD Attention Required</h3></div><span class="bodx-count" id="bodAttCount">0</span></div>
+          <div class="bodx-att" id="bodAtt"></div>
+        </section>
+        <section class="bodx-panel">
+          <div class="bodx-ph"><div><div class="bodx-kicker">GOVERNANCE HEALTH</div><h3>Risk Governance & Data Quality</h3></div></div>
+          <div class="bodx-health">
+            <div class="bodx-hrow"><span>Rata-rata KPMR</span><strong id="bodHKpmr">–</strong></div>
+            <div class="bodx-hrow"><span>Unit melapor</span><strong id="bodHReport">–</strong></div>
+            <div class="bodx-hrow"><span>Risiko dipetakan</span><strong id="bodHMapped">–</strong></div>
+            <div class="bodx-bar"><span id="bodBar" style="width:0%"></span></div>
+          </div>
+        </section>
+      </div>
+      <section class="bodx-top">
+        <div class="bodx-ph"><div><div class="bodx-kicker">PRIORITAS RISIKO</div><h3>Top Corporate Risks</h3></div></div>
+        <div style="overflow-x:auto"><table class="bodx-table"><thead><tr><th>Rank</th><th>Peristiwa Risiko</th><th>Pemilik</th><th>Skor</th><th>Level</th><th>Status</th></tr></thead><tbody id="bodTop"><tr><td colspan="6">Membaca data…</td></tr></tbody></table></div>
+      </section>
+
+      <!-- BOD_EXECUTIVE_DASHBOARD_PHASE2 -->
+      <div class="bodp2">
+
+      <!-- BOD_EXECUTIVE_DASHBOARD_PHASE2_1_ALIGNMENT -->
+      <div class="bodp2-scope">
+        <div>
+          <div class="bodx-kicker">ENTERPRISE UNIT RISK MONITORING</div>
+          <h3>Unit Risk, KRI & Mitigation Signals</h3>
+          <p>
+            Bagian ini bersumber dari laporan risiko bulanan bidang/unit.
+            Angkanya tidak sama scope-nya dengan 15 risiko korporat pada Corporate Risk Position di atas.
+          </p>
+        </div>
+        <div class="bodp2-scope-meta">
+          <span id="p2ScopePeriod">Periode: –</span>
+          <span id="p2ScopeReports">Laporan: –</span>
+          <span id="p2ScopeItems">Item risiko: –</span>
+        </div>
+      </div>
+
+        <div class="bodp2-grid bodp2-kpis">
+          <article class="bodp2-card"><span>KRI Merah / Bahaya</span><strong id="p2KriRed">–</strong><small>Threshold KRI yang membutuhkan eskalasi</small></article>
+          <article class="bodp2-card"><span>Mitigasi Overdue</span><strong id="p2Overdue">–</strong><small>Status eksplisit terlambat/overdue</small></article>
+          <article class="bodp2-card"><span>Mitigasi Belum Selesai</span><strong id="p2Incomplete">–</strong><small>Action plan yang masih berjalan</small></article>
+          <article class="bodp2-card"><span>Decision / Escalation</span><strong id="p2Decision">–</strong><small>Signal berbasis High, KRI merah, atau overdue</small></article>
+          <article class="bodp2-card"><span>Risk Appetite Data</span><strong id="p2Appetite">–</strong><small id="p2AppetiteNote">Memeriksa schema…</small></article>
+        </div>
+
+        <div class="bodp2-grid bodp2-main">
+          <section class="bodp2-panel">
+            <div class="bodp2-head"><div><div class="bodx-kicker">TREND SIGNAL</div><h3>Unit Risk Trend 12 Bulan</h3></div><span class="bodx-note" id="p2Period">–</span></div>
+            <div class="bodp2-legend">
+              <span><i class="bodp2-dot bodp2-dot-high"></i> High Residual Risk</span>
+              <span><i class="bodp2-dot bodp2-dot-kri"></i> KRI Red / Breach</span>
+              <em>Source: Monthly Risk Reports – Bidang/Unit</em>
+            </div>
+            <div id="p2Trend" class="bodp2-trend"></div>
+          </section>
+
+          <section class="bodp2-panel">
+            <div class="bodp2-head"><div><div class="bodx-kicker">KRI & MITIGATION</div><h3>Management Health</h3></div></div>
+            <div class="bodp2-health">
+              <div><span>KRI Hijau</span><strong id="p2KriGreen">–</strong></div>
+              <div><span>KRI Kuning</span><strong id="p2KriYellow">–</strong></div>
+              <div><span>KRI Merah</span><strong id="p2KriRed2">–</strong></div>
+              <div><span>Mitigasi Selesai</span><strong id="p2Completed">–</strong></div>
+            </div>
+          </section>
+        </div>
+
+        <section class="bodp2-panel bodp2-signals">
+          <div class="bodp2-head">
+            <div><div class="bodx-kicker">DECISION SUPPORT</div><h3>Unit Risk Escalation Signals</h3></div>
+            <span class="bodx-note">Rule-based signal dari laporan unit; bukan keputusan otomatis BoD.</span>
+          </div>
+          <div id="p2Signals" class="bodp2-signal-list"><div class="bodx-note">Memuat data laporan bulanan…</div></div>
+        </section>
+      </div>
+
+
+      <!-- BOD_EXECUTIVE_DASHBOARD_PHASE3_V3 -->
+      <section class="bodp3">
+        <div class="bodp3-head">
+          <div>
+            <div class="bodx-kicker">CORPORATE RISK APPETITE</div>
+            <h3>Monte Carlo Appetite Position</h3>
+          </div>
+          <span class="bodx-note">Appetite = batas probabilitas target tidak tercapai; bukan skor residual 5x5.</span>
+        </div>
+
+        <div class="bodp3-kpis">
+          <article><span>Risiko Ter-cover</span><strong id="p3Covered">–</strong><small>dari risiko korporat</small></article>
+          <article><span>Appetite Assessed</span><strong id="p3Assessed">–</strong><small>hasil Monte Carlo tersedia</small></article>
+          <article class="good"><span>Within Appetite</span><strong id="p3Within">–</strong><small>probabilitas ≤ appetite</small></article>
+          <article class="bad"><span>Appetite Breach</span><strong id="p3Breach">–</strong><small>probabilitas &gt; appetite</small></article>
+          <article><span>Belum Dinilai</span><strong id="p3NotAssessed">–</strong><small>hasil belum lengkap</small></article>
+          <article><span>Appetite Loss Value</span><strong id="p3LossValue">–</strong><small>field nilai kerugian terisi</small></article>
+        </div>
+
+        <div class="bodp3-grid">
+          <section class="bodp3-panel">
+            <div class="bodp3-title">Corporate Appetite Assessment</div>
+            <div class="bodp3-table-wrap">
+              <table class="bodp3-table">
+                <thead>
+                  <tr>
+                    <th>Risiko Korporat</th>
+                    <th>Metric</th>
+                    <th>Prob. Tidak Tercapai</th>
+                    <th>Appetite</th>
+                    <th>Status</th>
+                    <th>Headroom</th>
+                  </tr>
+                </thead>
+                <tbody id="p3AppetiteRows">
+                  <tr><td colspan="6">Memuat hasil Monte Carlo…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="bodp3-panel">
+            <div class="bodp3-title">Treatment Effectiveness · Unit Monitoring</div>
+            <div class="bodp3-effect">
+              <div class="good"><span>Efektif</span><strong id="p3Effective">–</strong></div>
+              <div class="mid"><span>Cukup Efektif</span><strong id="p3Adequate">–</strong></div>
+              <div class="bad"><span>Tidak Efektif</span><strong id="p3Ineffective">–</strong></div>
+              <div><span>Belum Dinilai</span><strong id="p3EffNotAssessed">–</strong></div>
+            </div>
+            <div class="bodp3-quality">
+              <span>KRI status classified</span><strong id="p3KriQuality">–</strong>
+            </div>
+            <div class="bodp3-quality">
+              <span>Unit item mapped to corporate</span><strong id="p3CorporateMap">–</strong>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <div class="bodx-footer"><strong>BoD View:</strong> fokus pada exception, risiko prioritas, kualitas data, dan kebutuhan eskalasi. Detail RCC tetap tersedia di bawah.</div>
+    </section>
+
 
     <form method="get" class="filters">
         <input type="hidden" name="tab" value="{{ active_tab }}">
@@ -2228,5 +2515,254 @@
         detailBody.innerHTML = '<div class="empty-state">Belum ada data risiko yang bisa dipetakan ke heatmap.</div>';
     }
 </script>
+
+<script>
+/* BOD_EXECUTIVE_DASHBOARD_V3_JS */
+(function(){
+ const root=document.getElementById("bodExecutiveV3"); if(!root)return;
+ const n=v=>String(v??"").replace(/\s+/g," ").trim().toLowerCase(), c=v=>String(v??"").replace(/\s+/g," ").trim();
+ const num=v=>{if(v==null||String(v).trim()==="")return null;let s=String(v).replace(/%/g,"").replace(/\s/g,"").replace(/[^\d.,-]/g,"");if(s.includes(",")&&s.includes("."))s=s.lastIndexOf(",")>s.lastIndexOf(".")?s.replace(/\./g,"").replace(",","."):s.replace(/,/g,"");else if(s.includes(","))s=s.replace(",",".");let x=Number(s);return Number.isFinite(x)?x:null};
+ const set=(id,v)=>{let e=document.getElementById(id);if(e)e.textContent=v??"–"};
+ function stat(label){let e=[...document.querySelectorAll(".stat-label")].find(x=>n(x.textContent)===n(label));if(!e)return null;let card=e.closest(".stat-card")||e.parentElement;let v=card.querySelector(".stat-value")||card.querySelector("strong,b");return v?c(v.textContent):null}
+ function tableByTitle(title){let h=[...document.querySelectorAll("h1,h2,h3,h4,strong,b")].filter(x=>!root.contains(x)).find(x=>n(x.textContent).includes(n(title)));if(!h)return null;let p=h;for(let i=0;p&&i<5;i++,p=p.parentElement){let t=p.querySelector("table");if(t&&!root.contains(t))return t}return null}
+ function rows(t){if(!t)return[];let hs=[...t.querySelectorAll("thead th")].map(x=>n(x.textContent));return[...t.querySelectorAll("tbody tr")].map(tr=>{let r={};[...tr.querySelectorAll("td")].forEach((td,i)=>r[hs[i]||"c"+i]=c(td.textContent));return r})}
+ function pick(r,a){for(let z of a){let k=Object.keys(r).find(k=>n(k)===n(z))||Object.keys(r).find(k=>n(k).includes(n(z)));if(k)return r[k]}return""}
+ function sev(l,s){l=n(l);s=num(s);if(l.includes("sangat tinggi")||l.includes("very high")||l.includes("critical"))return 5;if(l==="high"||l.includes("tinggi"))return 4;if(l.includes("moderate")||l.includes("moderat")||l.includes("sedang"))return 3;if(l.includes("low")||l.includes("rendah"))return 2;if(s!=null){if(s>=20)return 5;if(s>=16)return 4;if(s>=10)return 3;if(s>=5)return 2;if(s>=1)return 1}return 0}
+ const total=num(stat("Total Risiko RCC")||stat("Profil Risiko Korporat")), mapped=num(stat("Sudah Dipetakan")), unmapped=num(stat("Belum Dipetakan")), reported=num(stat("Unit Melapor")), kpmr=stat("Rata-rata KPMR"), katt=num(stat("KPMR Perlu Atensi"));
+ set("bodTotal",total==null?"–":Math.round(total));set("bodUnmapped",unmapped==null?"–":Math.round(unmapped));set("bodKpmrAtt",katt==null?"–":Math.round(katt));set("bodKpmrAvg","Rata-rata KPMR: "+(kpmr||"–"));set("bodHKpmr",kpmr||"–");
+ let modeSel=document.getElementById("mode"),mode=modeSel?c(modeSel.options[modeSel.selectedIndex]?.text||modeSel.value):"–";set("bodMode","Mode: "+mode);
+ let mon=rows(tableByTitle("Monitoring Profil Risiko Bidang/Unit Bisnis")),units=mon.length||null;
+ if(reported!=null&&units){let pct=Math.max(0,Math.min(100,reported/units*100));set("bodCoverage",Math.round(pct)+"%");set("bodCoverageNote","Unit melapor: "+Math.round(reported)+"/"+units);set("bodHReport",Math.round(reported)+"/"+units)}else{set("bodCoverage",reported==null?"–":Math.round(reported));set("bodHReport",reported??"–")}
+ let ready=total&&mapped!=null?mapped/total*100:(total&&unmapped!=null?(total-unmapped)/total*100:null);if(ready!=null)ready=Math.max(0,Math.min(100,ready));set("bodReady",ready==null?"–":Math.round(ready)+"%");set("bodHMapped",mapped!=null&&total!=null?Math.round(mapped)+"/"+Math.round(total):"–");document.getElementById("bodBar").style.width=(ready||0)+"%";
+ if(unmapped&&unmapped>0){let w=document.getElementById("bodWarn");w.hidden=false;w.innerHTML="<strong>Data belum lengkap:</strong> "+Math.round(unmapped)+' risiko belum dipetakan. Angka 0 pada heatmap tidak berarti "tidak ada risiko".'}
+ let risk=rows(tableByTitle("Drilldown Risiko")).map((r,i)=>{let event=pick(r,["peristiwa risiko","risiko"]),owner=pick(r,["pemilik"]),score=pick(r,["skor"]),level=pick(r,["level"]),status=pick(r,["status"]);return{i,event,owner,score,level,status,s:sev(level,score)}}).filter(x=>x.event);
+ risk.sort((a,b)=>(b.s-a.s)||((num(b.score)||-1)-(num(a.score)||-1))||(a.i-b.i));let high=risk.filter(x=>x.s>=4);set("bodHigh",high.length);
+ let top=document.getElementById("bodTop");top.innerHTML="";(risk.slice(0,5).length?risk.slice(0,5):[{event:"Belum ada skor/level risiko yang dapat diprioritaskan."}]).forEach((r,i)=>{let tr=document.createElement("tr");if(!r.level&&!r.score){tr.innerHTML='<td colspan="6">'+r.event+"</td>"}else{let cl=r.s>=4?"high":r.s===3?"medium":r.s>0?"low":"";tr.innerHTML="<td><strong>"+(i+1)+"</strong></td><td>"+r.event+"</td><td>"+(r.owner||"–")+"</td><td>"+(r.score||"–")+'</td><td><span class="bodx-level '+cl+'">'+(r.level||"Belum dipetakan")+"</span></td><td>"+(r.status||"–")+"</td>"}top.appendChild(tr)});
+ let att=[];high.slice(0,3).forEach(r=>att.push(["red",r.event,"Level "+(r.level||"tinggi")+(r.score?" · skor "+r.score:"")+". Perlu prioritas mitigasi dan eskalasi."]));if(unmapped>0)att.push(["amber",Math.round(unmapped)+" risiko belum dipetakan","Lengkapi penilaian agar keputusan BoD tidak menggunakan heatmap yang masih kosong."]);if(katt>0)att.push(["amber",Math.round(katt)+" unit KPMR perlu atensi","Rata-rata KPMR saat ini "+(kpmr||"belum tersedia")+"."]);if(reported!=null&&units&&reported<units)att.push(["amber","Reporting belum lengkap ("+Math.round(reported)+"/"+units+" unit)","Perlu percepatan pelaporan agar posisi risiko korporat mencerminkan seluruh unit."]);if(!att.length)att.push(["green","Tidak ada exception utama yang terdeteksi","Tetap review Top Corporate Risks dan detail RCC."]);
+ let al=document.getElementById("bodAtt");al.innerHTML="";att.slice(0,6).forEach(a=>{let d=document.createElement("div");d.className="bodx-att-item";d.innerHTML='<span class="bodx-sig '+a[0]+'"></span><div><div class="bodx-atitle">'+a[1]+'</div><div class="bodx-atext">'+a[2]+"</div></div>";al.appendChild(d)});set("bodAttCount",att.length);
+ /* BOD_EXECUTIVE_DASHBOARD_PHASE3_1_FINAL_POLISH_V2 */
+ let rb=document.getElementById("bodResidual");
+ if(rb&&modeSel){
+   let isResidual=n(mode).includes("residual");
+   rb.disabled=false;
+   rb.classList.add("primary");
+   rb.textContent=isResidual?"Lihat Inheren":"Gunakan Residual";
+   rb.onclick=()=>{
+     let target=isResidual?"inheren":"residual";
+     let o=[...modeSel.options].find(x=>n(x.textContent).includes(target));
+     if(o){
+       modeSel.value=o.value;
+       modeSel.closest("form")?.submit();
+     }
+   };
+ }
+ document.getElementById("bodDetail").onclick=()=>document.querySelector("form.filters")?.scrollIntoView({behavior:"smooth"});
+})();
+</script>
+
+
+<script>
+/* BOD_EXECUTIVE_DASHBOARD_PHASE2_JS */
+(function(){
+  const monthNames=["","Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=(v??"–")};
+  const esc=(v)=>{const d=document.createElement("div");d.textContent=String(v??"");return d.innerHTML};
+
+  async function loadPhase2(){
+    const params=new URLSearchParams(window.location.search);
+    const tahun=params.get("tahun")||new Date().getFullYear();
+    const bulan=params.get("bulan")||"";
+    const url=new URL("/api/bod-phase2/",window.location.origin);
+    url.searchParams.set("tahun",tahun);
+    if(bulan)url.searchParams.set("bulan",bulan);
+
+    let data;
+    try{
+      const response=await fetch(url,{headers:{"X-Requested-With":"XMLHttpRequest"}});
+      if(!response.ok)throw new Error("HTTP "+response.status);
+      data=await response.json();
+    }catch(err){
+      const box=document.getElementById("p2Signals");
+      if(box)box.innerHTML='<div class="bodx-note">Phase 2 API belum dapat dibaca: '+esc(err.message)+'</div>';
+      return;
+    }
+
+    set("p2KriRed",data.kri.red); set("p2KriRed2",data.kri.red);
+    set("p2KriYellow",data.kri.yellow); set("p2KriGreen",data.kri.green);
+    set("p2Overdue",data.mitigation.overdue);
+    set("p2Incomplete",data.mitigation.incomplete);
+    set("p2Completed",data.mitigation.completed);
+    set("p2Decision",data.decision_required);
+    set("p2Period",data.selected_month?monthNames[data.selected_month]+" "+data.year:"Tidak ada data");
+
+    if(data.risk_appetite.integrated){
+      set("p2Appetite","Tersedia");
+      set("p2AppetiteNote","Field appetite/tolerance/limit terdeteksi pada schema.");
+    }else{
+      set("p2Appetite","Belum");
+      set("p2AppetiteNote","Belum ada field explicit appetite/tolerance/limit; tidak dibuat status dummy.");
+    }
+
+    const trend=document.getElementById("p2Trend");
+    if(trend){
+      trend.innerHTML="";
+      const max=Math.max(1,...data.trend.flatMap(x=>[x.high_risk,x.kri_red]));
+      data.trend.slice(-12).forEach(x=>{
+        const col=document.createElement("div"); col.className="bodp2-month";
+        const hh=Math.max(2,Math.round((x.high_risk/max)*100));
+        const kh=Math.max(2,Math.round((x.kri_red/max)*100));
+        col.innerHTML='<div class="bodp2-bars" title="High: '+x.high_risk+' | KRI merah: '+x.kri_red+'">'+
+          '<span class="bodp2-bar-high" style="height:'+hh+'%"></span>'+
+          '<span class="bodp2-bar-kri" style="height:'+kh+'%"></span></div>'+
+          '<div class="bodp2-month-label">'+monthNames[x.month]+'</div>';
+        trend.appendChild(col);
+      });
+      if(!data.trend.length)trend.innerHTML='<div class="bodx-note">Belum ada histori bulanan untuk tahun ini.</div>';
+    }
+
+    const list=document.getElementById("p2Signals");
+    if(list){
+      list.innerHTML="";
+      if(!data.signals.length){
+        list.innerHTML='<div class="bodx-note">Tidak ada signal High/KRI merah/mitigasi overdue pada data bulan terpilih.</div>';
+      }else{
+        data.signals.forEach(s=>{
+          const item=document.createElement("div"); item.className="bodp2-signal";
+          item.innerHTML='<div><strong>'+esc(s.risk)+'</strong><span>Owner/PIC: '+esc(s.owner)+'</span></div>'+
+            '<div><strong>'+esc(s.reason)+'</strong><span>Level: '+esc(s.level||"–")+' · KRI: '+esc(s.kri_status||"–")+'</span></div>'+
+            '<div><strong>Management follow-up</strong><small>'+esc(s.management_action)+'</small></div>';
+          list.appendChild(item);
+        });
+      }
+    }
+  }
+  loadPhase2();
+})();
+</script>
+
+
+<script>
+/* BOD_EXECUTIVE_DASHBOARD_PHASE2_1_ALIGNMENT_JS */
+(function(){
+  async function enrichPhase21(){
+    const params = new URLSearchParams(window.location.search);
+    const tahun = params.get("tahun") || new Date().getFullYear();
+    const bulan = params.get("bulan") || "";
+    const url = new URL("/api/bod-phase2/", window.location.origin);
+    url.searchParams.set("tahun", tahun);
+    if (bulan) url.searchParams.set("bulan", bulan);
+
+    try{
+      const response = await fetch(url, {headers: {"X-Requested-With": "XMLHttpRequest"}});
+      if(!response.ok) return;
+      const data = await response.json();
+      const months = ["","Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+      const period = data.selected_month ? (months[data.selected_month] + " " + data.year) : String(data.year || "–");
+      const set = (id, value) => {
+        const el = document.getElementById(id);
+        if(el) el.textContent = value;
+      };
+      set("p2ScopePeriod", "Periode: " + period);
+      set("p2ScopeReports", "Laporan: " + data.reports_used);
+      set("p2ScopeItems", "Item risiko: " + data.items_used);
+    }catch(_err){}
+  }
+  enrichPhase21();
+})();
+</script>
+
+
+<script>
+/* BOD_EXECUTIVE_DASHBOARD_PHASE3_V3_JS */
+(function(){
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=(v??"–")};
+  const esc=(v)=>{const d=document.createElement("div");d.textContent=String(v??"");return d.innerHTML};
+
+  async function loadPhase3(){
+    const params=new URLSearchParams(window.location.search);
+    const tahun=params.get("tahun")||new Date().getFullYear();
+    const bulan=params.get("bulan")||"";
+    const url=new URL("/api/bod-phase2/",window.location.origin);
+    url.searchParams.set("tahun",tahun);
+    if(bulan)url.searchParams.set("bulan",bulan);
+
+    try{
+      const response=await fetch(url,{headers:{"X-Requested-With":"XMLHttpRequest"}});
+      if(!response.ok)return;
+      const data=await response.json();
+      const a=data.risk_appetite||{};
+      const e=data.treatment_effectiveness||{};
+      const q=data.kri_quality||{};
+
+      const totalCorporate=Number(document.getElementById("bodTotal")?.textContent||15);
+      set("p3Covered",String(a.covered_corporate_risks??0)+"/"+String(totalCorporate||15));
+      set("p3Assessed",String(a.assessed??0)+"/"+String(a.covered_corporate_risks??0));
+      set("p3Within",a.within??0);
+      set("p3Breach",a.breach??0);
+      set("p3NotAssessed",a.not_assessed??0);
+      set("p3LossValue",String(a.value_filled??0)+"/"+String(a.total_metrics??0));
+
+      set("p3Effective",e.effective??0);
+      set("p3Adequate",e.adequate??0);
+      set("p3Ineffective",e.ineffective??0);
+      set("p3EffNotAssessed",(e.not_assessed||0)+(e.other||0));
+
+      const quality=q.nonblank?Math.round((q.recognized/q.nonblank)*100):0;
+      set("p3KriQuality",String(q.recognized||0)+"/"+String(q.nonblank||0)+" ("+quality+"%)");
+      set("p3CorporateMap",String(data.corporate_contribution||0)+"/"+String(data.items_used||0));
+
+      if((a.total_metrics||0)>0){
+        set("p2Appetite","Parsial");
+        set("p2AppetiteNote",
+          String(a.covered_corporate_risks||0)+" risiko ter-cover; "+
+          String(a.assessed||0)+" sudah dapat diuji terhadap appetite."
+        );
+      }
+
+      const body=document.getElementById("p3AppetiteRows");
+      if(body){
+        body.innerHTML="";
+        const rows=a.assessments||[];
+
+        if(!rows.length){
+          body.innerHTML='<tr><td colspan="6">Belum ada assessment appetite.</td></tr>';
+        }else{
+          rows.forEach(r=>{
+            const tr=document.createElement("tr");
+            let cls="na",label="Belum Dinilai";
+            if(r.status==="within"){cls="within";label="Within Appetite";}
+            if(r.status==="breach"){cls="breach";label="Appetite Breach";}
+
+            const prob=r.probability_not_achieve==null
+              ?"–"
+              :Number(r.probability_not_achieve).toFixed(2)+"%";
+            const threshold=r.threshold==null
+              ?"–"
+              :Number(r.threshold).toFixed(2)+"%";
+
+            let head="–";
+            if(r.headroom!=null){
+              const h=Number(r.headroom);
+              head=(h>=0?"+":"")+h.toFixed(2)+"%";
+            }
+
+            tr.innerHTML=
+              "<td>"+esc(r.risk)+"</td>"+
+              "<td>"+esc(r.metric_name)+(r.is_target_metric?" <small>Target Utama</small>":"")+"</td>"+
+              "<td>"+prob+"</td>"+
+              "<td>"+threshold+"</td>"+
+              '<td><span class="bodp3-status '+cls+'">'+label+"</span></td>"+
+              "<td>"+head+"</td>";
+            body.appendChild(tr);
+          });
+        }
+      }
+    }catch(_err){}
+  }
+
+  loadPhase3();
+})();
+</script>
+
 </body>
 </html>

@@ -231,9 +231,9 @@ def _get_filtered_items(request):
     status = request.GET.get("status")
     owner = request.GET.get("pemilik")
     category_id = request.GET.get("kategori")
-    mode = request.GET.get("mode", "inheren")
+    mode = request.GET.get("mode", "residual")
     if mode not in dict(MODE_CHOICES):
-        mode = "inheren"
+        mode = "residual"
 
     items = get_accessible_corporate_risk_items(request.user).select_related(
         "summary", "kategori_risiko", "taksonomi_t3", "bumn", "sasaran_kbumn",

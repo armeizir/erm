@@ -5,7 +5,10 @@ from django.urls import path, include
 from risk.views import dashboard, export_rcc_excel, kpmr_review_view, kpmr_update_item
 from riskproject.admin_site import risk_admin_site
 
+from risk.bod_phase2 import bod_phase2_api
+
 urlpatterns = [
+    path("api/bod-phase2/", bod_phase2_api, name="bod_phase2_api"),
     path("", dashboard, name="dashboard"),
 
     path("rcc/", dashboard, name="rcc_dashboard"),
