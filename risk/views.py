@@ -268,6 +268,14 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
 
     level_counts = defaultdict(int)
     cell_items = defaultdict(list)
+
+    # RCC_CORPORATE_MATRIX_PHASE4_V1
+    # Keep active-mode heatmap behavior, but also prepare both Inherent and
+    # Residual positions so the BoD matrix can display movement in one view.
+    dual_cell_items = {
+        "inheren": defaultdict(list),
+        "residual": defaultdict(list),
+    }
     drilldown_items = []
 
     for item in items:
@@ -280,6 +288,14 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
             cell_items[(entry["dampak"], entry["kemungkinan"])].append(entry)
         drilldown_items.append(entry)
 
+        # Build dual-mode marker positions independently of the selected RCC mode.
+        for dual_mode in ("inheren", "residual"):
+            dual_entry = _build_risk_entry(item, dual_mode, matrix_lookup)
+            if dual_entry and dual_entry["is_mappable"]:
+                dual_cell_items[dual_mode][
+                    (dual_entry["dampak"], dual_entry["kemungkinan"])
+                ].append(dual_entry)
+
     grid = []
     for likelihood in range(size, 0, -1):
         row = {
@@ -291,6 +307,14 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
             cell_meta = matrix_lookup.get((impact, likelihood))
             cell_risks = sorted(
                 cell_items.get((impact, likelihood), []),
+                key=lambda risk: (risk["no_risiko"] or 0, risk["peristiwa_risiko"]),
+            )
+            inherent_risks = sorted(
+                dual_cell_items["inheren"].get((impact, likelihood), []),
+                key=lambda risk: (risk["no_risiko"] or 0, risk["peristiwa_risiko"]),
+            )
+            residual_risks = sorted(
+                dual_cell_items["residual"].get((impact, likelihood), []),
                 key=lambda risk: (risk["no_risiko"] or 0, risk["peristiwa_risiko"]),
             )
             fallback_score = _fallback_matrix_score(impact, likelihood)
@@ -311,6 +335,8 @@ def _risk_matrix_context(items_qs, mode="inheren", selected_summary=None):
                     "color": color,
                     "count": len(cell_risks),
                     "risks": cell_risks,
+                    "inherent_risks": inherent_risks,
+                    "residual_risks": residual_risks,
                 }
             )
         grid.append(row)

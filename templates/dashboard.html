@@ -847,6 +847,39 @@
         @media(max-width:900px){.bodp3-grid{grid-template-columns:1fr}}
         @media(max-width:620px){.bodp3{margin-left:14px;margin-right:14px}.bodp3-kpis{grid-template-columns:repeat(2,1fr)}}
 
+
+        /* RCC_CORPORATE_MATRIX_PHASE4_V1 */
+        .matrix-position-legend{
+            display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+            margin:8px 0 12px;padding:9px 11px;border:1px solid #dce4ee;
+            border-radius:10px;background:#f8fafc;color:#53657a;font-size:11px
+        }
+        .matrix-position-legend span{display:inline-flex;align-items:center;gap:6px;font-weight:700}
+        .matrix-position-legend em{margin-left:auto;color:#7b8999;font-style:normal}
+        .matrix-risk-markers{
+            display:flex;align-content:flex-start;align-items:flex-start;
+            flex-wrap:wrap;gap:4px;min-height:34px;margin:8px 0 6px
+        }
+        .matrix-risk-marker{
+            display:inline-flex;align-items:center;justify-content:center;
+            min-width:24px;height:22px;padding:0 5px;border-radius:5px;
+            font-size:10px;font-weight:900;line-height:1;box-sizing:border-box;
+            box-shadow:0 1px 2px rgba(15,23,42,.16)
+        }
+        .matrix-risk-marker.inherent{
+            background:#163d67;color:#fff;border:1px solid rgba(255,255,255,.85)
+        }
+        .matrix-risk-marker.residual{
+            background:#e5e7eb;color:#111827;border:1px solid #8b949e
+        }
+        .matrix-active-count{
+            margin-top:2px;font-size:9px!important;font-weight:700!important;
+            opacity:.82
+        }
+        @media(max-width:900px){
+            .matrix-position-legend em{width:100%;margin-left:0}
+            .matrix-risk-marker{min-width:22px;height:20px;font-size:9px}
+        }
     </style>
 </head>
 <body>
@@ -2225,7 +2258,7 @@
     <section class="content">
         <div class="panel matrix-card">
             <div class="section-title">
-                <h2>Heatmap Matriks Risiko 5x5</h2>
+                <h2>Corporate Risk Position · Matriks Risiko 5x5</h2>
                 <span>
                     <span class="mode-chip">{{ mode_label }}</span>
                     {% if matrix %}
@@ -2243,6 +2276,19 @@
                         <span>{{ item.name }}</span>
                     </div>
                 {% endfor %}
+            </div>
+
+            <!-- RCC_CORPORATE_MATRIX_PHASE4_V1 -->
+            <div class="matrix-position-legend">
+                <span>
+                    <i class="matrix-risk-marker inherent">1</i>
+                    Inheren
+                </span>
+                <span>
+                    <i class="matrix-risk-marker residual">1</i>
+                    Residual
+                </span>
+                <em>Angka pada marker = No. Risiko Korporat · Klik sel untuk detail mode {{ mode_label }}.</em>
             </div>
 
             <div class="matrix-wrapper">
@@ -2277,7 +2323,25 @@
                                                 data-risks='[{% for risk in cell.risks %}{"no_risiko":"{{ risk.no_risiko|default_if_none:"-"|escapejs }}","peristiwa_risiko":"{{ risk.peristiwa_risiko|default_if_none:"-"|escapejs }}","kategori_risiko":"{{ risk.kategori_risiko|default_if_none:"-"|escapejs }}","pemilik_risiko":"{{ risk.pemilik_risiko|default_if_none:"-"|escapejs }}","status":"{{ risk.status|default_if_none:"-"|escapejs }}","level":"{{ risk.level|default_if_none:"-"|escapejs }}","score":"{{ risk.score|default_if_none:"-" }}","summary":"{{ risk.summary|default_if_none:"-"|escapejs }}","color":"{{ risk.color|default_if_none:"#e5e7eb"|escapejs }}"}{% if not forloop.last %},{% endif %}{% endfor %}]'
                                             >
                                             <div class="cell-score">Skor {{ cell.score }}</div>
-                                            <div class="cell-count">{{ cell.count }}</div>
+
+                                            <div class="matrix-risk-markers" aria-label="Posisi risiko korporat">
+                                                {% for risk in cell.inherent_risks %}
+                                                    <span
+                                                        class="matrix-risk-marker inherent"
+                                                        title="Inheren · Risk #{{ risk.no_risiko }} · {{ risk.peristiwa_risiko }}"
+                                                    >{{ risk.no_risiko|default_if_none:"-" }}</span>
+                                                {% endfor %}
+                                                {% for risk in cell.residual_risks %}
+                                                    <span
+                                                        class="matrix-risk-marker residual"
+                                                        title="Residual · Risk #{{ risk.no_risiko }} · {{ risk.peristiwa_risiko }}"
+                                                    >{{ risk.no_risiko|default_if_none:"-" }}</span>
+                                                {% endfor %}
+                                            </div>
+
+                                            <div class="cell-count matrix-active-count">
+                                                {{ cell.count }} risiko · {{ mode_label }}
+                                            </div>
                                             <div class="cell-level">{{ cell.level }}</div>
                                         </button>
                                     </td>
