@@ -648,38 +648,81 @@ class MasterBUMNAdmin(admin.ModelAdmin):
 class RKAPItemAdmin(admin.ModelAdmin):
     list_display = (
         "tahun",
+        "jenis_rkap",
         "kode",
         "sasaran",
-        "indikator",
+        "tipe_baris",
         "target",
         "satuan",
+        "polaritas",
         "unit_penanggung_jawab",
         "aktif",
     )
-    list_filter = ("tahun", "aktif", "unit_penanggung_jawab")
-    search_fields = ("kode", "sasaran", "indikator", "asumsi")
-    ordering = ("-tahun", "kode", "sasaran")
-    autocomplete_fields = ("unit_penanggung_jawab",)
+    list_filter = (
+        "tahun",
+        "jenis_rkap",
+        "tipe_baris",
+        "polaritas",
+        "periode",
+        "aktif",
+        "unit_penanggung_jawab",
+    )
+    search_fields = (
+        "kode",
+        "sasaran",
+        "indikator",
+        "kategori",
+        "subkategori",
+        "asumsi",
+        "sumber_dokumen",
+    )
+    ordering = (
+        "-tahun",
+        "jenis_rkap",
+        "kategori",
+        "subkategori",
+        "urutan",
+        "kode",
+        "sasaran",
+    )
+    autocomplete_fields = ("parent", "unit_penanggung_jawab")
 
     fieldsets = (
         ("Informasi Utama", {
             "fields": (
                 "tahun",
+                "jenis_rkap",
                 "kode",
                 "sasaran",
                 "indikator",
             )
         }),
-        ("Target", {
+        ("Struktur / Hierarki", {
             "fields": (
-                "target",
-                "satuan",
+                "tipe_baris",
+                "parent",
+                "kategori",
+                "subkategori",
+                "periode",
+                "bulan",
+                "urutan",
             )
         }),
-        ("Konteks", {
+        ("Nilai RKAP", {
+            "fields": (
+                "nilai_audited_2024",
+                "nilai_unaudited_2025",
+                "target",
+                "satuan",
+                "polaritas",
+            )
+        }),
+        ("Konteks & Sumber", {
             "fields": (
                 "asumsi",
                 "unit_penanggung_jawab",
+                "sumber_dokumen",
+                "halaman_sumber",
                 "aktif",
             )
         }),

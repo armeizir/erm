@@ -1059,7 +1059,51 @@ class RKAPItem(models.Model):
         ("Lampiran", "Lampiran"),
     ]
 
+    JENIS_RKAP_CHOICES = [
+        ("TARGET", "Target / Parameter RKAP"),
+        ("LABA_RUGI", "Laba Rugi RKAP"),
+        ("NERACA", "Neraca RKAP"),
+        ("LAINNYA", "Lainnya"),
+    ]
+
+    TIPE_BARIS_CHOICES = [
+        ("GROUP", "Kelompok / Header"),
+        ("SUBTOTAL", "Subtotal / Total"),
+        ("DATA", "Data / Parameter"),
+        ("FORMULA", "Formula / Derived"),
+    ]
+
+    POLARITAS_CHOICES = [
+        ("POSITIF", "Positif"),
+        ("NEGATIF", "Negatif"),
+        ("NETRAL", "Netral"),
+    ]
+
     tahun = models.PositiveIntegerField(verbose_name="Tahun")
+
+    jenis_rkap = models.CharField(
+        max_length=20,
+        choices=JENIS_RKAP_CHOICES,
+        default="LAINNYA",
+        verbose_name="Jenis RKAP",
+        help_text="Kelompok sumber/struktur RKAP: Target, Laba Rugi, Neraca, atau lainnya.",
+    )
+
+    tipe_baris = models.CharField(
+        max_length=20,
+        choices=TIPE_BARIS_CHOICES,
+        default="DATA",
+        verbose_name="Tipe Baris",
+        help_text="Menandai apakah item merupakan header, subtotal/total, data, atau formula.",
+    )
+
+    polaritas = models.CharField(
+        max_length=10,
+        choices=POLARITAS_CHOICES,
+        default="NETRAL",
+        verbose_name="Polaritas",
+        help_text="Arah kinerja parameter untuk evaluasi RKAP vs realisasi.",
+    )
 
     parent = models.ForeignKey(
         "self",
