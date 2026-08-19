@@ -1,0 +1,69 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .icofr-schedule-banner{padding:12px 16px;border-left:5px solid #2d6577;background:#eef7fa;margin:0 0 18px;line-height:1.5}
+  .icofr-readiness{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 18px}
+  .icofr-ready-card{border:1px solid #d7dde5;border-radius:10px;background:#fff;overflow:hidden}
+  .icofr-ready-head{padding:11px 14px;background:#2d6577;color:#fff;font-weight:700}
+  .icofr-ready-body{padding:14px}
+  .icofr-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0 12px}
+  .icofr-metric{padding:9px;border-radius:7px;background:#f6f8fa;text-align:center}
+  .icofr-metric strong{display:block;font-size:18px;color:#244d5b}
+  .icofr-danger{color:#b91c1c;font-weight:700}.icofr-ok{color:#15803d;font-weight:700}
+  .icofr-skip{margin:8px 0 12px;padding-left:18px}
+  .icofr-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .icofr-actions .button.primary{background:#2563eb!important;color:#fff!important}
+  @media(max-width:900px){.icofr-readiness{grid-template-columns:1fr}.icofr-metrics{grid-template-columns:repeat(2,1fr)}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="icofr-schedule-banner">
+  <strong>Workflow Penjadwalan ICoFR.</strong>
+  Simpan Periode &amp; RCM terlebih dahulu, aktifkan tahap dan unit, lalu gunakan <strong>Pre-flight Distribusi</strong> untuk memastikan mapping Preparer/Reviewer, SoD, dan Organization Unit sudah siap sebelum work item dibuat.
+  {% if icofr_timezone %}<br><small>Timezone aplikasi: <strong>{{ icofr_timezone }}</strong>.</small>{% endif %}
+</div>
+
+{% if original and icofr_readiness %}
+<div class="icofr-readiness">
+  {% for item in icofr_readiness %}
+  <div class="icofr-ready-card">
+    <div class="icofr-ready-head">{{ item.stage_label }}</div>
+    <div class="icofr-ready-body">
+      {% if item.error %}
+        <div class="icofr-danger">{{ item.error }}</div>
+      {% else %}
+        <div>{{ item.start|date:"d-m-Y" }} s.d. {{ item.end|date:"d-m-Y" }} · {{ item.enabled_unit_count }} unit aktif</div>
+        <div class="icofr-metrics">
+          <div class="icofr-metric"><strong>{{ item.total_entries }}</strong>Total Entry</div>
+          <div class="icofr-metric"><strong>{{ item.ready_count }}</strong>Siap</div>
+          <div class="icofr-metric"><strong>{{ item.to_create_count }}</strong>Belum Distribusi</div>
+          <div class="icofr-metric"><strong>{{ item.skipped_count }}</strong>Perlu Perbaikan</div>
+        </div>
+        {% if item.skip_reasons %}
+          <ul class="icofr-skip">
+          {% for reason, count in item.skip_reasons.items %}<li>{{ reason }}: <strong>{{ count }}</strong></li>{% endfor %}
+          </ul>
+        {% endif %}
+        <div class="icofr-actions">
+          <a class="button primary" href="{{ item.preview_url }}">Pre-flight &amp; Distribusikan</a>
+          <a class="button" href="{{ icofr_workitem_url }}?schedule__id__exact={{ original.pk }}&stage__exact={{ item.stage.value }}">Lihat Pelaksana</a>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{{ block.super }}
+{% endblock %}
+
+{% block submit_buttons_bottom %}
+<div class="submit-row">
+  <input type="submit" value="Simpan Penjadwalan" class="default" name="_continue">
+</div>
+{% endblock %}

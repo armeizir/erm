@@ -18,6 +18,7 @@
 <form method="post">{% csrf_token %}
   {% for profile in queryset %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ profile.pk }}">{% endfor %}
   <input type="hidden" name="action" value="{{ action_name }}">
+  {% if force %}<input type="hidden" name="force_send" value="yes">{% endif %}
   <input type="hidden" name="confirm_send" value="yes">
   <input type="hidden" name="select_across" value="0">
   <button type="submit" class="default">Konfirmasi dan Kirim</button>

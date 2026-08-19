@@ -1788,6 +1788,42 @@ class ProfileCompletenessNotificationLog(models.Model):
         verbose_name_plural = "Log Notifikasi Kelengkapan Profil"
 
 
+class ProfileCompletenessAssessment(models.Model):
+    profile = models.ForeignKey(
+        ReAssessmentSummary,
+        on_delete=models.CASCADE,
+        related_name="completeness_assessments",
+    )
+    unit_bisnis = models.ForeignKey(Group, on_delete=models.PROTECT)
+    tahun = models.PositiveIntegerField()
+    percentage = models.DecimalField(max_digits=5, decimal_places=2)
+    required_count = models.PositiveIntegerField(default=0)
+    completed_count = models.PositiveIntegerField(default=0)
+    finding_count = models.PositiveIntegerField(default=0)
+    issue_fingerprint = models.CharField(max_length=64, db_index=True)
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+    triggered_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="profile_completeness_assessments",
+    )
+
+    class Meta:
+        ordering = ("-reviewed_at",)
+        indexes = [models.Index(fields=("profile", "-reviewed_at"))]
+        verbose_name = "Snapshot Kelengkapan Profil"
+        verbose_name_plural = "Snapshot Kelengkapan Profil"
+
+
+class ProfileCompletenessMonitor(ReAssessmentSummary):
+    class Meta:
+        proxy = True
+        verbose_name = "Monitoring Kelengkapan Profil"
+        verbose_name_plural = "MONITORING - Kelengkapan Profil per Unit"
+
+
 class ReAssessmentItem(models.Model):
     summary = models.ForeignKey(
         ReAssessmentSummary,

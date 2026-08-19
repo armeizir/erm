@@ -107,6 +107,9 @@ class RiskAdminSite(AdminSite):
             # 3. Profil Risiko Bidang / Unit Bisnis
             "/admin/risk/reassessmentsummary/",
             "/admin/risk/reassessmentitem/",
+            "/admin/risk/profilecompletenessmonitor/",
+            "/admin/risk/profilecompletenessassessment/",
+            "/admin/risk/profilecompletenessnotificationlog/",
 
             # 4. Laporan Risiko Bulanan
             reverse(
@@ -137,6 +140,25 @@ class RiskAdminSite(AdminSite):
             # 5. KPMR
             "/admin/risk/kpmrsummary/",
             "/admin/risk/kpmritem/",
+
+            # ICoFR Phase 1 (permission tetap ditentukan oleh Django model permissions)
+            "/admin/icofr/icofrperiod/",
+            "/admin/icofr/rcmset/",
+            "/admin/icofr/rcmrisk/",
+            "/admin/icofr/rcmcontrol/",
+            "/admin/icofr/rcmentry/",
+            "/admin/icofr/rcmmapping/",
+            "/admin/icofr/rcmimportbatch/",
+            # ICoFR Phase 2
+            "/admin/icofr/icofrschedule/",
+            "/admin/icofr/icofrdistributionbatch/",
+            "/admin/icofr/icofrworkitem/",
+            "/admin/icofr/icofrquestion/",
+            "/admin/icofr/questionnairesubmission/",
+            "/admin/icofr/csaineffectivenesscategory/",
+            "/admin/icofr/csaassessment/",
+            "/admin/icofr/csaassessmentreviewlog/",
+            "/admin/icofr/csasample/",
         }
 
     def _allowed_menu_urls(self, request):
@@ -217,6 +239,7 @@ class RiskAdminSite(AdminSite):
             ("RKM", stats["rkm"], "/admin/risk/rkmsummary/"),
             ("Profil Risiko Unit/Bidang", stats["reassessment"], "/admin/risk/reassessmentsummary/"),
             ("KPMR", stats["kpmr"], "/admin/risk/kpmrsummary/"),
+            ("ICoFR", stats.get("icofr", 0), reverse("risk_admin:icofr_rcmset_changelist")),
             ("Laporan Bulanan", stats["monthly_report"], reverse("risk_admin:monthly_report_monthlyriskreport_changelist")),
             ("Risk Awareness", stats["awareness"], "/admin/awareness/awarenesscampaign/"),
             ("Knowledge Base", stats["knowledge_base"], reverse("risk_admin:risk_knowledgebasearticle_changelist")),
@@ -299,6 +322,7 @@ class RiskAdminSite(AdminSite):
                         "title": "Profil Risiko Bidang/Unit Bisnis",
                         "items": [
                             item("Profil Risiko Unit/Bidang", "/admin/risk/reassessmentsummary/"),
+                            item("Monitoring Kelengkapan", "/admin/risk/profilecompletenessmonitor/"),
                             item("Item Risiko Unit/Bidang", "/admin/risk/reassessmentitem/"),
                         ],
                     },
@@ -323,6 +347,30 @@ class RiskAdminSite(AdminSite):
                         "items": [
                             item("KPMR Unit/Bidang", "/admin/risk/kpmrsummary/"),
                             item("Item KPMR", "/admin/risk/kpmritem/"),
+                        ],
+                    },
+                ],
+            },
+            {
+                "level": "Assurance & Control",
+                "groups": [
+                    {
+                        "title": "ICoFR",
+                        "items": [
+                            item("Periode ICoFR", reverse("risk_admin:icofr_icofrperiod_changelist")),
+                            item("RCM TLC / ELC / ITGC", reverse("risk_admin:icofr_rcmset_changelist")),
+                            item("Entry RCM", reverse("risk_admin:icofr_rcmentry_changelist")),
+                            item("Mapping RCM", reverse("risk_admin:icofr_rcmmapping_changelist")),
+                            item("Penjadwalan", reverse("risk_admin:icofr_icofrschedule_changelist")),
+                            item("Pelaksana Risk Control", reverse("risk_admin:icofr_icofrworkitem_changelist")),
+                            item("Master Kuesioner", reverse("risk_admin:icofr_icofrquestion_changelist")),
+                            item("Kuesioner", reverse("risk_admin:icofr_questionnairesubmission_changelist")),
+                            item("Master Ketidakefektifan", reverse("risk_admin:icofr_csaineffectivenesscategory_changelist")),
+                            item("CSA Line 1", reverse("risk_admin:icofr_csaassessment_changelist")),
+                            item("Riwayat Review CSA", reverse("risk_admin:icofr_csaassessmentreviewlog_changelist")),
+                            item("Sampel CSA", reverse("risk_admin:icofr_csasample_changelist")),
+                            item("Riwayat Distribusi", reverse("risk_admin:icofr_icofrdistributionbatch_changelist")),
+                            item("Riwayat Import RCM", reverse("risk_admin:icofr_rcmimportbatch_changelist")),
                         ],
                     },
                 ],
@@ -452,6 +500,7 @@ class RiskAdminSite(AdminSite):
                 self._safe_model_count("awareness", "AwarenessCampaign")
                 + self._safe_model_count("awareness", "AwarenessQuestion")
             ),
+            "icofr": self._safe_model_count("icofr", "RCMSet"),
             "users": User.objects.count(),
             "units": Group.objects.count(),
             "settings": AppSetting.objects.count(),
@@ -571,6 +620,7 @@ class RiskAdminSite(AdminSite):
                 "count": stats["reassessment"],
                 "items": [
                     {"label": "Profil Risiko Unit/Bidang", "url": "/admin/risk/reassessmentsummary/"},
+                    {"label": "Monitoring Kelengkapan", "url": "/admin/risk/profilecompletenessmonitor/"},
                     {"label": "Item Risiko Unit/Bidang", "url": "/admin/risk/reassessmentitem/"},
                 ],
             }, 
@@ -623,6 +673,19 @@ class RiskAdminSite(AdminSite):
                 "count": stats["risk_review"],
                 "items": [
                     {"label": "Hasil Review MR", "url": "/admin/risk/riskmanagementreview/"},
+                ],
+            },
+            {
+                "title": "ICoFR",
+                "level": "evaluation",
+                "color": "corporate",
+                "count": stats["icofr"],
+                "items": [
+                    {"label": "RCM TLC / ELC / ITGC", "url": reverse("risk_admin:icofr_rcmset_changelist")},
+                    {"label": "Mapping RCM", "url": reverse("risk_admin:icofr_rcmmapping_changelist")},
+                    {"label": "Penjadwalan", "url": reverse("risk_admin:icofr_icofrschedule_changelist")},
+                    {"label": "Kuesioner", "url": reverse("risk_admin:icofr_questionnairesubmission_changelist")},
+                    {"label": "CSA Line 1", "url": reverse("risk_admin:icofr_csaassessment_changelist")},
                 ],
             },
             {

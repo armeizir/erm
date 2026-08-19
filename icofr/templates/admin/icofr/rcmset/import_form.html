@@ -1,0 +1,51 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div id="content-main">
+  {% if form %}
+    <div class="module aligned">
+      <h2>Upload workbook RCM</h2>
+      <p>Jenis RCM (TLC/ELC/ITGC), versi, header, dan struktur workbook akan divalidasi sebelum data ditulis ke database.</p>
+      <form method="post" enctype="multipart/form-data" novalidate>{% csrf_token %}
+        {{ form.as_p }}
+        <div class="submit-row"><input type="submit" value="Validasi & Preview" class="default"></div>
+      </form>
+    </div>
+  {% elif batch %}
+    <div class="module">
+      <h2>Hasil validasi</h2>
+      <table>
+        <tbody>
+          <tr><th>File</th><td>{{ batch.original_filename }}</td></tr>
+          <tr><th>Jenis RCM</th><td>{{ batch.detected_type|default:"-" }}</td></tr>
+          <tr><th>Versi</th><td>{{ batch.detected_version|default:"-" }}</td></tr>
+          <tr><th>Baris</th><td>{{ batch.row_count }}</td></tr>
+          <tr><th>Risiko unik</th><td>{{ batch.summary.risks|default:0 }}</td></tr>
+          <tr><th>Kontrol unik</th><td>{{ batch.summary.controls|default:0 }}</td></tr>
+          <tr><th>Pasangan Risk-Control</th><td>{{ batch.summary.risk_control_pairs|default:0 }}</td></tr>
+          <tr><th>Segmen</th><td>{{ batch.summary.segments|default:0 }}</td></tr>
+          <tr><th>Control Preparer</th><td>{{ batch.summary.preparer_positions|default:0 }}</td></tr>
+          <tr><th>Control Reviewer</th><td>{{ batch.summary.reviewer_positions|default:0 }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    {% if batch.validation_errors %}
+      <div class="module" style="border-left:5px solid #ba2121;padding:12px;margin-top:16px">
+        <h2>Import belum dapat dilanjutkan</h2>
+        <ul>{% for error in batch.validation_errors %}<li>{{ error }}</li>{% endfor %}</ul>
+      </div>
+    {% endif %}
+    {% if batch.validation_warnings %}
+      <div class="module" style="border-left:5px solid #e5a50a;padding:12px;margin-top:16px">
+        <h2>Peringatan</h2>
+        <ul>{% for warning in batch.validation_warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+      </div>
+    {% endif %}
+    <div class="submit-row">
+      <a href="{% url 'risk_admin:icofr_rcm_import' %}" class="button">Upload Ulang</a>
+      {% if batch.can_import %}
+        <form method="post" style="display:inline">{% csrf_token %}<input type="submit" value="Konfirmasi Import" class="default"></form>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

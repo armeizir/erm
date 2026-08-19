@@ -1,4 +1,5 @@
 from io import StringIO
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -14,13 +15,17 @@ from risk.models import (
     KontrakManajemen,
     MasterBagianKM,
     MasterTemplateKM,
+    MasterKategoriDampak,
     PenugasanUnitBisnis,
     ProfileCompletenessNotificationLog,
+    ProfileCompletenessAssessment,
     ReAssessmentItem,
     ReAssessmentSummary,
 )
 from risk.services.profile_completeness import (
     check_profile_completeness,
+    CompletenessResult,
+    latest_profile_revisions,
     resolve_profile_recipients,
     send_profile_completeness_notification,
     should_send_notification,
@@ -72,9 +77,9 @@ class ProfileCompletenessTests(TestCase):
         self.assertFalse(result.is_complete)
         self.assertGreater(result.error_count, 0)
         self.assertIn("Data Profil", result.grouped())
-        self.assertIn("Item Risiko", result.grouped())
-        self.assertIn("Data Inheren", result.grouped())
-        self.assertIn("Target Residual/Reassessment", result.grouped())
+        self.assertIn("Data Risiko", result.grouped())
+        self.assertIn("Risiko Inheren", result.grouped())
+        self.assertIn("Risiko Residual", result.grouped())
         self.assertTrue(any("Matriks Risiko" in finding.message for finding in result.findings))
         self.assertTrue(any("Taksonomi" in finding.message for finding in result.findings))
 
@@ -175,7 +180,7 @@ class ProfileCompletenessTests(TestCase):
         self.assertIn("https://www.youtube.com/watch?v=profile123", mail.outbox[0].body)
         self.assertIn("Tonton Video Tutorial", mail.outbox[0].alternatives[0].content)
 
-    def test_same_findings_and_recipients_are_deduplicated_for_three_days(self):
+    def test_same_findings_and_recipients_are_deduplicated_until_changed(self):
         self.assignment("officer", "officer@example.com", PenugasanUnitBisnis.ROLE_RISK_OFFICER)
         result = check_profile_completeness(self.profile)
         recipients = resolve_profile_recipients(self.profile)
@@ -184,7 +189,59 @@ class ProfileCompletenessTests(TestCase):
         allowed, reason = should_send_notification(result, recipients)
 
         self.assertFalse(allowed)
-        self.assertIn("3 hari", reason)
+        self.assertIn("tidak berubah", reason)
+
+    def test_percentage_ratio_and_empty_requirement_are_safe(self):
+        half = CompletenessResult(self.profile, required_count=10, completed_count=5)
+        empty = CompletenessResult(self.profile)
+
+        self.assertEqual(half.percentage, Decimal("50.00"))
+        self.assertEqual(empty.percentage, Decimal("100.00"))
+        self.assertEqual(empty.status_label, "Lengkap")
+
+    def test_qualitative_legacy_typo_skips_optional_numeric_findings(self):
+        self.item.kategori_dampak = MasterKategoriDampak.objects.create(
+            nama="Dampak Kualilatif"
+        )
+        self.item.save(update_fields=["kategori_dampak"])
+
+        result = check_profile_completeness(self.profile)
+
+        numeric_messages = [
+            finding.message for finding in result.findings
+            if "Nilai Dampak" in finding.message or "Nilai Probabilitas" in finding.message
+        ]
+        self.assertEqual(numeric_messages, [])
+
+    def test_quantitative_missing_numeric_fields_reduce_percentage(self):
+        result = check_profile_completeness(self.profile)
+
+        self.assertLess(result.percentage, Decimal("100"))
+        self.assertTrue(any("Nilai Dampak Risiko Inheren" in finding.message for finding in result.findings))
+
+    def test_email_records_assessment_and_percentage_subject(self):
+        self.assignment("officer2", "officer2@example.com", PenugasanUnitBisnis.ROLE_RISK_OFFICER)
+        result = check_profile_completeness(self.profile)
+
+        sent, error = send_profile_completeness_notification(
+            result, resolve_profile_recipients(self.profile)
+        )
+
+        self.assertTrue(sent, error)
+        self.assertEqual(ProfileCompletenessAssessment.objects.count(), 1)
+        self.assertIn(result.percentage_display, mail.outbox[0].subject)
+
+    def test_monitoring_uses_latest_revision_once_per_unit_and_year(self):
+        revision = ReAssessmentSummary.objects.create(
+            judul="Profil Risiko UB TEST - Juli 2026",
+            tahun=2026,
+            unit_bisnis=self.unit,
+            kontrak_manajemen=self.profile.kontrak_manajemen,
+        )
+
+        monitored = list(latest_profile_revisions().filter(unit_bisnis=self.unit, tahun=2026))
+
+        self.assertEqual(monitored, [revision])
 
     def test_dry_run_command_does_not_send_email_and_displays_recipients(self):
         self.assignment("officer", "officer@example.com", PenugasanUnitBisnis.ROLE_RISK_OFFICER)

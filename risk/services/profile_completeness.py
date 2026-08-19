@@ -1,12 +1,14 @@
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
-from datetime import timedelta
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.core.validators import validate_email
+from django.db.models import OuterRef, Subquery
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -15,6 +17,7 @@ from risk.models import (
     AppSetting,
     KnowledgeBaseArticle,
     PenugasanUnitBisnis,
+    ProfileCompletenessAssessment,
     ProfileCompletenessNotificationLog,
     ReAssessmentSummary,
 )
@@ -33,6 +36,8 @@ class Finding:
 class CompletenessResult:
     profile: ReAssessmentSummary
     findings: list[Finding] = field(default_factory=list)
+    required_count: int = 0
+    completed_count: int = 0
 
     @property
     def is_complete(self):
@@ -45,6 +50,32 @@ class CompletenessResult:
     @property
     def warning_count(self):
         return sum(item.severity == "warning" for item in self.findings)
+
+    @property
+    def incomplete_count(self):
+        return max(self.required_count - self.completed_count, 0)
+
+    @property
+    def percentage(self):
+        if not self.required_count:
+            return Decimal("100.00")
+        return (
+            Decimal(self.completed_count) * Decimal("100") / Decimal(self.required_count)
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @property
+    def percentage_display(self):
+        return f"{self.percentage:.2f}".replace(".", ",") + "%"
+
+    @property
+    def status_label(self):
+        complete = Decimal(str(getattr(settings, "PROFILE_COMPLETENESS_COMPLETE_THRESHOLD", 100)))
+        almost = Decimal(str(getattr(settings, "PROFILE_COMPLETENESS_ALMOST_THRESHOLD", 80)))
+        if self.percentage >= complete:
+            return "Lengkap"
+        if self.percentage >= almost:
+            return "Hampir Lengkap"
+        return "Perlu Perbaikan"
 
     @property
     def fingerprint(self):
@@ -69,7 +100,22 @@ class CompletenessResult:
             "item_errors": [f.message for f in self.findings if f.item_id],
             "warning_count": self.warning_count,
             "error_count": self.error_count,
+            "required_count": self.required_count,
+            "completed_count": self.completed_count,
+            "incomplete_count": self.incomplete_count,
+            "percentage": str(self.percentage),
+            "status": self.status_label,
         }
+
+
+def _is_filled(value):
+    return value is not None and (not isinstance(value, str) or bool(value.strip()))
+
+
+def is_qualitative_risk(item):
+    value = str(getattr(item, "kategori_dampak", "") or "").casefold()
+    normalized = re.sub(r"[^a-z]", "", value)
+    return "kualitatif" in normalized or "kualilatif" in normalized
 
 
 def profile_completeness_queryset():
@@ -79,6 +125,7 @@ def profile_completeness_queryset():
         "item__taksonomi_t3",
         "item__sasaran_kbumn",
         "item__kategori_risiko",
+        "item__kategori_dampak",
         "item__skala_probabilitas",
         "item__skala_dampak_q1", "item__skala_dampak_q2",
         "item__skala_dampak_q3", "item__skala_dampak_q4",
@@ -87,8 +134,18 @@ def profile_completeness_queryset():
     )
 
 
+def latest_profile_revisions(queryset=None):
+    """Satu revision terbaru per unit/tahun untuk layar monitoring."""
+    queryset = queryset if queryset is not None else ReAssessmentSummary.objects.all()
+    latest = ReAssessmentSummary.objects.filter(
+        unit_bisnis_id=OuterRef("unit_bisnis_id"), tahun=OuterRef("tahun")
+    ).order_by("-dibuat_pada", "-pk").values("pk")[:1]
+    return queryset.filter(pk=Subquery(latest))
+
+
 def check_profile_completeness(profile):
     findings = []
+    required_count = completed_count = 0
 
     def add(section, severity, message, item=None):
         label = ""
@@ -96,18 +153,21 @@ def check_profile_completeness(profile):
             label = f"Item {item.no_item or '-'} – {(item.peristiwa_risiko or 'Tanpa peristiwa').strip()}"
         findings.append(Finding(section, severity, message, getattr(item, "pk", None), label))
 
-    if not (profile.judul or "").strip():
-        add("Data Profil", "error", "Judul Profil Risiko belum diisi.")
-    if not profile.tahun or profile.tahun < 2000 or profile.tahun > 2100:
-        add("Data Profil", "error", "Tahun profil kosong atau tidak valid.")
-    if not profile.unit_bisnis_id:
-        add("Data Profil", "error", "Bidang/Unit Bisnis belum dipilih.")
-    if not profile.kontrak_manajemen_id:
-        add("Data Profil", "error", "Kontrak Manajemen belum dipilih.")
-    if not profile.risk_matrix_id:
-        add("Data Profil", "error", "Matriks Risiko belum dipilih.")
-    if not profile.rkm_id:
-        add("Data Profil", "error", "RKM belum dipilih.")
+    def require(value, section, message, item=None):
+        nonlocal required_count, completed_count
+        required_count += 1
+        if _is_filled(value):
+            completed_count += 1
+            return True
+        add(section, "error", message, item)
+        return False
+
+    require(profile.judul, "Data Profil", "Judul Profil Risiko belum diisi.")
+    require(profile.tahun if profile.tahun and 2000 <= profile.tahun <= 2100 else None, "Data Profil", "Tahun profil kosong atau tidak valid.")
+    require(profile.unit_bisnis_id, "Data Profil", "Bidang/Unit Bisnis belum dipilih.")
+    require(profile.kontrak_manajemen_id, "Kontrak Manajemen / Sasaran", "Kontrak Manajemen belum dipilih.")
+    require(profile.risk_matrix_id, "Data Profil", "Matriks Risiko belum dipilih.")
+    require(profile.rkm_id, "Kontrak Manajemen / Sasaran", "RKM belum dipilih.")
     if profile.kontrak_manajemen_id:
         if profile.kontrak_manajemen.tahun != profile.tahun:
             add("Data Profil", "warning", "Tahun Kontrak Manajemen tidak sama dengan tahun profil.")
@@ -122,45 +182,36 @@ def check_profile_completeness(profile):
     items = list(profile.item.all())
     if not items:
         add("Item Risiko", "error", "Profil belum memiliki item risiko.")
-        return CompletenessResult(profile, findings)
+        return CompletenessResult(profile, findings, required_count, completed_count)
 
     by_number = {}
     by_event = {}
     likely_duplicates = {}
     for item in items:
-        if not item.no_item:
-            add("Item Risiko", "error", "Nomor item belum diisi.", item)
-        else:
+        if require(item.no_item, "Data Risiko", "Nomor item belum diisi.", item):
             by_number.setdefault(item.no_item, []).append(item)
         event = (item.peristiwa_risiko or "").strip()
-        if not event:
-            add("Item Risiko", "error", "Peristiwa Risiko belum diisi.", item)
-        else:
+        if require(event, "Data Risiko", "Peristiwa Risiko belum diisi.", item):
             by_event.setdefault(event.casefold(), []).append(item)
-        if not item.taksonomi_t3_id:
-            add("Item Risiko", "error", "Taksonomi Risiko PLN T3 belum diisi.", item)
-        if not item.sasaran_kbumn_id:
-            add("Item Risiko", "error", "Sasaran KBUMN belum diisi.", item)
-        if not item.kategori_risiko_id:
-            add("Item Risiko", "error", "Kategori Risiko belum diisi.", item)
+        require(item.taksonomi_t3_id, "Data Risiko", "Taksonomi Risiko PLN T3 belum diisi.", item)
+        require(item.sasaran_kbumn_id, "Kontrak Manajemen / Sasaran", "Sasaran KBUMN belum diisi.", item)
+        require(item.kategori_risiko_id, "Data Risiko", "Kategori Risiko belum diisi.", item)
         if item.unit_bisnis_id != profile.unit_bisnis_id or item.summary_id != profile.pk:
             add("Item Risiko", "error", "Relasi unit atau profil item tidak konsisten.", item)
-        if item.nilai_dampak is None:
-            add("Data Inheren", "error", "Nilai Dampak Risiko Inheren belum diisi.", item)
-        if item.nilai_probabilitas is None:
-            add("Data Inheren", "error", "Nilai Probabilitas Risiko Inheren belum diisi.", item)
-        if not item.skala_probabilitas_id:
-            add("Data Inheren", "error", "Skala Probabilitas Risiko Inheren belum diisi.", item)
-        if not (item.penyebab_risiko or "").strip():
-            add("Item Risiko", "error", "Penyebab Risiko belum diisi.", item)
-        if not (item.rencana_perlakuan_risiko or "").strip():
-            add("Item Risiko", "error", "Rencana Perlakuan Risiko belum diisi.", item)
+        qualitative = is_qualitative_risk(item)
+        if not qualitative:
+            require(item.nilai_dampak, "Risiko Inheren", "Nilai Dampak Risiko Inheren belum diisi.", item)
+            require(item.nilai_probabilitas, "Risiko Inheren", "Nilai Probabilitas Risiko Inheren belum diisi.", item)
+        require(item.skala_probabilitas_id, "Risiko Inheren", "Skala Probabilitas Risiko Inheren belum diisi.", item)
+        require(item.penyebab_risiko, "Penyebab Risiko", "Penyebab Risiko belum diisi.", item)
+        require(item.rencana_perlakuan_risiko, "Rencana Perlakuan Risiko", "Rencana Perlakuan Risiko belum diisi.", item)
         kri_parts = [item.key_risk_indicators, item.unit_satuan_kri, item.threshold_aman,
                      item.threshold_hati_hati, item.threshold_bahaya, item.kri_threshold_direction]
         if any(value not in (None, "") for value in kri_parts) and not all(
             value not in (None, "") for value in kri_parts
         ):
-            add("Item Risiko", "error", "Konfigurasi KRI belum lengkap.", item)
+            for value in kri_parts:
+                require(value, "KRI", "Konfigurasi KRI belum lengkap.", item)
         for quarter in range(1, 5):
             required = (
                 (f"nilai_dampak_q{quarter}", "Nilai Dampak"),
@@ -172,8 +223,9 @@ def check_profile_completeness(profile):
                 (f"eksposur_risiko_q{quarter}", "Target Eksposur Risiko"),
             )
             for attribute, label in required:
-                if getattr(item, attribute, None) in (None, ""):
-                    add("Target Residual/Reassessment", "error", f"{label} Q{quarter} belum tersedia.", item)
+                if qualitative and attribute.startswith(("nilai_dampak_", "nilai_probabilitas_")):
+                    continue
+                require(getattr(item, attribute, None), "Risiko Residual", f"{label} Q{quarter} belum tersedia.", item)
         signature = (event.casefold(), item.taksonomi_t3_id, item.sasaran_kbumn_id, item.kategori_risiko_id)
         likely_duplicates.setdefault(signature, []).append(item)
 
@@ -189,7 +241,23 @@ def check_profile_completeness(profile):
     numbers = sorted(by_number)
     if numbers and numbers != list(range(numbers[0], numbers[-1] + 1)):
         add("Duplikasi atau Ketidakkonsistenan", "warning", "Urutan nomor item memiliki celah dan perlu diverifikasi.")
-    return CompletenessResult(profile, findings)
+    return CompletenessResult(profile, findings, required_count, completed_count)
+
+
+def record_profile_assessment(result, triggered_by=None):
+    previous = result.profile.completeness_assessments.order_by("-reviewed_at").first()
+    snapshot = ProfileCompletenessAssessment.objects.create(
+        profile=result.profile,
+        unit_bisnis=result.profile.unit_bisnis,
+        tahun=result.profile.tahun,
+        percentage=result.percentage,
+        required_count=result.required_count,
+        completed_count=result.completed_count,
+        finding_count=len(result.findings),
+        issue_fingerprint=result.fingerprint,
+        triggered_by=triggered_by if getattr(triggered_by, "is_authenticated", False) else None,
+    )
+    return snapshot, previous
 
 
 def _valid_email(user):
@@ -280,15 +348,12 @@ def should_send_notification(result, recipients, force=False, now=None):
         return False, "Profil lengkap" if result.is_complete else "Penerima utama tidak tersedia"
     if force:
         return True, "Dipaksa"
-    now = now or timezone.now()
-    recipient_key = sorted(recipients["to"] + recipients["cc"])
-    recent = ProfileCompletenessNotificationLog.objects.filter(
+    duplicate = ProfileCompletenessNotificationLog.objects.filter(
         profile=result.profile, issue_fingerprint=result.fingerprint,
         status=ProfileCompletenessNotificationLog.STATUS_SENT,
-        sent_at__gte=now - timedelta(days=3),
         recipient_to=recipients["to"], recipient_cc=recipients["cc"],
     ).exists()
-    return (not recent, "Temuan sama sudah dikirim dalam 3 hari" if recent else "Temuan baru/berubah")
+    return (not duplicate, "Persentase dan temuan tidak berubah" if duplicate else "Temuan baru/berubah")
 
 
 def close_resolved_notifications(profile):
@@ -312,13 +377,16 @@ def log_undeliverable_notification(result, recipients, message):
     )
 
 
-def send_profile_completeness_notification(result, recipients, base_url=None, connection=None):
+def send_profile_completeness_notification(result, recipients, base_url=None, connection=None, triggered_by=None):
+    snapshot, previous = record_profile_assessment(result, triggered_by=triggered_by)
+    delta = result.percentage - previous.percentage if previous else None
     context = {
         "profile": result.profile, "result": result, "groups": result.grouped(),
         "recipients": recipients, "profile_url": profile_admin_url(result.profile, base_url),
         "tutorial": profile_completeness_email_tutorial(),
+        "previous": previous, "snapshot": snapshot, "delta": delta,
     }
-    subject = f"[ERM PLN Batam] Perbaikan Kelengkapan Profil Risiko – {result.profile.unit_bisnis.name} – {result.profile.tahun}"
+    subject = f"Perbaikan Kelengkapan Profil Risiko – {result.profile.unit_bisnis.name} – {result.profile.tahun} – {result.percentage_display}"
     app_setting = AppSetting.objects.first()
     message = EmailMultiAlternatives(
         subject,

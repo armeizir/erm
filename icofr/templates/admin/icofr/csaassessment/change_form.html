@@ -1,0 +1,122 @@
+{% extends "admin/change_form.html" %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <style>
+    .icofr-csa-card{border:1px solid #d7dde5;border-radius:10px;background:#fff;margin:0 0 18px;overflow:hidden}
+    .icofr-csa-card__head{background:#2d6577;color:#fff;padding:12px 16px;font-weight:700;font-size:15px}
+    .icofr-csa-card__body{padding:16px}
+    .icofr-csa-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 28px}
+    .icofr-csa-label{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#667085;font-weight:700;margin-bottom:3px}
+    .icofr-csa-value{white-space:pre-wrap;line-height:1.45}
+    .icofr-csa-status{display:inline-block;padding:4px 9px;border-radius:999px;background:#edf2f7;font-weight:700}
+    .icofr-csa-list{margin:6px 0 0 18px;padding:0}
+    .icofr-csa-note{padding:12px 14px;border-left:5px solid #2563eb;background:#eff6ff;margin:0 0 16px;line-height:1.45}
+    .icofr-csa-note--warn{border-color:#a16207;background:#fffbeb}
+    .icofr-csa-note--danger{border-color:#b91c1c;background:#fef2f2}
+    .icofr-csa-actions{display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+    .icofr-csa-actions .button{min-height:36px;padding:8px 16px}
+    .icofr-csa-actions .default{background:#2563eb!important}
+    .icofr-csa-muted{color:#667085}
+    @media(max-width:900px){.icofr-csa-grid{grid-template-columns:1fr}}
+  </style>
+{% endblock %}
+
+{% block content %}
+  {% if icofr_entry %}
+    <div class="icofr-csa-card">
+      <div class="icofr-csa-card__head">Informasi Kontrol</div>
+      <div class="icofr-csa-card__body">
+        <div class="icofr-csa-grid">
+          <div><div class="icofr-csa-label">RCM / Periode</div><div class="icofr-csa-value"><strong>{{ icofr_entry.rcm_set.rcm_type }}</strong> — {{ original.work_item.schedule.period }}</div></div>
+          <div><div class="icofr-csa-label">Status / Putaran Review</div><div class="icofr-csa-value"><span class="icofr-csa-status">{{ original.get_status_display }}</span> &nbsp; Putaran {{ original.review_round }}</div></div>
+          <div><div class="icofr-csa-label">Unit</div><div class="icofr-csa-value">{{ original.work_item.organization_unit|default:"-" }}</div></div>
+          <div><div class="icofr-csa-label">Segmen</div><div class="icofr-csa-value">{{ icofr_entry.segment|default:"-" }}</div></div>
+          <div><div class="icofr-csa-label">Referensi Risiko</div><div class="icofr-csa-value"><strong>{{ icofr_entry.risk.reference }}</strong><br>{{ icofr_entry.risk.description|default:"-" }}</div></div>
+          <div><div class="icofr-csa-label">Referensi Kontrol</div><div class="icofr-csa-value"><strong>{{ icofr_entry.control.reference }}</strong><br>{{ icofr_entry.control.description|default:"-" }}</div></div>
+          <div><div class="icofr-csa-label">No. / Deskripsi Sub Proses</div><div class="icofr-csa-value">{{ icofr_entry.subprocess_number|default:"-" }}<br>{{ icofr_entry.subprocess_description|default:"-" }}</div></div>
+          <div><div class="icofr-csa-label">Tujuan Kontrol</div><div class="icofr-csa-value">{{ icofr_entry.control.objective|default:"-" }}</div></div>
+          <div><div class="icofr-csa-label">Control Preparer</div><div class="icofr-csa-value">{{ original.work_item.preparer_user|default:"-" }}<br><span class="icofr-csa-muted">{{ icofr_entry.preparer_position|default:"-" }}</span></div></div>
+          <div><div class="icofr-csa-label">Control Reviewer</div><div class="icofr-csa-value">{{ original.work_item.reviewer_user|default:"-" }}<br><span class="icofr-csa-muted">{{ icofr_entry.reviewer_position|default:"-" }}</span></div></div>
+          <div><div class="icofr-csa-label">Jenis Kontrol</div><div class="icofr-csa-value">{{ icofr_entry.control.control_type|default:"-" }}</div></div>
+          <div><div class="icofr-csa-label">Frekuensi</div><div class="icofr-csa-value">{{ icofr_entry.frequency|default:"-" }}</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="icofr-csa-card">
+      <div class="icofr-csa-card__head">Kriteria Pengujian dari RCM</div>
+      <div class="icofr-csa-card__body icofr-csa-grid">
+        <div>
+          <div class="icofr-csa-label">Atribut Kontrol</div>
+          {% if icofr_attributes %}
+            <ol class="icofr-csa-list">
+              {% for item in icofr_attributes %}<li>{{ item.text }}</li>{% endfor %}
+            </ol>
+          {% else %}<div class="icofr-csa-value">-</div>{% endif %}
+        </div>
+        <div>
+          <div class="icofr-csa-label">Dokumen Pendukung Wajib</div>
+          {% if icofr_documents %}
+            <ol class="icofr-csa-list">
+              {% for item in icofr_documents %}<li>{{ item.text }}</li>{% endfor %}
+            </ol>
+          {% else %}<div class="icofr-csa-value">-</div>{% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if icofr_rejection_note %}
+    <div class="icofr-csa-note icofr-csa-note--danger">
+      <strong>CSA dikembalikan oleh Reviewer.</strong><br>
+      {{ icofr_rejection_note }}
+    </div>
+  {% endif %}
+
+  {% if icofr_can_edit %}
+    <div class="icofr-csa-note">
+      <strong>Alur pengisian:</strong> pilih Hasil CSA → tambahkan Sampel Transaksi → simpan draft → buka detail sampel untuk menilai seluruh atribut kontrol dan mengunggah evidence per sampel. Untuk TAT, tidak perlu sampel; unggah Evidence Umum/TAT di bagian bawah.
+    </div>
+  {% else %}
+    <div class="icofr-csa-note icofr-csa-note--warn">
+      Assessment ini tidak dapat diedit pada status <strong>{{ original.get_status_display }}</strong>. Gunakan halaman detail/review untuk melihat evidence dan riwayat workflow.
+      {% if icofr_review_url %}<a href="{{ icofr_review_url }}">Buka Detail CSA</a>.{% endif %}
+    </div>
+  {% endif %}
+
+  {{ block.super }}
+{% endblock %}
+
+{% block submit_buttons_bottom %}
+  {% if icofr_can_edit %}
+    <div class="submit-row icofr-csa-actions">
+      <input type="submit" name="_save_draft" value="Simpan Draft" class="button">
+      {% if icofr_can_submit %}
+        <input type="submit" name="_submit_csa" value="Simpan & Kirim ke Reviewer" class="default">
+      {% endif %}
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block admin_change_form_document_ready %}
+  {{ block.super }}
+  <script>
+    (function() {
+      function toggleIneffectiveFields() {
+        var result = document.getElementById('id_result');
+        if (!result) return;
+        var category = document.querySelector('.form-row.field-ineffectiveness_category');
+        var explanation = document.querySelector('.form-row.field-ineffectiveness_explanation');
+        var show = result.value === 'INEFFECTIVE';
+        if (category) category.style.display = show ? '' : 'none';
+        if (explanation) explanation.style.display = show ? '' : 'none';
+      }
+      var result = document.getElementById('id_result');
+      if (result) {
+        result.addEventListener('change', toggleIneffectiveFields);
+        toggleIneffectiveFields();
+      }
+    })();
+  </script>
+{% endblock %}

@@ -1,0 +1,119 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block content %}
+<style>
+  .ico-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 28px}
+  .ico-card{border:1px solid #d7dde5;border-radius:8px;padding:16px;margin-bottom:18px;background:#fff}
+  .ico-card h2{margin-top:0}
+  .ico-label{font-size:12px;color:#667085;text-transform:uppercase;font-weight:700;letter-spacing:.03em}
+  .ico-value{margin-top:3px;white-space:pre-wrap}
+  .ico-status{display:inline-block;padding:4px 9px;border-radius:999px;background:#eef2ff;font-weight:700}
+  .ico-table{width:100%;border-collapse:collapse}
+  .ico-table th,.ico-table td{border:1px solid #dde3ea;padding:8px;vertical-align:top}
+  .ico-table th{background:#f6f8fa;text-align:left}
+  .ico-actions{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .ico-actions textarea{min-width:420px;min-height:80px}
+  .ico-approve{background:#15803d!important}
+  .ico-reject{background:#b91c1c!important}
+  @media(max-width:900px){.ico-grid{grid-template-columns:1fr}.ico-actions textarea{min-width:100%}}
+</style>
+
+<div id="content-main">
+  <div class="ico-card">
+    <h2>Ringkasan CSA</h2>
+    <div class="ico-grid">
+      <div><div class="ico-label">RCM / Periode</div><div class="ico-value">{{ entry.rcm_set.rcm_type }} — {{ assessment.work_item.schedule.period }}</div></div>
+      <div><div class="ico-label">Status / Putaran Review</div><div class="ico-value"><span class="ico-status">{{ assessment.get_status_display }}</span> &nbsp; Putaran {{ assessment.review_round }}</div></div>
+      <div><div class="ico-label">Referensi Risiko</div><div class="ico-value">{{ entry.risk.reference }} — {{ entry.risk.description }}</div></div>
+      <div><div class="ico-label">Referensi Kontrol</div><div class="ico-value">{{ entry.control.reference }} — {{ entry.control.description }}</div></div>
+      <div><div class="ico-label">Preparer</div><div class="ico-value">{{ assessment.work_item.preparer_user|default:"-" }}</div></div>
+      <div><div class="ico-label">Reviewer</div><div class="ico-value">{{ assessment.work_item.reviewer_user|default:"-" }}</div></div>
+      <div><div class="ico-label">Unit / Segmen</div><div class="ico-value">{{ assessment.work_item.organization_unit|default:"-" }} / {{ entry.segment|default:"-" }}</div></div>
+      <div><div class="ico-label">Hasil CSA</div><div class="ico-value"><strong>{{ assessment.get_result_display|default:"-" }}</strong></div></div>
+      <div><div class="ico-label">Tujuan Kontrol</div><div class="ico-value">{{ entry.control.objective|default:"-" }}</div></div>
+      <div><div class="ico-label">Jenis / Frekuensi</div><div class="ico-value">{{ entry.control.control_type|default:"-" }} / {{ entry.frequency|default:"-" }}</div></div>
+    </div>
+    {% if assessment.result == "INEFFECTIVE" %}
+      <hr>
+      <div class="ico-grid">
+        <div><div class="ico-label">Kategori Ketidakefektifan</div><div class="ico-value">{{ assessment.ineffectiveness_category|default:"-" }}</div></div>
+        <div><div class="ico-label">Penjelasan / Perbaikan</div><div class="ico-value">{{ assessment.ineffectiveness_explanation|default:"-" }}</div></div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="ico-card">
+    <h2>Sampel & Evidence</h2>
+    {% if samples %}
+      {% for sample in samples %}
+        <h3>{{ forloop.counter }}. {{ sample.description }} — {{ sample.get_result_display }}</h3>
+        <div class="ico-label">Tanggal transaksi</div><div class="ico-value">{{ sample.transaction_date }}</div>
+        <table class="ico-table" style="margin-top:10px">
+          <thead><tr><th>Atribut Kontrol</th><th>Terpenuhi</th><th>Catatan</th></tr></thead>
+          <tbody>
+          {% for result in sample.attribute_results.all %}
+            <tr><td>{{ result.attribute.text }}</td><td>{% if result.is_met %}Ya{% else %}Tidak{% endif %}</td><td>{{ result.note|default:"-" }}</td></tr>
+          {% empty %}<tr><td colspan="3">Belum ada hasil atribut.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+        <table class="ico-table" style="margin-top:10px">
+          <thead><tr><th>Dokumen RCM</th><th>File</th><th>Keterangan</th></tr></thead>
+          <tbody>
+          {% for evidence in sample.evidences.all %}
+            <tr>
+              <td>{{ evidence.supporting_document.text|default:"Dokumen Evidence" }}</td>
+              <td>{% if evidence.file %}<a href="{{ evidence.file.url }}" target="_blank" rel="noopener">Lihat Evidence</a>{% else %}-{% endif %}</td>
+              <td>{{ evidence.description|default:"-" }}</td>
+            </tr>
+          {% empty %}<tr><td colspan="3">Belum ada evidence sampel.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      {% endfor %}
+    {% else %}
+      <p>Tidak ada sampel transaksi. Untuk status TAT, lihat evidence umum di bawah.</p>
+    {% endif %}
+
+    {% if general_evidences %}
+      <h3>Evidence Umum / TAT</h3>
+      <table class="ico-table">
+        <thead><tr><th>Jenis</th><th>File</th><th>Keterangan</th></tr></thead>
+        <tbody>
+        {% for evidence in general_evidences %}
+          <tr><td>{{ evidence.get_evidence_type_display }}</td><td><a href="{{ evidence.file.url }}" target="_blank" rel="noopener">Lihat Evidence</a></td><td>{{ evidence.description|default:"-" }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+
+  <div class="ico-card">
+    <h2>Riwayat Workflow</h2>
+    <table class="ico-table">
+      <thead><tr><th>Waktu</th><th>Putaran</th><th>Aksi</th><th>Pelaksana</th><th>Catatan</th></tr></thead>
+      <tbody>
+      {% for log in review_logs %}
+        <tr><td>{{ log.created_at }}</td><td>{{ log.round_number }}</td><td>{{ log.get_action_display }}</td><td>{{ log.actor|default:"-" }}</td><td>{{ log.note|default:"-" }}</td></tr>
+      {% empty %}<tr><td colspan="5">Belum ada riwayat workflow.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if can_decide %}
+    <div class="ico-card">
+      <h2>Keputusan Reviewer</h2>
+      <form method="post">{% csrf_token %}
+        <div class="ico-actions">
+          <div>
+            <label for="review_note"><strong>Catatan Reviewer</strong></label><br>
+            <textarea id="review_note" name="review_note" placeholder="Wajib diisi bila menolak; opsional bila menyetujui."></textarea>
+          </div>
+          <button type="submit" name="review_action" value="approve" class="button ico-approve">Setujui CSA</button>
+          <button type="submit" name="review_action" value="reject" class="button ico-reject">Tolak / Kembalikan</button>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+
+  <p><a class="button" href="{% url 'risk_admin:icofr_csaassessment_changelist' %}">Kembali ke Daftar CSA</a></p>
+</div>
+{% endblock %}

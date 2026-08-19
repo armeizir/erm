@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div class="module aligned">
+  <h2>Ringkasan</h2>
+  <table>
+    <tr><th>Profil Risiko</th><td>{{ profile.judul }}</td></tr>
+    <tr><th>Unit</th><td>{{ profile.unit_bisnis.name }}</td></tr>
+    <tr><th>Tahun</th><td>{{ profile.tahun }}</td></tr>
+    <tr><th>Kelengkapan</th><td><strong>{{ result.percentage_display }} — {{ result.status_label }}</strong></td></tr>
+    <tr><th>Total komponen wajib</th><td>{{ result.required_count }}</td></tr>
+    <tr><th>Komponen lengkap</th><td>{{ result.completed_count }}</td></tr>
+    <tr><th>Komponen belum lengkap</th><td>{{ result.incomplete_count }}</td></tr>
+  </table>
+</div>
+{% for section, findings in groups.items %}
+<div class="module">
+  <h2>{{ section }}</h2>
+  <ul>
+    {% for finding in findings %}
+      <li>{% if finding.item_label %}<strong>{{ finding.item_label }}</strong> — {% endif %}{{ finding.message }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% empty %}
+<p class="success">Seluruh komponen wajib telah lengkap.</p>
+{% endfor %}
+<p><a class="button" href="{% url 'risk_admin:risk_reassessmentsummary_change' profile.pk %}">Buka Profil Risiko</a></p>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<style>
+  .pf-card{border:1px solid #d7dde5;border-radius:10px;background:#fff;padding:18px;margin-bottom:16px}
+  .pf-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:14px 0}
+  .pf-metric{background:#f5f7fa;border-radius:8px;padding:13px;text-align:center}.pf-metric strong{display:block;font-size:24px;color:#244d5b}
+  .pf-table{width:100%;border-collapse:collapse}.pf-table th,.pf-table td{padding:9px;border-bottom:1px solid #e5e7eb;text-align:left}
+  .pf-warn{border-left:5px solid #d97706;background:#fffbeb;padding:12px;margin-top:12px}.pf-ok{border-left:5px solid #15803d;background:#f0fdf4;padding:12px;margin-top:12px}
+  .pf-actions{display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:18px}
+  @media(max-width:900px){.pf-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+<div id="content-main">
+  <div class="pf-card">
+    <h2>Pre-flight Distribusi — {{ preview.stage_label }}</h2>
+    <table class="pf-table">
+      <tr><th>RCM</th><td>{{ schedule.rcm_set }}</td></tr>
+      <tr><th>Periode</th><td>{{ schedule.period }}</td></tr>
+      <tr><th>Jadwal</th><td>{{ preview.start|date:"d-m-Y" }} s.d. {{ preview.end|date:"d-m-Y" }}</td></tr>
+      <tr><th>Unit aktif</th><td>{{ preview.enabled_unit_count }}</td></tr>
+    </table>
+    <div class="pf-grid">
+      <div class="pf-metric"><strong>{{ preview.total_entries }}</strong>Total Entry</div>
+      <div class="pf-metric"><strong>{{ preview.ready_count }}</strong>Siap</div>
+      <div class="pf-metric"><strong>{{ preview.to_create_count }}</strong>Akan Dibuat</div>
+      <div class="pf-metric"><strong>{{ preview.existing_count }}</strong>Sudah Ada</div>
+      <div class="pf-metric"><strong>{{ preview.skipped_count }}</strong>Dilewati</div>
+    </div>
+    {% if preview.skip_reasons %}
+      <div class="pf-warn"><strong>Perlu diselesaikan sebelum distribusi penuh:</strong>
+        <ul>{% for reason, count in preview.skip_reasons.items %}<li>{{ reason }}: {{ count }}</li>{% endfor %}</ul>
+      </div>
+    {% else %}
+      <div class="pf-ok"><strong>Siap didistribusikan.</strong> Seluruh entry memenuhi mapping, Organization Unit, dan aturan workflow.</div>
+    {% endif %}
+    <form method="post">{% csrf_token %}
+      <div class="pf-actions">
+        <a href="{{ back_url }}" class="button">Kembali</a>
+        {% if preview.ready_count %}<button type="submit" class="button default">Distribusikan {{ preview.stage_label }}</button>{% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

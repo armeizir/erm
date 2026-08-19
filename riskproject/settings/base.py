@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -61,6 +62,7 @@ INSTALLED_APPS = [
     "awareness",
     "risk.apps.RiskConfig",
     "corporate_risk",
+    "icofr.apps.ICoFRConfig",
     "django_extensions",
 ]
 
@@ -103,9 +105,17 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = os.environ.get("TIME_ZONE", "UTC")
+TIME_ZONE = os.environ.get("TIME_ZONE", "Asia/Jakarta")
 USE_I18N = True
 USE_TZ = True
+
+# Satu konfigurasi untuk badge/status monitoring kelengkapan Profil Risiko.
+PROFILE_COMPLETENESS_COMPLETE_THRESHOLD = Decimal(
+    os.environ.get("PROFILE_COMPLETENESS_COMPLETE_THRESHOLD", "100")
+)
+PROFILE_COMPLETENESS_ALMOST_THRESHOLD = Decimal(
+    os.environ.get("PROFILE_COMPLETENESS_ALMOST_THRESHOLD", "80")
+)
 
 STATIC_URL = os.environ.get("STATIC_URL", "/static/")
 STATIC_ROOT = os.environ.get("STATIC_ROOT", BASE_DIR / "staticfiles")

@@ -1,12 +1,19 @@
-Yth. Risk Officer {{ profile.unit_bisnis.name }},
+Yth. Bapak/Ibu Pengelola Risiko {{ profile.unit_bisnis.name }},
 
 Berdasarkan pemeriksaan otomatis ERM, profil berikut masih perlu dilengkapi atau diperbaiki.
 
 Profil Risiko : {{ profile.judul }}
 Unit          : {{ profile.unit_bisnis.name }}
 Tahun         : {{ profile.tahun }}
-Status        : {{ profile.get_status_display }}
-Jumlah Temuan : {{ result.findings|length }} ({{ result.error_count }} error, {{ result.warning_count }} warning)
+Persentase Kelengkapan : {{ result.percentage_display }}
+Komponen Wajib         : {{ result.required_count }}
+Komponen Lengkap       : {{ result.completed_count }}
+Komponen Belum Lengkap : {{ result.incomplete_count }}
+{% if previous %}
+Review sebelumnya : {{ previous.percentage }}%
+Review saat ini   : {{ result.percentage_display }}
+Perbaikan         : {% if delta >= 0 %}+{% endif %}{{ delta }}%
+{% endif %}
 
 {% for section, findings in groups.items %}{{ section }}:
 {% for finding in findings %}{% if finding.item_label %}{{ finding.item_label }} — {% endif %}{{ finding.message }}

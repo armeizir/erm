@@ -57,6 +57,8 @@ from .models import (
     ReAssessmentSummary,
     ReAssessmentItem,
     ProfileCompletenessNotificationLog,
+    ProfileCompletenessAssessment,
+    ProfileCompletenessMonitor,
     KPMRSummary,
     KPMRItem,
     ProfilRisikoKorporatSummary,
@@ -119,6 +121,8 @@ from risk.services.profile_completeness import (
     send_profile_completeness_notification,
     should_send_notification,
     log_undeliverable_notification,
+    record_profile_assessment,
+    latest_profile_revisions,
 )
 
 
@@ -3105,13 +3109,21 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
 
 @admin.register(ReAssessmentSummary)
 class ReAssessmentSummaryAdmin(admin.ModelAdmin):
-    actions = ("check_profile_completeness_action", "check_and_notify_profile_completeness_action")
+    actions = (
+        "check_profile_completeness_action",
+        "check_and_notify_profile_completeness_action",
+        "force_notify_profile_completeness_action",
+    )
     list_display = (
         "judul",
         "tahun",
         "unit_bisnis",
         "kontrak_manajemen",
         "rkm",
+        "total_risiko_display",
+        "progress_display",
+        "completeness_status_display",
+        "completeness_detail_button",
         "dibuat_pada",
         "excel_button",
     )
@@ -3145,6 +3157,7 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         profiles = profile_completeness_queryset().filter(pk__in=queryset.values("pk"))
         for profile in profiles:
             result = check_profile_completeness(profile)
+            record_profile_assessment(result, request.user)
             incomplete += int(not result.is_complete)
             errors += result.error_count
             warnings += result.warning_count
@@ -3160,12 +3173,13 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         allowed_groups = {"Admin ERM", "ERM Admin", "Risk Admin", "Risk Administrator", "Admin Risiko"}
         if not request.user.is_superuser and not request.user.groups.filter(name__in=allowed_groups).exists():
             raise PermissionDenied("Hanya administrator ERM yang dapat mengirim notifikasi massal.")
+        force = request.POST.get("force_send") == "yes"
         profiles = list(profile_completeness_queryset().filter(pk__in=queryset.values("pk")))
         preview = []
         for profile in profiles:
             result = check_profile_completeness(profile)
             recipients = resolve_profile_recipients(profile)
-            allowed, reason = should_send_notification(result, recipients)
+            allowed, reason = should_send_notification(result, recipients, force=force)
             preview.append({"profile": profile, "result": result, "recipients": recipients, "allowed": allowed, "reason": reason})
         if request.POST.get("confirm_send") == "yes":
             sent = failed = 0
@@ -3176,7 +3190,7 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
                     continue
                 if not row["allowed"]:
                     continue
-                ok, _error = send_profile_completeness_notification(row["result"], row["recipients"])
+                ok, _error = send_profile_completeness_notification(row["result"], row["recipients"], triggered_by=request.user)
                 sent += int(ok)
                 failed += int(not ok)
             self.message_user(request, f"Notifikasi selesai: {sent} email berhasil dan {failed} gagal.", messages.SUCCESS if not failed else messages.WARNING)
@@ -3188,13 +3202,26 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
             "queryset": queryset,
             "preview": preview,
             "action_checkbox_name": admin.helpers.ACTION_CHECKBOX_NAME,
-            "action_name": "check_and_notify_profile_completeness_action",
+            "action_name": "force_notify_profile_completeness_action" if force else "check_and_notify_profile_completeness_action",
+            "force": force,
         }
         return TemplateResponse(request, "admin/risk/reassessmentsummary/profile_completeness_confirm.html", context)
+
+    @admin.action(description="Kirim Ulang Notifikasi Kelengkapan (paksa)")
+    def force_notify_profile_completeness_action(self, request, queryset):
+        post = request.POST.copy()
+        post["force_send"] = "yes"
+        request._post = post
+        return self.check_and_notify_profile_completeness_action(request, queryset)
 
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
+            path(
+                "<int:summary_id>/completeness/",
+                self.admin_site.admin_view(self.completeness_detail_view),
+                name="risk_reassessmentsummary_completeness",
+            ),
             path(
                 "<int:summary_id>/excel/",
                 self.admin_site.admin_view(self.excel_view),
@@ -3207,6 +3234,44 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    def _completeness(self, obj):
+        return check_profile_completeness(obj)
+
+    @admin.display(description="Total Risiko")
+    def total_risiko_display(self, obj):
+        return obj.item.count()
+
+    @admin.display(description="Progress")
+    def progress_display(self, obj):
+        result = self._completeness(obj)
+        return format_html(
+            '<div style="min-width:120px"><progress value="{}" max="100" style="width:85px"></progress> {}</div>',
+            result.percentage, result.percentage_display,
+        )
+
+    @admin.display(description="Status")
+    def completeness_status_display(self, obj):
+        return self._completeness(obj).status_label
+
+    @admin.display(description="Aksi")
+    def completeness_detail_button(self, obj):
+        url = reverse(f"{self.admin_site.name}:risk_reassessmentsummary_completeness", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Detail Perbaikan</a>', url)
+
+    def completeness_detail_view(self, request, summary_id):
+        profile = get_object_or_404(profile_completeness_queryset(), pk=summary_id)
+        if not user_can_access_unit(request, profile.unit_bisnis_id):
+            raise PermissionDenied
+        result = check_profile_completeness(profile)
+        return TemplateResponse(request, "admin/risk/reassessmentsummary/profile_completeness_detail.html", {
+            **self.admin_site.each_context(request),
+            "title": "Detail Kelengkapan Profil Risiko",
+            "opts": self.model._meta,
+            "profile": profile,
+            "result": result,
+            "groups": result.grouped(),
+        })
 
     def excel_button(self, obj):
         url = reverse(
@@ -3532,6 +3597,44 @@ class ProfileCompletenessNotificationLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
+
+
+@admin.register(ProfileCompletenessAssessment)
+class ProfileCompletenessAssessmentAdmin(admin.ModelAdmin):
+    list_display = ("profile", "unit_bisnis", "tahun", "percentage", "completed_count", "required_count", "finding_count", "reviewed_at", "triggered_by")
+    list_filter = ("tahun", "unit_bisnis", "reviewed_at")
+    search_fields = ("profile__judul", "unit_bisnis__name")
+    readonly_fields = tuple(field.name for field in ProfileCompletenessAssessment._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProfileCompletenessMonitor)
+class ProfileCompletenessMonitorAdmin(ReAssessmentSummaryAdmin):
+    actions = ()
+    list_display = (
+        "unit_bisnis", "judul", "tahun", "total_risiko_display",
+        "progress_display", "completeness_status_display", "completeness_detail_button",
+    )
+    inlines = []
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return latest_profile_revisions(qs).prefetch_related("item")
+
+    def get_urls(self):
+        # Detail mengarah ke admin Profil Risiko canonical; hindari duplikasi nama URL.
+        return admin.ModelAdmin.get_urls(self)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 class ProfilRisikoKorporatSumberByReassessmentInline(admin.TabularInline):
     model = ProfilRisikoKorporatSumber
@@ -5554,6 +5657,9 @@ risk_admin_site.register(RKMSummary, RKMSummaryAdmin)
 risk_admin_site.register(RKMItem, RKMItemAdmin)
 risk_admin_site.register(ReAssessmentSummary, ReAssessmentSummaryAdmin)
 risk_admin_site.register(ReAssessmentItem, ReAssessmentItemAdmin)
+risk_admin_site.register(ProfileCompletenessMonitor, ProfileCompletenessMonitorAdmin)
+risk_admin_site.register(ProfileCompletenessAssessment, ProfileCompletenessAssessmentAdmin)
+risk_admin_site.register(ProfileCompletenessNotificationLog, ProfileCompletenessNotificationLogAdmin)
 risk_admin_site.register(KPMRSummary, KPMRSummaryAdmin)
 risk_admin_site.register(RiskManagementReview, RiskManagementReviewAdmin)
 risk_admin_site.register(ProfilRisikoKorporatSummary, ProfilRisikoKorporatSummaryAdmin)
