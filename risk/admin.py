@@ -916,7 +916,8 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
                 for month in range(1, min(max_month, 12) + 1)
             ]
             return format_html(
-                "PDF KM: {}",
+                'PDF KM: <a class="button" href="{}" target="_blank">Kontrak</a> {}',
+                url,
                 format_html_join(
                     " ",
                     '<a class="button" href="{}?tahun={}&bulan={}" target="_blank">{}</a>',
@@ -1098,6 +1099,11 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
             candidate = Path(settings.MEDIA_ROOT) / "system/logo/pln_batam_logo.png"
             if candidate.exists():
                 logo_path = candidate
+            else:
+                logo_path = next(
+                    (Path(settings.MEDIA_ROOT) / "system/logo").glob("pln_batam_logo*"),
+                    None,
+                )
 
         if logo_path:
             return Image(str(logo_path), width=100, height=50)
@@ -1123,8 +1129,174 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
             colWidths=[34, 58],
         )
 
+    def contract_pdf_view(self, request, kontrak):
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="Kontrak_Manajemen_{kontrak.tahun}_{kontrak.unit_bisnis.name}.pdf"'
+        )
+        doc = SimpleDocTemplate(
+            response,
+            pagesize=A4,
+            rightMargin=24,
+            leftMargin=24,
+            topMargin=22,
+            bottomMargin=22,
+        )
+        styles = getSampleStyleSheet()
+        body = ParagraphStyle(
+            "KMContractBody", parent=styles["Normal"], fontName="Helvetica",
+            fontSize=6.3, leading=7.4, alignment=TA_LEFT,
+        )
+        center = ParagraphStyle("KMContractCenter", parent=body, alignment=TA_CENTER)
+        bold = ParagraphStyle("KMContractBold", parent=body, fontName="Helvetica-Bold")
+        bold_center = ParagraphStyle(
+            "KMContractBoldCenter", parent=center, fontName="Helvetica-Bold"
+        )
+        title = ParagraphStyle(
+            "KMContractTitle", parent=bold_center, fontSize=8.5, leading=9.4,
+        )
+        date_value = kontrak.tanggal_kontrak
+        date_text = (
+            f"{date_value.day} {self.bulan_indonesia(date_value.month)} {date_value.year}"
+            if date_value else f"{kontrak.tahun}"
+        )
+        party_date = date_value
+        first_name = self.nama_user(kontrak.pihak_pertama)
+        second_name = self.nama_user(kontrak.pihak_kedua)
+        first_role = self.jabatan_user(kontrak.pihak_pertama, party_date)
+        second_role = self.jabatan_user(kontrak.pihak_kedua, party_date)
+        if first_role == "-":
+            first_role = "PIHAK PERTAMA"
+        if second_role == "-":
+            second_role = str(kontrak.unit_bisnis).upper()
+
+        header = Table(
+            [[
+                self.km_logo_flowable(),
+                [
+                    Paragraph(f"KONTRAK MANAJEMEN TAHUN {kontrak.tahun}", title),
+                    Paragraph("ANTARA", title),
+                    Paragraph(escape(first_role.upper()), title),
+                    Paragraph("DENGAN", title),
+                    Paragraph(escape(second_role.upper()), title),
+                ],
+                "",
+            ]],
+            colWidths=[82, 365, 82],
+        )
+        header.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (1, 0), (1, 0), "CENTER"),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.black),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+
+        opening = Paragraph(
+            "Pada tanggal " + escape(date_text) + ", "
+            + escape(first_name) + " selaku " + escape(first_role)
+            + " dan " + escape(second_name) + " selaku " + escape(second_role)
+            + ", sepakat menetapkan target Key Performance Indicators (KPI) "
+              f"Tahun {kontrak.tahun} sebagai berikut:",
+            body,
+        )
+
+        table_data = [[
+            Paragraph("NO", bold_center),
+            Paragraph("INDIKATOR KINERJA KUNCI", bold_center),
+            Paragraph("FORMULA", bold_center),
+            Paragraph("SATUAN", bold_center),
+            Paragraph("BOBOT", bold_center),
+            Paragraph(f"TARGET {kontrak.tahun}", bold_center),
+        ], [
+            Paragraph("", center), Paragraph("2", center), Paragraph("3", center),
+            Paragraph("4", center), Paragraph("5", center), Paragraph("6", center),
+        ]]
+        items = list(
+            ItemKontrakManajemen.objects.filter(kontrak=kontrak)
+            .select_related("master_bagian")
+            .order_by("master_bagian__urutan", "no_urut")
+        )
+        current_section = None
+        section_rows = []
+        total_weight = Decimal("0")
+        for item in items:
+            if not any((item.indikator_kinerja_kunci, item.formula, item.target, item.bobot)):
+                continue
+            if item.master_bagian_id and item.master_bagian_id != current_section:
+                current_section = item.master_bagian_id
+                section_rows.append(len(table_data))
+                section_weight = sum(
+                    Decimal(str(row.bobot or 0))
+                    for row in items if row.master_bagian_id == current_section
+                )
+                table_data.append([
+                    Paragraph(escape(item.master_bagian.kode_bagian), bold_center),
+                    Paragraph(escape(item.master_bagian.nama_bagian), bold),
+                    "", "", Paragraph(self.format_angka_km(section_weight), bold_center), "",
+                ])
+            total_weight += Decimal(str(item.bobot or 0))
+            polarity = "(+)" if item.polaritas == "positif" else "(-)"
+            table_data.append([
+                Paragraph(str(item.no_urut), center),
+                Paragraph(escape(item.indikator_kinerja_kunci or "") + f"&nbsp;&nbsp;{polarity}", body),
+                Paragraph(escape(item.formula or ""), center),
+                Paragraph(escape(item.satuan or ""), center),
+                Paragraph(self.format_angka_km(item.bobot), center),
+                Paragraph(escape(item.target or ""), center),
+            ])
+        total_row = len(table_data)
+        table_data.append([
+            "", Paragraph("TOTAL", bold_center), "", "",
+            Paragraph(self.format_angka_km(total_weight), bold_center), "",
+        ])
+        contract_table = Table(
+            table_data,
+            colWidths=[21, 160, 195, 48, 40, 65],
+            repeatRows=2,
+        )
+        table_style = TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.45, colors.HexColor("#333333")),
+            ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#0070C0")),
+            ("TEXTCOLOR", (0, 0), (-1, 1), colors.white),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, 1), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("FONTNAME", (0, total_row), (-1, total_row), "Helvetica-Bold"),
+        ])
+        for row in section_rows:
+            table_style.add("BACKGROUND", (0, row), (-1, row), colors.HexColor("#FFC000"))
+            table_style.add("SPAN", (1, row), (3, row))
+        contract_table.setStyle(table_style)
+
+        closing = Paragraph(
+            "Demikian Kontrak Manajemen ini dibuat dengan itikad baik untuk "
+            "dilaksanakan sebagaimana mestinya.", body,
+        )
+        signature = Table([
+            ["", Paragraph(f"Batam, {escape(date_text)}", center), ""],
+            [Paragraph("PIHAK PERTAMA", bold_center), "", Paragraph("PIHAK KEDUA", bold_center)],
+            ["", "", ""],
+            [Paragraph(f"<u>{escape(first_name)}</u>", bold_center), "", Paragraph(f"<u>{escape(second_name)}</u>", bold_center)],
+            [Paragraph(escape(first_role), center), "", Paragraph(escape(second_role), center)],
+            [Paragraph("PT PLN Batam", center), "", Paragraph("PT PLN Batam", center)],
+        ], colWidths=[205, 119, 205], rowHeights=[13, 15, 42, 13, 16, 12])
+        signature.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        doc.build([
+            header, Spacer(1, 7), opening, Spacer(1, 6), contract_table,
+            Spacer(1, 7), closing, Spacer(1, 5), signature,
+        ])
+        return response
+
     def pdf_view(self, request, kontrak_id):
         kontrak = get_object_or_404(KontrakManajemen, pk=kontrak_id)
+        if not request.GET.get("bulan"):
+            return self.contract_pdf_view(request, kontrak)
         rkm = self.rkm_laporan_km(kontrak, request)
 
         response = HttpResponse(content_type="application/pdf")

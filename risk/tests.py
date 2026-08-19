@@ -230,6 +230,14 @@ class RKMPDFAdminTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
 
+        contract_response = client.get(
+            reverse("admin:risk_kontrakmanajemen_pdf", args=[kontrak.pk])
+        )
+        self.assertEqual(contract_response.status_code, 200)
+        self.assertEqual(contract_response["Content-Type"], "application/pdf")
+        self.assertIn("Kontrak_Manajemen_2026", contract_response["Content-Disposition"])
+        self.assertTrue(contract_response.content.startswith(b"%PDF"))
+
     def test_superuser_can_download_rkm_pdf_for_previous_month(self):
         User = get_user_model()
         admin_user = User.objects.create_superuser(username="admin-rkm-month", password="secret")
