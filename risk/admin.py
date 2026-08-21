@@ -32,7 +32,7 @@ from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 from xml.sax.saxutils import escape
 
 from openpyxl import Workbook, load_workbook
@@ -811,6 +811,7 @@ class BagianKontrakInline(admin.TabularInline):
 class KontrakManajemenAdmin(admin.ModelAdmin):
     list_display = (
         "judul",
+        "riwayat_versi",
         "tahun",
         "tanggal_kontrak",
         "template",
@@ -844,14 +845,70 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
     search_fields = ("judul", "unit_bisnis__name", "template__nama")
     ordering = ("-tahun", "judul")
 
+    # KM REVISION DISPLAY PATCH v1
+    # Revision yang dibuat untuk snapshot periode tetap dipertahankan di DB,
+    # tetapi tidak ditampilkan di changelist utama agar user melihat satu KM induk.
+    # Gunakan query admin bawaan ?all=1 melalui tombol Riwayat Versi untuk audit.
+    _MONTH_NAME_PATTERN = (
+        r"(?:Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|"
+        r"September|Oktober|November|Desember)"
+    )
+    _REVISION_SUFFIX_REGEX = (
+        rf"\s+-\s+{_MONTH_NAME_PATTERN}"
+        rf"(?:\s*[-–]\s*{_MONTH_NAME_PATTERN})?\s+20\d{{2}}$"
+    )
+
+    def _revision_regex_for_base(self, base_title):
+        import re
+        return rf"^{re.escape((base_title or '').strip())}{self._REVISION_SUFFIX_REGEX}"
+
+    def _is_revision_title(self, title):
+        import re
+        return bool(re.search(self._REVISION_SUFFIX_REGEX, (title or "").strip(), flags=re.IGNORECASE))
+
+    @admin.display(description="Riwayat Versi")
+    def riwayat_versi(self, obj):
+        # Saat berada pada view riwayat, revision ditampilkan sebagai data audit,
+        # bukan sebagai KM induk baru.
+        if self._is_revision_title(obj.judul):
+            return "Versi periode"
+
+        revision_qs = KontrakManajemen.objects.filter(
+            unit_bisnis_id=obj.unit_bisnis_id,
+            tahun=obj.tahun,
+            judul__iregex=self._revision_regex_for_base(obj.judul),
+        )
+        revision_count = revision_qs.count()
+        if not revision_count:
+            return "-"
+
+        url = reverse("admin:risk_kontrakmanajemen_changelist")
+        query = urlencode({
+            "all": "1",  # parameter admin bawaan; juga dipakai sebagai mode riwayat
+            "tahun__exact": obj.tahun,
+            "unit_bisnis__id__exact": obj.unit_bisnis_id,
+            "q": obj.judul,
+        })
+        return format_html(
+            '<a class="button" href="{}?{}">Riwayat Versi ({})</a>',
+            url,
+            query,
+            revision_count,
+        )
+
     def _has_km_permission(self, request, action):
         return request.user.has_perm(f"risk.{action}_kontrakmanajemen")
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        return qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+        if not request.user.is_superuser:
+            qs = qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
+
+        # Default: sembunyikan snapshot/revision periode dari list utama.
+        # ?all=1 adalah mode audit/riwayat dan tetap menampilkan seluruh revision.
+        if request.GET.get("all") != "1":
+            qs = qs.exclude(judul__iregex=self._REVISION_SUFFIX_REGEX)
+        return qs
 
     def has_module_permission(self, request):
         return self._has_km_permission(request, "view")
@@ -3412,7 +3469,7 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
 
     @admin.display(description="Total Risiko")
     def total_risiko_display(self, obj):
-        return obj.item.count()
+        return obj.item.filter(is_active=True).count()
 
     @admin.display(description="Progress")
     def progress_display(self, obj):
@@ -3687,6 +3744,7 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
 
         items = (
             summary.item
+            .filter(is_active=True)
             .select_related(
                 "km_item",
                 "km_item__master_bagian",

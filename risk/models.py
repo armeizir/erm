@@ -1751,6 +1751,24 @@ class ReAssessmentSummary(models.Model):
         return self.judul
 
 
+    def active_items(self):
+        """Item risiko yang aktif pada profil saat ini."""
+        return self.item.filter(is_active=True)
+
+    def items_for_period(self, start_date=None, end_date=None):
+        """Item risiko yang berlaku pada periode tertentu."""
+        if not start_date:
+            return self.active_items()
+
+        end_date = end_date or start_date
+
+        return self.item.filter(
+            models.Q(valid_from__isnull=True)
+            | models.Q(valid_from__lte=end_date),
+            models.Q(valid_to__isnull=True)
+            | models.Q(valid_to__gte=start_date),
+        )
+
 class ProfileCompletenessNotificationLog(models.Model):
     STATUS_SENT = "sent"
     STATUS_FAILED = "failed"
@@ -1824,6 +1842,8 @@ class ProfileCompletenessMonitor(ReAssessmentSummary):
         verbose_name_plural = "MONITORING - Kelengkapan Profil per Unit"
 
 
+
+
 class ReAssessmentItem(models.Model):
     summary = models.ForeignKey(
         ReAssessmentSummary,
@@ -1831,6 +1851,26 @@ class ReAssessmentItem(models.Model):
         related_name="item",
         verbose_name="Summary",
     )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        verbose_name="Aktif",
+    )
+
+    valid_from = models.DateField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Berlaku Mulai",
+    )
+
+    valid_to = models.DateField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Berlaku Sampai",
+    )
+
     no_item = models.PositiveIntegerField(verbose_name="No Item")
 
     unit_bisnis = models.ForeignKey(
@@ -2326,7 +2366,8 @@ class ReAssessmentItem(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["summary", "no_item", "no_risiko"],
-                name="unik_reassessment_item_risiko_per_summary",
+                condition=models.Q(is_active=True),
+                name="unik_reassessment_item_aktif_per_summary",
             ),
         ]
 
@@ -2362,10 +2403,15 @@ class ReAssessmentItem(models.Model):
                 )
                 errors[target_field] = validation_error
 
-        if getattr(self, "km_item_id", None) and self.summary_id:
+        if (
+            getattr(self, "km_item_id", None)
+            and self.summary_id
+            and self.is_active
+        ):
             if self.km_item.kontrak_id != self.summary.kontrak_manajemen_id:
                 errors["km_item"] = (
-                    "KM Item harus berasal dari Kontrak Manajemen yang sama dengan Summary."
+                    "KM Item risiko aktif harus berasal dari "
+                    "Kontrak Manajemen yang sama dengan Summary."
                 )
 
         if self.summary and self.summary.rkm:
@@ -2433,6 +2479,7 @@ class ReAssessmentItem(models.Model):
             count = ReAssessmentItem.objects.filter(
                 summary=self.summary,
                 no_risiko=self.no_risiko,
+                is_active=self.is_active,
             ).exclude(pk=self.pk).count()
             self.no_penyebab_risiko = string.ascii_uppercase[count]
 
@@ -2560,7 +2607,9 @@ class KPMRSummary(models.Model):
         return "; ".join(notes)
 
     def generate_items_from_reassessment(self):
-        reassessment_items = self.reassessment.item.all().order_by(
+        reassessment_items = self.reassessment.item.filter(
+            is_active=True
+        ).order_by(
             "no_item",
             "no_risiko",
             "no_penyebab_risiko",

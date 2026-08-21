@@ -175,7 +175,7 @@ def _base_exposure(item):
 
 def _items_for_summary(summary):
     return list(
-        summary.item.select_related(
+        summary.item.filter(is_active=True).select_related(
             "km_item",
             "km_item__master_bagian",
             "sasaran_kbumn",

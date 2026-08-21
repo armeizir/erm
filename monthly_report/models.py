@@ -213,17 +213,37 @@ class MonthlyRiskReport(TimeStampedModel):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        if self.reassessment_id:
-            canonical_km_id = self.reassessment.kontrak_manajemen_id
-            if canonical_km_id and self.kontrak_manajemen_id != canonical_km_id:
+        # KM hanya diisi otomatis jika laporan belum memiliki KM.
+        # Dengan demikian laporan historis tetap mempertahankan
+        # Kontrak Manajemen yang berlaku pada periodenya.
+        if self.reassessment_id and not self.kontrak_manajemen_id:
+            canonical_km_id = (
+                self.reassessment.kontrak_manajemen_id
+            )
+            if canonical_km_id:
                 self.kontrak_manajemen_id = canonical_km_id
                 if kwargs.get("update_fields") is not None:
-                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {"kontrak_manajemen"}
+                    kwargs["update_fields"] = (
+                        set(kwargs["update_fields"])
+                        | {"kontrak_manajemen"}
+                    )
+
         super().save(*args, **kwargs)
 
-    def generate_items(self):
+    def profile_items_queryset(self):
+        if not self.reassessment_id:
+            return ReAssessmentItem.objects.none()
 
-        risk_events = ReAssessmentItem.objects.filter(summary=self.reassessment)
+        if self.periode_id:
+            return self.reassessment.items_for_period(
+                self.periode.tanggal_mulai,
+                self.periode.tanggal_selesai,
+            )
+
+        return self.reassessment.active_items()
+
+    def generate_items(self):
+        risk_events = self.profile_items_queryset()
 
         for risk_event in risk_events:
             MonthlyRiskReportItem.objects.get_or_create(

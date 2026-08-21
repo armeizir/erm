@@ -147,7 +147,9 @@ def get_accessible_risk_profiles(user):
 
 
 def get_accessible_reassessment_items(user):
-    queryset = ReAssessmentItem.objects.select_related(
+    queryset = ReAssessmentItem.objects.filter(
+        is_active=True
+    ).select_related(
         "summary",
         "summary__unit_bisnis",
         "unit_bisnis",

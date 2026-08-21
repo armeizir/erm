@@ -1067,12 +1067,33 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             obj, "reassessment_id", None
         )
         request._monthly_report_reassessment_id = reassessment_id
+        request._monthly_report_period_start = (
+            obj.periode.tanggal_mulai
+            if obj and obj.periode_id
+            else None
+        )
+        request._monthly_report_period_end = (
+            obj.periode.tanggal_selesai
+            if obj and obj.periode_id
+            else None
+        )
         formset = super().get_formset(request, obj, **kwargs)
 
         if reassessment_id:
             try:
-                reassessment_obj = ReAssessmentSummary.objects.get(pk=reassessment_id)
-                risk_event_qs = ReAssessmentItem.objects.filter(summary=reassessment_obj)
+                reassessment_obj = ReAssessmentSummary.objects.get(
+                    pk=reassessment_id
+                )
+                if (
+                    obj
+                    and obj.periode_id
+                ):
+                    risk_event_qs = reassessment_obj.items_for_period(
+                        obj.periode.tanggal_mulai,
+                        obj.periode.tanggal_selesai,
+                    )
+                else:
+                    risk_event_qs = reassessment_obj.active_items()
             except Exception:
                 risk_event_qs = ReAssessmentItem.objects.none()
         else:
@@ -1468,7 +1489,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "report": report,
             "form": form,
             "profile": report.reassessment,
-            "profile_item_count": report.reassessment.item.count(),
+            "profile_item_count": report.profile_items_queryset().count(),
             "profile_status": getattr(
                 report.reassessment, "status", "Status tidak tersedia"
             ),
@@ -1613,7 +1634,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "recommended_reference": recommended_reference,
             "target_only_items": target_only_items,
             "profile": report.reassessment,
-            "profile_item_count": report.reassessment.item.count(),
+            "profile_item_count": report.profile_items_queryset().count(),
             "profile_status": getattr(
                 report.reassessment, "status", "Status tidak tersedia"
             ),
@@ -1655,7 +1676,20 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
     @admin.display(description="Reassessment", ordering="reassessment__judul")
     def profile_display(self, obj):
-        return obj.display_profile_name
+        name = obj.display_profile_name
+        reassessment = getattr(obj, "reassessment", None)
+        unit = getattr(reassessment, "unit_bisnis", None) if reassessment else None
+        unit_name = (getattr(unit, "name", "") or "").strip().casefold()
+
+        # Revision profile MANPRO tetap dipisahkan di database agar histori bulanan
+        # aman, tetapi pada daftar laporan ditampilkan dengan nama canonical agar
+        # pengguna tidak melihat suffix teknis "Mei-Juni 2026" / "Juli 2026".
+        if unit_name == "bid manpro" and name.startswith("Profil Risiko MANPRO - "):
+            copy_marker = " (copy bulan "
+            copy_suffix = name[name.index(copy_marker):] if copy_marker in name else ""
+            return f"Profil Risiko MANPRO{copy_suffix}"
+
+        return name
 
     @admin.display(description="Sumber Salinan")
     def copy_source_display(self, obj):
@@ -2462,7 +2496,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             queryset = _limit_by_assigned_units(
                 request,
                 ReAssessmentItem.objects.select_related("summary__unit_bisnis").filter(
-                    summary_id=reassessment_id
+                    summary_id=reassessment_id,
+                    is_active=True,
                 ),
                 "summary__unit_bisnis",
             ).order_by(

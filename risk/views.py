@@ -524,7 +524,18 @@ def _unit_profile_rows(year, month):
         if month:
             reports = reports.filter(periode__tanggal_mulai__month=month)
         report = reports.first()
-        total_profile_items = summary.item.count()
+        if report:
+            total_profile_items = (
+                report.items
+                .values("risk_event_id")
+                .distinct()
+                .count()
+            )
+        else:
+            total_profile_items = summary.item.filter(
+                is_active=True
+            ).count()
+
         reported_items = report.items.count() if report else 0
         high_items = report.total_high if report else 0
         rows.append(

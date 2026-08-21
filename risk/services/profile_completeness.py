@@ -179,7 +179,7 @@ def check_profile_completeness(profile):
         if profile.unit_bisnis_id and profile.rkm.unit_bisnis_id != profile.unit_bisnis_id:
             add("Data Profil", "error", "Unit RKM tidak sama dengan unit profil.")
 
-    items = list(profile.item.all())
+    items = list(profile.item.filter(is_active=True))
     if not items:
         add("Item Risiko", "error", "Profil belum memiliki item risiko.")
         return CompletenessResult(profile, findings, required_count, completed_count)
