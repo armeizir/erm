@@ -907,7 +907,9 @@
         </div>
         <div class="bodx-actions">
           <span class="bodx-chip" id="bodMode">Mode: –</span>
-          <button class="bodx-btn primary" type="button" id="bodResidual">Gunakan Residual</button>
+          <button class="bodx-btn" type="button" id="bodResidual">Gunakan Residual</button>
+          <button class="bodx-btn primary" type="button" id="bodExecutiveOpen">Dashboard Direksi</button>
+          <button class="bodx-btn" type="button" id="bodExecutiveTv">Mode TV</button>
           <button class="bodx-btn" type="button" id="bodDetail">Detail RCC</button>
         </div>
       </div>
@@ -2604,6 +2606,39 @@
  let top=document.getElementById("bodTop");top.innerHTML="";(risk.slice(0,5).length?risk.slice(0,5):[{event:"Belum ada skor/level risiko yang dapat diprioritaskan."}]).forEach((r,i)=>{let tr=document.createElement("tr");if(!r.level&&!r.score){tr.innerHTML='<td colspan="6">'+r.event+"</td>"}else{let cl=r.s>=4?"high":r.s===3?"medium":r.s>0?"low":"";tr.innerHTML="<td><strong>"+(i+1)+"</strong></td><td>"+r.event+"</td><td>"+(r.owner||"–")+"</td><td>"+(r.score||"–")+'</td><td><span class="bodx-level '+cl+'">'+(r.level||"Belum dipetakan")+"</span></td><td>"+(r.status||"–")+"</td>"}top.appendChild(tr)});
  let att=[];high.slice(0,3).forEach(r=>att.push(["red",r.event,"Level "+(r.level||"tinggi")+(r.score?" · skor "+r.score:"")+". Perlu prioritas mitigasi dan eskalasi."]));if(unmapped>0)att.push(["amber",Math.round(unmapped)+" risiko belum dipetakan","Lengkapi penilaian agar keputusan BoD tidak menggunakan heatmap yang masih kosong."]);if(katt>0)att.push(["amber",Math.round(katt)+" unit KPMR perlu atensi","Rata-rata KPMR saat ini "+(kpmr||"belum tersedia")+"."]);if(reported!=null&&units&&reported<units)att.push(["amber","Reporting belum lengkap ("+Math.round(reported)+"/"+units+" unit)","Perlu percepatan pelaporan agar posisi risiko korporat mencerminkan seluruh unit."]);if(!att.length)att.push(["green","Tidak ada exception utama yang terdeteksi","Tetap review Top Corporate Risks dan detail RCC."]);
  let al=document.getElementById("bodAtt");al.innerHTML="";att.slice(0,6).forEach(a=>{let d=document.createElement("div");d.className="bodx-att-item";d.innerHTML='<span class="bodx-sig '+a[0]+'"></span><div><div class="bodx-atitle">'+a[1]+'</div><div class="bodx-atext">'+a[2]+"</div></div>";al.appendChild(d)});set("bodAttCount",att.length);
+ /* BOD_EXECUTIVE_DASHBOARD_STANDALONE_LINK_V1 */
+ const bodExecutiveUrl=(tvMode)=>{
+   const current=new URLSearchParams(window.location.search);
+   const params=new URLSearchParams();
+
+   const yearControl=document.querySelector('[name="year"]');
+   const riskControl=document.querySelector('[name="risk"]');
+
+   const year=(yearControl?.value || current.get("year") || "").trim();
+   const riskId=(riskControl?.value || current.get("risk") || "").trim();
+
+   if(year) params.set("year",year);
+   if(riskId) params.set("risk",riskId);
+   if(tvMode) params.set("tv","1");
+
+   const query=params.toString();
+   return "{% url 'executive_risk_dashboard' %}" + (query ? "?" + query : "");
+ };
+
+ const bodExecutiveOpen=document.getElementById("bodExecutiveOpen");
+ if(bodExecutiveOpen){
+   bodExecutiveOpen.onclick=()=>{
+     window.location.href=bodExecutiveUrl(false);
+   };
+ }
+
+ const bodExecutiveTv=document.getElementById("bodExecutiveTv");
+ if(bodExecutiveTv){
+   bodExecutiveTv.onclick=()=>{
+     window.open(bodExecutiveUrl(true), "_blank", "noopener");
+   };
+ }
+
  /* BOD_EXECUTIVE_DASHBOARD_PHASE3_1_FINAL_POLISH_V2 */
  let rb=document.getElementById("bodResidual");
  if(rb&&modeSel){
