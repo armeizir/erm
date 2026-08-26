@@ -6,8 +6,10 @@ from risk.views import dashboard, export_rcc_excel, kpmr_review_view, kpmr_updat
 from riskproject.admin_site import risk_admin_site
 
 from risk.bod_phase2 import bod_phase2_api
+from risk.executive_signage import executive_risk_dashboard
 
 urlpatterns = [
+    path("executive-risk/", executive_risk_dashboard, name="executive_risk_dashboard"),
     path("api/bod-phase2/", bod_phase2_api, name="bod_phase2_api"),
     path("", dashboard, name="dashboard"),
 

@@ -1,0 +1,129 @@
+{% load static %}
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ page_title }}</title>
+  <style>
+    :root{
+      --navy:#173a62;--navy2:#244f7d;--ink:#1f2f41;--muted:#637083;--line:#d8dee7;
+      --panel:#f4f7fa;--bg:#eef3f7;--orange:#f28c35;--red:#ef233c;--green:#00a65a;--amber:#f59e0b;
+    }
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:var(--ink);background:var(--bg)}
+    body.tv{overflow:hidden;background:#fff}
+    .toolbar{height:64px;display:flex;align-items:center;gap:10px;padding:10px 18px;background:#102e50;color:#fff;position:sticky;top:0;z-index:10;box-shadow:0 2px 8px rgba(15,23,42,.18)}
+    .toolbar .brand{font-weight:800;margin-right:auto}.toolbar label{font-size:12px;color:#dbeafe}.toolbar select,.toolbar button,.toolbar a{height:38px;border:1px solid rgba(255,255,255,.25);border-radius:9px;background:#fff;color:#173a62;padding:0 12px;font-weight:700;text-decoration:none}
+    .toolbar button{cursor:pointer}.toolbar .primary{background:#2e90fa;color:#fff;border-color:#2e90fa}
+    .stage-wrap{padding:18px}.stage{width:min(1600px,calc(100vw - 36px));aspect-ratio:16/9;min-height:760px;margin:0 auto;background:#fff;border-radius:18px;box-shadow:0 10px 34px rgba(15,23,42,.12);padding:30px 36px 26px;display:grid;grid-template-rows:auto auto 1fr auto;gap:18px;overflow:hidden;position:relative}
+    .head{display:grid;grid-template-columns:1fr 330px;gap:24px;align-items:start}.title h1{font-size:36px;line-height:1.05;margin:0;color:#1d2d40;letter-spacing:-.02em}.title h1 span{font-weight:900}.title p{margin:7px 0 0;color:var(--muted);font-size:15px}.status-explain{text-align:right;font-size:13px;line-height:1.35;color:#111827;padding:2px 10px 0 0}.status-arrow{font-size:34px;color:#2e90fa;line-height:1;margin-top:2px}
+    .headline{display:grid;grid-template-columns:repeat(4,1fr);gap:22px}.metric-card{background:#eef3f8;border:1px solid #e0e7ef;border-radius:18px;min-height:106px;padding:18px 20px;box-shadow:0 4px 7px rgba(15,23,42,.22);display:flex;flex-direction:column;justify-content:center}.metric-card .label{color:#1d4e7d;font-weight:850;font-size:14px;text-align:center}.metric-card strong{margin-top:9px;font-size:31px;line-height:1;color:#203047;text-align:center;white-space:nowrap}.metric-card.status-card{display:grid;grid-template-columns:1fr 1.4fr;align-items:center}.metric-card.status-card strong{margin:0;font-size:25px}.metric-card.status-card.warning strong{color:var(--orange)}.metric-card.status-card.danger strong{color:var(--red)}.metric-card.status-card.safe strong{color:var(--green)}
+    .main{display:grid;grid-template-columns:1.75fr 1fr;gap:22px;min-height:0}.drivers{position:relative;border:1.5px solid #ef233c;background:#fff;padding:26px 14px 12px;min-height:0}.drivers-tag{position:absolute;top:-15px;left:48px;background:#c80000;color:#fff;border-radius:7px;padding:5px 34px;font-size:13px;box-shadow:0 2px 5px rgba(0,0,0,.18)}
+    .table{height:100%;display:grid;grid-template-rows:auto repeat(6,1fr);gap:10px}.tr{display:grid;grid-template-columns:1.25fr 1fr 1fr .45fr;align-items:center;border-radius:14px;padding:10px 18px;background:#f7f9fb;border:1px solid #dfe4ea;box-shadow:0 3px 5px rgba(15,23,42,.18);font-size:14px}.tr.header{background:#e8edf3;color:#194d7c;font-weight:850;box-shadow:0 3px 5px rgba(15,23,42,.18);min-height:58px}.tr .name{font-weight:800;color:#1f4e7d}.tr .target,.tr .actual{text-align:center;font-weight:750}.tr .trend{text-align:center;font-size:30px;font-weight:900}.trend.up{color:red}.trend.down{color:#00a65a}.trend.flat{color:#94a3b8}.tr.empty{grid-template-columns:1fr;text-align:center;color:#8895a5;box-shadow:none;border-style:dashed}
+    .outlook{background:#f8fafc;border:1px solid #d4dbe4;border-radius:38px;box-shadow:0 4px 7px rgba(15,23,42,.22);padding:28px 32px;display:flex;flex-direction:column;min-height:0}.outlook h2{font-size:20px;color:#27435f;margin:0 0 22px}.out-grid{display:grid;grid-template-columns:120px 1fr;row-gap:12px;column-gap:18px;align-items:start}.out-grid .k{font-size:13px;color:#2c5d89;font-weight:850}.out-grid .k.trigger{color:#d48a20}.out-grid .v{font-size:15px;font-weight:800;line-height:1.25}.out-grid .v.big{font-size:21px}.out-grid .loss{color:red}.impact{margin-top:auto;border:1px solid #e7c894;border-radius:15px;background:#fffaf3;box-shadow:0 3px 6px rgba(15,23,42,.15);padding:18px 20px;display:grid;grid-template-columns:135px 1fr;gap:16px}.impact .ik{color:#d58b21;font-weight:900}.impact .iv{font-weight:800;font-size:16px;line-height:1.35}
+    .decision{border:1px solid #d7dde5;border-radius:20px;background:#fff;box-shadow:0 4px 7px rgba(15,23,42,.22);padding:14px 26px;display:grid;grid-template-columns:220px 1fr;align-items:center;min-height:116px}.decision-title{font-size:26px;color:#164879;font-weight:800;padding-right:24px;border-right:2px solid #2e90fa}.decision ol{margin:0;padding-left:34px;font-size:15px;line-height:1.38}.decision .empty{color:#7c8898;font-size:14px;padding-left:28px}
+    .tv-indicator{position:absolute;right:20px;bottom:12px;font-size:10px;color:#94a3b8}.progress{position:absolute;left:0;bottom:0;height:4px;background:#2e90fa;width:0}.tv .toolbar{display:none}.tv .stage-wrap{padding:0;width:100vw;height:100vh;background:#fff;display:grid;place-items:center}.tv .stage{width:100vw;height:100vh;max-width:none;min-height:0;border-radius:0;box-shadow:none;aspect-ratio:auto;padding:2.6vh 2.3vw 2.2vh;gap:1.6vh}.tv .title h1{font-size:clamp(30px,2.3vw,48px)}.tv .title p{font-size:clamp(12px,.9vw,18px)}.tv .headline{gap:1.2vw}.tv .metric-card{min-height:0;padding:1.4vh 1vw}.tv .metric-card strong{font-size:clamp(23px,2vw,38px)}.tv .main{gap:1.2vw}.tv .drivers{padding-top:2.6vh}.tv .tr{padding:.7vh 1.1vw;font-size:clamp(11px,.8vw,16px)}.tv .outlook{padding:2.3vh 1.8vw}.tv .decision{min-height:0;padding:1.2vh 1.5vw}.tv .decision-title{font-size:clamp(20px,1.5vw,30px)}.tv .decision ol{font-size:clamp(11px,.86vw,17px)}
+    @media(max-width:1100px){.stage{aspect-ratio:auto;min-height:1200px}.head{grid-template-columns:1fr}.status-explain{text-align:left}.headline{grid-template-columns:repeat(2,1fr)}.main{grid-template-columns:1fr}.decision{grid-template-columns:1fr}.decision-title{border-right:0;border-bottom:2px solid #2e90fa;padding:0 0 10px}.tv .stage{min-height:0}.tv .head{grid-template-columns:1fr 300px}.tv .main{grid-template-columns:1.75fr 1fr}.tv .decision{grid-template-columns:220px 1fr}.tv .decision-title{border-right:2px solid #2e90fa;border-bottom:0}}
+  </style>
+</head>
+<body class="{% if tv_mode %}tv{% endif %}">
+  <div class="toolbar">
+    <div class="brand">Executive Risk Dashboard</div>
+    <label for="year">Tahun</label>
+    <select id="year" onchange="changeFilter()">
+      {% for year in years %}<option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>{% endfor %}
+    </select>
+    <label for="risk">Risiko</label>
+    <select id="risk" onchange="changeFilter()">
+      {% for risk in risks %}<option value="{{ risk.id }}" {% if risk_card and risk.id == risk_card.id %}selected{% endif %}>#{{ risk.no_risiko|default:risk.no_item }} — {{ risk.peristiwa_risiko|truncatechars:60 }}</option>{% endfor %}
+    </select>
+    <button type="button" onclick="toggleFullscreen()">Fullscreen</button>
+    <button class="primary" type="button" onclick="startTV()">Mode TV</button>
+    <a href="/">RCC</a>
+  </div>
+
+  <main class="stage-wrap">
+    {% if risk_card %}
+    <section class="stage" id="stage">
+      <header class="head">
+        <div class="title">
+          <h1><span>RISK #{{ risk_card.number }}</span> | {{ risk_card.title }}</h1>
+          <p>Executive view: posisi risiko, indikator pemicu, outlook, dampak, dan keputusan manajemen.</p>
+        </div>
+        <div class="status-explain">{{ risk_card.status_note }}<div class="status-arrow">⬇</div></div>
+      </header>
+
+      <section class="headline">
+        <article class="metric-card"><div class="label">POSISI S.D. {{ risk_card.current_month|upper }} {{ risk_card.year }}</div><strong>{{ risk_card.ytd }}</strong></article>
+        <article class="metric-card"><div class="label">POSISI {{ risk_card.current_month|upper }} {{ risk_card.year }}</div><strong>{{ risk_card.current }}</strong></article>
+        <article class="metric-card"><div class="label">TARGET RKAP</div><strong>{{ risk_card.target }}</strong></article>
+        <article class="metric-card status-card {{ risk_card.status_class }}"><div class="label">Status</div><strong>{{ risk_card.status }}</strong></article>
+      </section>
+
+      <section class="main">
+        <div class="drivers">
+          <div class="drivers-tag">KRI / DRIVER — leading indicator</div>
+          <div class="table">
+            <div class="tr header"><div>INDIKATOR</div><div class="target">TARGET / TRIGGER</div><div class="actual">REALISASI TERKINI</div><div>ARAH</div></div>
+            {% for row in risk_card.rows %}
+              <div class="tr">
+                <div class="name">{{ row.name|truncatechars:56 }}</div>
+                <div class="target">{{ row.target }}</div>
+                <div class="actual">{{ row.actual }}</div>
+                <div class="trend {{ row.trend }}">{% if row.trend == 'up' %}⬆{% elif row.trend == 'down' %}⬇{% else %}→{% endif %}</div>
+              </div>
+            {% endfor %}
+            {% for i in "123456" %}{% if forloop.counter > risk_card.rows|length %}<div class="tr empty">Belum ada data indikator tambahan</div>{% endif %}{% endfor %}
+          </div>
+        </div>
+
+        <aside class="outlook">
+          <h2>RISK OUTLOOK - MoM</h2>
+          <div class="out-grid">
+            <div class="k">CURRENT</div><div class="v big">{{ risk_card.current }}</div>
+            <div class="k">FORECAST</div><div class="v big">{{ risk_card.forecast }}<br><span style="font-size:12px;color:#6b7280">{{ risk_card.forecast_period }}</span></div>
+            <div class="k trigger">TRIGGER</div><div class="v">{{ risk_card.trigger }}</div>
+          </div>
+          <div class="impact">
+            <div class="ik">IMPACT<br><span style="font-size:11px;font-weight:700">Worst case</span></div>
+            <div class="iv">{{ risk_card.worst_case }}{% if risk_card.potential_loss != '–' %}<br>Potensi dampak <span class="loss">{{ risk_card.potential_loss }}</span>{% endif %}</div>
+          </div>
+        </aside>
+      </section>
+
+      <footer class="decision">
+        <div class="decision-title">Management<br>Decision</div>
+        {% if risk_card.decisions %}
+          <ol>{% for decision in risk_card.decisions %}<li>{{ decision }}</li>{% endfor %}</ol>
+        {% else %}
+          <div class="empty">Belum ada rencana perlakuan/management decision yang terisi pada profil risiko ini.</div>
+        {% endif %}
+      </footer>
+      {% if tv_mode %}<div class="tv-indicator">TV Signage · refresh saat berpindah risiko</div><div class="progress" id="progress"></div>{% endif %}
+    </section>
+    {% else %}
+      <section class="stage"><h1>Belum ada risiko korporat pada tahun {{ selected_year }}.</h1></section>
+    {% endif %}
+  </main>
+
+  {{ rotation|json_script:"risk-rotation" }}
+  <script>
+    function changeFilter(){
+      const u=new URL(window.location.href);u.searchParams.set('year',document.getElementById('year').value);u.searchParams.set('risk',document.getElementById('risk').value);u.searchParams.delete('tv');window.location.href=u.toString();
+    }
+    function toggleFullscreen(){const el=document.documentElement;if(!document.fullscreenElement){el.requestFullscreen?.()}else{document.exitFullscreen?.()}}
+    function startTV(){const u=new URL(window.location.href);u.searchParams.set('tv','1');window.location.href=u.toString()}
+    document.addEventListener('keydown',e=>{if(e.key.toLowerCase()==='f')toggleFullscreen();});
+    {% if tv_mode and risk_card %}
+    (function(){
+      const items=JSON.parse(document.getElementById('risk-rotation').textContent||'[]');
+      const current={{ risk_card.id }};const idx=Math.max(0,items.findIndex(x=>x.id===current));
+      const seconds=Math.max(10,Math.min(120,parseInt(new URL(window.location.href).searchParams.get('seconds')||'20',10)));
+      const bar=document.getElementById('progress');let start=Date.now();
+      const tick=()=>{if(bar){bar.style.width=Math.min(100,(Date.now()-start)/(seconds*10))+'%'}requestAnimationFrame(tick)};requestAnimationFrame(tick);
+      setTimeout(()=>{if(!items.length)return;const next=items[(idx+1)%items.length];const u=new URL(window.location.href);u.searchParams.set('risk',next.id);u.searchParams.set('tv','1');window.location.replace(u.toString())},seconds*1000);
+    })();
+    {% endif %}
+  </script>
+</body>
+</html>
