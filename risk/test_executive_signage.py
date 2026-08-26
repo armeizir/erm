@@ -11,18 +11,18 @@ class ExecutiveRiskDashboardTests(TestCase):
         self.user.user_permissions.add(perm)
 
     def test_requires_login(self):
-        response = self.client.get(reverse("executive_risk_dashboard"))
+        response = self.client.get(reverse("executive_risk_dashboard"), secure=True)
         self.assertEqual(response.status_code, 302)
 
     def test_renders_as_separate_page(self):
         self.client.force_login(self.user)
-        response = self.client.get(reverse("executive_risk_dashboard"))
+        response = self.client.get(reverse("executive_risk_dashboard"), secure=True)
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "executive_risk_dashboard.html")
         self.assertContains(response, "Executive Risk Dashboard")
 
     def test_tv_mode_is_supported(self):
         self.client.force_login(self.user)
-        response = self.client.get(reverse("executive_risk_dashboard"), {"tv": "1"})
+        response = self.client.get(reverse("executive_risk_dashboard"), {"tv": "1"}, secure=True)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '<body class="tv">')
