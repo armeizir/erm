@@ -3287,6 +3287,7 @@ REASSESSMENT_ITEM_FIELDS = (
 
 
 class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline):
+    template = "admin/risk/reassessmentitem/tabular_with_exposure_help.html"
     model = ReAssessmentItem
     form = ReAssessmentItemTimelineForm
     extra = 0
@@ -3930,7 +3931,7 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
                     else ("quarterly-field-group",),
                     "fields": (fields,),
                     "description": (
-                        "Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas."
+                        "Eksposur Risiko dihitung otomatis untuk setiap kuartal dari ""Nilai Dampak × Nilai Probabilitas pada kuartal yang sama. ""Skala/Level Risiko selanjutnya ditentukan berdasarkan Matriks Risiko. ""Untuk risiko kualitatif, eksposur numerik dapat tampil tanda '-' ""apabila nilai numerik memang tidak digunakan."
                         if title == "EKSPOSUR RISIKO"
                         else None
                     ),
