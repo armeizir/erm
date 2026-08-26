@@ -143,6 +143,21 @@ def latest_profile_revisions(queryset=None):
     return queryset.filter(pk=Subquery(latest))
 
 
+# PROFILE_COMPLETENESS_CAUSE_IDENTITY_V3
+def _profile_identity_text(value):
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _risk_cause_identity(item):
+    return (
+        getattr(item, "no_item", None),
+        getattr(item, "no_risiko", None),
+        _profile_identity_text(getattr(item, "peristiwa_risiko", "")),
+        getattr(item, "no_penyebab_risiko", None),
+        _profile_identity_text(getattr(item, "penyebab_risiko", "")),
+    )
+
+
 def check_profile_completeness(profile):
     findings = []
     required_count = completed_count = 0
@@ -213,6 +228,10 @@ def check_profile_completeness(profile):
             for value in kri_parts:
                 require(value, "KRI", "Konfigurasi KRI belum lengkap.", item)
         for quarter in range(1, 5):
+            # Eksposur Risiko adalah derived field:
+            # Nilai Dampak x Nilai Probabilitas.
+            # Karena dihitung otomatis oleh model, exposure bukan input
+            # mandatory pada Profile Completeness.
             required = (
                 (f"nilai_dampak_q{quarter}", "Nilai Dampak"),
                 (f"skala_dampak_q{quarter}_id", "Skala Dampak"),
@@ -220,7 +239,6 @@ def check_profile_completeness(profile):
                 (f"skala_probabilitas_q{quarter}_id", "Skala Probabilitas"),
                 (f"skala_risiko_q{quarter}", "Skala Risiko"),
                 (f"level_nilai_risiko_q{quarter}", "Level Risiko"),
-                (f"eksposur_risiko_q{quarter}", "Target Eksposur Risiko"),
             )
             for attribute, label in required:
                 if qualitative and attribute.startswith(("nilai_dampak_", "nilai_probabilitas_")):
@@ -229,15 +247,27 @@ def check_profile_completeness(profile):
         signature = (event.casefold(), item.taksonomi_t3_id, item.sasaran_kbumn_id, item.kategori_risiko_id)
         likely_duplicates.setdefault(signature, []).append(item)
 
-    for number, duplicates in by_number.items():
+    # no_item boleh berulang: satu KPI dapat memiliki beberapa risk event,
+    # dan satu risk event dapat memiliki beberapa cause/penyebab.
+    # Karena itu by_number/by_event/signature bukan bukti duplikasi.
+    exact_risk_causes = {}
+    for item in items:
+        identity = _risk_cause_identity(item)
+        if identity[2] and identity[4]:
+            exact_risk_causes.setdefault(identity, []).append(item)
+
+    for identity, duplicates in exact_risk_causes.items():
         if len(duplicates) > 1:
-            add("Duplikasi atau Ketidakkonsistenan", "warning", f"Nomor item {number} digunakan pada beberapa risiko.")
-    for event, duplicates in by_event.items():
-        if len(duplicates) > 1:
-            add("Duplikasi atau Ketidakkonsistenan", "warning", f"Peristiwa risiko yang sama tercatat {len(duplicates)} kali: {duplicates[0].peristiwa_risiko}.")
-    for signature, duplicates in likely_duplicates.items():
-        if signature[0] and len(duplicates) > 1:
-            add("Duplikasi atau Ketidakkonsistenan", "warning", f"{len(duplicates)} item memiliki peristiwa, taksonomi, sasaran, dan kategori yang sama.")
+            add(
+                "Duplikasi atau Ketidakkonsistenan",
+                "warning",
+                (
+                    f"Risiko dan penyebab yang sama tercatat {len(duplicates)} kali: "
+                    f"{duplicates[0].peristiwa_risiko} / "
+                    f"{duplicates[0].penyebab_risiko}."
+                ),
+            )
+
     numbers = sorted(by_number)
     if numbers and numbers != list(range(numbers[0], numbers[-1] + 1)):
         add("Duplikasi atau Ketidakkonsistenan", "warning", "Urutan nomor item memiliki celah dan perlu diverifikasi.")
