@@ -3433,18 +3433,88 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
             allowed, reason = should_send_notification(result, recipients, force=force)
             preview.append({"profile": profile, "result": result, "recipients": recipients, "allowed": allowed, "reason": reason})
         if request.POST.get("confirm_send") == "yes":
-            sent = failed = 0
+            # SMTP produksi terobservasi menolak burst setelah 5 message
+            # submissions (421 / 4.4.2). Karena action admin ini berjalan
+            # sinkron di request Gunicorn, jangan menunggu 60+ detik di sini.
+            # Batasi satu batch ke 5 percobaan kirim; sisanya ditunda.
+            batch_limit = 5
+            attempted = sent = failed = skipped = deferred = 0
+            failure_details = []
+
             for row in preview:
-                if not row["recipients"]["to"] and not row["result"].is_complete:
-                    log_undeliverable_notification(row["result"], row["recipients"], row["reason"])
+                result = row["result"]
+                recipients = row["recipients"]
+                profile_label = (
+                    f"{result.profile.unit_bisnis} — {result.profile.judul}"
+                )
+
+                if not recipients["to"] and not result.is_complete:
+                    reason = row["reason"] or "Penerima utama tidak tersedia"
+                    log_undeliverable_notification(result, recipients, reason)
                     failed += 1
+                    failure_details.append(f"{profile_label}: {reason}")
                     continue
+
                 if not row["allowed"]:
+                    skipped += 1
                     continue
-                ok, _error = send_profile_completeness_notification(row["result"], row["recipients"], triggered_by=request.user)
-                sent += int(ok)
-                failed += int(not ok)
-            self.message_user(request, f"Notifikasi selesai: {sent} email berhasil dan {failed} gagal.", messages.SUCCESS if not failed else messages.WARNING)
+
+                if attempted >= batch_limit:
+                    deferred += 1
+                    continue
+
+                attempted += 1
+                ok, error = send_profile_completeness_notification(
+                    result,
+                    recipients,
+                    triggered_by=request.user,
+                )
+
+                if ok:
+                    sent += 1
+                    continue
+
+                failed += 1
+                error = error or "Backend email tidak mengirim pesan."
+                failure_details.append(f"{profile_label}: {error}")
+
+                # Jika server tetap memberi rate-limit lebih cepat dari
+                # batas batch yang telah diamati, hentikan percobaan SMTP
+                # pada sisa profil dan tandai sebagai ditunda.
+                error_text = str(error).casefold()
+                if (
+                    "421" in error_text
+                    and (
+                        "4.4.2" in error_text
+                        or "rate" in error_text
+                        or "submission" in error_text
+                    )
+                ):
+                    attempted = batch_limit
+
+            summary_message = (
+                f"Notifikasi selesai: {sent} berhasil, {failed} gagal, "
+                f"{deferred} ditunda, dan {skipped} dilewati."
+            )
+
+            if deferred:
+                summary_message += (
+                    " Pengiriman dibatasi maksimal 5 email per batch untuk "
+                    "menghindari SMTP 421/4.4.2. Tunggu sekitar 1 menit lalu "
+                    "jalankan kembali TANPA Force Send; profil yang sudah "
+                    "berhasil akan dilewati otomatis."
+                )
+
+            if failure_details:
+                summary_message += " Detail gagal: " + " | ".join(
+                    failure_details[:5]
+                )
+
+            self.message_user(
+                request,
+                summary_message,
+                messages.SUCCESS if not failed and not deferred else messages.WARNING,
+            )
             return None
         context = {
             **self.admin_site.each_context(request),

@@ -432,6 +432,25 @@ def send_profile_completeness_notification(result, recipients, base_url=None, co
         error = "" if sent else "Backend email tidak mengirim pesan."
     except Exception as exc:
         sent, status, error = 0, ProfileCompletenessNotificationLog.STATUS_FAILED, str(exc)[:2000]
+
+        # Error tetap disimpan ke ProfileCompletenessNotificationLog,
+        # dan juga ditulis ke application log agar diagnosis SMTP tidak
+        # memerlukan pengiriman ulang email.
+        try:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Profile completeness email failed | profile=%s | unit=%s | to=%s | cc=%s | error=%s",
+                result.profile.pk,
+                result.profile.unit_bisnis_id,
+                recipients.get("to", []),
+                recipients.get("cc", []),
+                error,
+            )
+        except Exception:
+            # Logging tidak boleh menggagalkan workflow notifikasi.
+            pass
+
     ProfileCompletenessNotificationLog.objects.create(
         profile=result.profile, unit_bisnis=result.profile.unit_bisnis,
         recipient_to=recipients["to"], recipient_cc=recipients["cc"],

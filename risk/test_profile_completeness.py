@@ -83,17 +83,44 @@ class ProfileCompletenessTests(TestCase):
         self.assertTrue(any("Matriks Risiko" in finding.message for finding in result.findings))
         self.assertTrue(any("Taksonomi" in finding.message for finding in result.findings))
 
-    def test_duplicate_event_and_number_produce_warnings(self):
+    def test_same_risk_with_different_causes_is_not_duplicate(self):
         ReAssessmentItem.objects.create(
-            summary=self.profile, no_item=1, km_item=self.km_item, no_risiko=2,
-            peristiwa_risiko="Gangguan operasi", deskripsi_peristiwa_risiko="Lain",
+            summary=self.profile,
+            no_item=98,
+            km_item=self.km_item,
+            no_risiko=4,
+            no_penyebab_risiko="d",
+            peristiwa_risiko="Gangguan operasi multi-cause",
+            deskripsi_peristiwa_risiko="Penyebab pertama",
+            penyebab_risiko="Penyebab pertama",
+        )
+        ReAssessmentItem.objects.create(
+            summary=self.profile,
+            no_item=99,
+            km_item=self.km_item,
+            no_risiko=4,
+            no_penyebab_risiko="e",
+            peristiwa_risiko="Gangguan operasi multi-cause",
+            deskripsi_peristiwa_risiko="Penyebab kedua",
+            penyebab_risiko="Penyebab kedua",
         )
 
         result = check_profile_completeness(self.profile)
 
-        warnings = [finding.message for finding in result.findings if finding.severity == "warning"]
-        self.assertTrue(any("Nomor item 1" in message for message in warnings))
-        self.assertTrue(any("Peristiwa risiko yang sama" in message for message in warnings))
+        warnings = [
+            finding.message
+            for finding in result.findings
+            if finding.severity == "warning"
+        ]
+
+        self.assertFalse(
+            any("duplik" in message.casefold() for message in warnings),
+            warnings,
+        )
+        self.assertFalse(
+            any("peristiwa risiko yang sama" in message.casefold() for message in warnings),
+            warnings,
+        )
 
     def test_risk_officer_and_same_unit_pairing_are_resolved(self):
         officer = self.assignment("officer", "officer@example.com", PenugasanUnitBisnis.ROLE_RISK_OFFICER)
