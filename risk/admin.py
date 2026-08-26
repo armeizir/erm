@@ -197,6 +197,27 @@ class OrganizationUnitAccessGroupInline(admin.TabularInline):
 
 @admin.register(Group)
 class CustomGroupAdmin(BaseGroupAdmin):
+    def get_search_results(self, request, queryset, search_term):
+        queryset, use_distinct = super().get_search_results(
+            request,
+            queryset,
+            search_term,
+        )
+
+        # Group digunakan untuk role sekaligus Bidang/Unit Bisnis.
+        # Untuk autocomplete unit_bisnis, user biasa hanya boleh
+        # melihat unit yang berada dalam scope organisasinya.
+        if (
+            not request.user.is_superuser
+            and request.GET.get("field_name") == "unit_bisnis"
+        ):
+            allowed_units = assigned_unit_businesses_for_user(request.user)
+            queryset = queryset.filter(
+                pk__in=allowed_units.values_list("pk", flat=True)
+            )
+
+        return queryset, use_distinct
+
     inlines = [OrganizationUnitAccessGroupInline, PenugasanUnitBisnisGroupInline]
     list_display = ("name", "jenis_group", "cakupan_organisasi", "jumlah_permission")
     list_filter = ("permissions__content_type__app_label",)
