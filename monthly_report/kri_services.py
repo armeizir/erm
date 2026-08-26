@@ -45,6 +45,11 @@ def _matches(expression, value):
 
     text = (expression or "").strip().casefold().replace("–", "-").replace("—", "-")
 
+    # Keterangan dalam tanda kurung merupakan catatan threshold,
+    # bukan bagian dari nilai numerik.
+    # Contoh: ">= 60 MW (n+1)" harus dibaca sebagai ">= 60 MW".
+    text = re.sub(r"\([^)]*\)", "", text).strip()
+
     # BEGIN KRI SIGNED RANGE SUPPORT V2
     # Parse signed numeric expressions BEFORE legacy _numbers().
     # Supports:
