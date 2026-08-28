@@ -171,7 +171,7 @@ class QuarterlyRiskExposureTests(TestCase):
         )
         self.assertEqual(copied.eksposur_risiko_q2, Decimal("600.00"))
 
-    def test_admin_exposure_is_readonly_but_quarter_inputs_are_editable(self):
+    def test_admin_exposure_fields_support_qualitative_input(self):
         admin_user = get_user_model().objects.create_superuser(
             username="exposure-admin", password="secret"
         )
@@ -180,15 +180,23 @@ class QuarterlyRiskExposureTests(TestCase):
         model_admin = ReAssessmentItemAdmin(ReAssessmentItem, AdminSite())
         readonly = model_admin.get_readonly_fields(request)
         for quarter in range(1, 5):
-            self.assertIn(f"eksposur_risiko_q{quarter}", readonly)
+            exposure_field = f"eksposur_risiko_q{quarter}"
+            display_field = f"{exposure_field}_display"
+
+            # Raw exposure harus menjadi field form agar risiko kualitatif
+            # dapat mengisi eksposur secara langsung. Untuk kuantitatif,
+            # JavaScript membuat field ini readonly dan menghitung nilainya.
+            self.assertNotIn(exposure_field, readonly)
+            self.assertIn(display_field, readonly)
             self.assertNotIn(f"nilai_dampak_q{quarter}", readonly)
             self.assertNotIn(f"nilai_probabilitas_q{quarter}", readonly)
 
         inline = ReAssessmentItemInline(ReAssessmentSummary, AdminSite())
         for quarter in range(1, 5):
-            self.assertIn(
-                f"eksposur_risiko_q{quarter}", inline.readonly_fields
-            )
+            exposure_field = f"eksposur_risiko_q{quarter}"
+            display_field = f"{exposure_field}_display"
+            self.assertNotIn(exposure_field, inline.readonly_fields)
+            self.assertIn(display_field, inline.readonly_fields)
         self.assertEqual(
             ReAssessmentSummaryAdmin(
                 ReAssessmentSummary, AdminSite()
@@ -206,7 +214,10 @@ class QuarterlyRiskExposureTests(TestCase):
         self.assertIn("Intl.NumberFormat(\"id-ID\"", script)
         self.assertIn("nilai_dampak_q${quarter}", script)
         self.assertIn("nilai_probabilitas_q${quarter}", script)
-        self.assertIn('closest("tr.form-row")', script)
+        self.assertIn(
+            'closest("tr.form-row, .inline-related, form")',
+            script,
+        )
 
     def test_recalculation_command_dry_run_and_apply_are_idempotent(self):
         item = self.item(

@@ -1020,6 +1020,22 @@ class ItemKontrakManajemen(models.Model):
 
     satuan = models.CharField(max_length=100, blank=True, null=True)
 
+    # KM_KORPORAT_ESG_FIELD_V1
+    ESG_KATEGORI_CHOICES = (
+        ("E", "E - Environmental"),
+        ("S", "S - Social"),
+        ("G", "G - Governance"),
+        ("C", "C - Corporate/Commercial"),
+    )
+    esg_kategori = models.CharField(
+        max_length=1,
+        choices=ESG_KATEGORI_CHOICES,
+        blank=True,
+        default="",
+        verbose_name="ESG/C",
+        help_text="Klasifikasi ESG/C pada indikator Kontrak Manajemen.",
+    )
+
     bobot = models.FloatField(default=0)
 
     target = models.CharField(max_length=100, blank=True, null=True)
@@ -3858,3 +3874,17 @@ class RoadmapPenilaianSemester(models.Model):
         ) / Decimal("3")
         self.nilai_program = self.nilai_program.quantize(Decimal("0.01"))
         super().save(*args, **kwargs)
+
+# KM_KORPORAT_PROXY_MODELS_V1
+class KontrakManajemenKorporat(KontrakManajemen):
+    class Meta:
+        proxy = True
+        verbose_name = "Kontrak Manajemen Korporat"
+        verbose_name_plural = "Kontrak Manajemen Korporat"
+
+
+class ItemKontrakManajemenKorporat(ItemKontrakManajemen):
+    class Meta:
+        proxy = True
+        verbose_name = "Item KM Korporat"
+        verbose_name_plural = "Item KM Korporat"

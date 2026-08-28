@@ -36,7 +36,7 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
     def test_required_quarterly_order_is_explicit_for_admin_and_inline(self):
         expected = (
             *(f"skala_probabilitas_q{quarter}" for quarter in range(1, 5)),
-            *QUARTERLY_EXPOSURE_DISPLAY_FIELDS,
+            *(f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)),
             *(f"skala_risiko_q{quarter}" for quarter in range(1, 5)),
             *QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS,
         )
@@ -46,12 +46,12 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
             REASSESSMENT_ITEM_FIELDS[
                 REASSESSMENT_ITEM_FIELDS.index("skala_probabilitas_q4") + 1
             ],
-            "eksposur_risiko_q1_display",
+            "eksposur_risiko_q1",
         )
         self.assertEqual(
             REASSESSMENT_ITEM_FIELDS[
                 REASSESSMENT_ITEM_FIELDS.index(
-                    "eksposur_risiko_q4_display"
+                    "eksposur_risiko_q4"
                 ) + 1
             ],
             "skala_risiko_q1",
@@ -79,7 +79,7 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
         self.assertEqual(change_fields, REASSESSMENT_ITEM_FIELDS)
         for quarter in range(1, 5):
             self.assertIn(
-                f"eksposur_risiko_q{quarter}_display",
+                f"eksposur_risiko_q{quarter}",
                 add_fields,
             )
 
@@ -87,7 +87,10 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
         groups = dict(REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS)
         self.assertEqual(
             groups["EKSPOSUR RISIKO"],
-            QUARTERLY_EXPOSURE_DISPLAY_FIELDS,
+            tuple(
+                f"eksposur_risiko_q{quarter}"
+                for quarter in range(1, 5)
+            ),
         )
         exposure_fieldset = next(
             options
@@ -103,7 +106,11 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
             exposure_fieldset["classes"],
         )
         self.assertIn(
-            "Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
+            "Kuantitatif: dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
+            exposure_fieldset["description"],
+        )
+        self.assertIn(
+            "Kualitatif: isi Nilai Eksposur Risiko langsung",
             exposure_fieldset["description"],
         )
 
@@ -114,11 +121,14 @@ class QuarterlyRiskFieldLayoutTests(TestCase):
         for quarter in range(1, 5):
             field = f"eksposur_risiko_q{quarter}"
             display_field = f"{field}_display"
-            self.assertIn(field, readonly)
+
+            # Exposure asli harus tersedia di form karena risiko kualitatif
+            # mengisi exposure secara langsung. Display helper tetap readonly.
+            self.assertNotIn(field, readonly)
             self.assertIn(display_field, readonly)
-            self.assertIn(field, inline.readonly_fields)
+            self.assertNotIn(field, inline.readonly_fields)
             self.assertIn(display_field, inline.readonly_fields)
-            self.assertNotIn(field, form_class.base_fields)
+            self.assertIn(field, form_class.base_fields)
 
     def test_exposure_is_formatted_as_indonesian_rupiah(self):
         item = SimpleNamespace(

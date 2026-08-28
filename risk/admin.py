@@ -3266,27 +3266,28 @@ class ReAssessmentItemTimelineForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        jenis_risiko = cleaned_data.get("jenis_risiko")
-        if jenis_risiko == "kualitatif":
-            # Nilai dampak/probabilitas numerik tidak wajib untuk risiko
-            # kualitatif. Eksposur diisi langsung per quarter. Jangan
-            # memaksa placeholder 0 karena itu dapat dibaca sebagai zero risk.
-            for quarter in range(1, 5):
-                exposure = cleaned_data.get(f"eksposur_risiko_q{quarter}")
-                if exposure is not None and exposure < 0:
+        if "jenis_risiko" in self.fields:
+            jenis_risiko = cleaned_data.get("jenis_risiko")
+            if jenis_risiko == "kualitatif":
+                # Nilai dampak/probabilitas numerik tidak wajib untuk risiko
+                # kualitatif. Eksposur diisi langsung per quarter. Jangan
+                # memaksa placeholder 0 karena itu dapat dibaca sebagai zero risk.
+                for quarter in range(1, 5):
+                    exposure = cleaned_data.get(f"eksposur_risiko_q{quarter}")
+                    if exposure is not None and exposure < 0:
+                        self.add_error(
+                            f"eksposur_risiko_q{quarter}",
+                            f"Eksposur Risiko Q{quarter} tidak boleh negatif.",
+                        )
+            elif jenis_risiko not in {"kuantitatif", "kualitatif"}:
+                # Legacy unresolved tidak boleh disimpan ulang tanpa keputusan.
+                # Form yang tidak berubah tetap dapat ditampilkan tanpa memaksa
+                # mass-edit seluruh data lama.
+                if self.is_bound and self.has_changed():
                     self.add_error(
-                        f"eksposur_risiko_q{quarter}",
-                        f"Eksposur Risiko Q{quarter} tidak boleh negatif.",
+                        "jenis_risiko",
+                        "Pilih Jenis Risiko: Kuantitatif atau Kualitatif sebelum menyimpan perubahan.",
                     )
-        elif jenis_risiko not in {"kuantitatif", "kualitatif"}:
-            # Legacy unresolved tidak boleh disimpan ulang tanpa keputusan.
-            # Form yang tidak berubah tetap dapat ditampilkan tanpa memaksa
-            # mass-edit seluruh data lama.
-            if self.is_bound and self.has_changed():
-                self.add_error(
-                    "jenis_risiko",
-                    "Pilih Jenis Risiko: Kuantitatif atau Kualitatif sebelum menyimpan perubahan.",
-                )
 
         summary = getattr(self.instance, "summary", None)
         owner = owner_organization_unit(summary)
@@ -6136,5 +6137,149 @@ except admin.sites.AlreadyRegistered:
 
 try:
     risk_admin_site.register(RiwayatJabatanUser, RiwayatJabatanUserAdmin)
+except admin.sites.AlreadyRegistered:
+    pass
+
+# KM_KORPORAT_PROXY_ADMIN_V1
+from django.contrib.auth.models import Group as _KMCorporateGroup
+from .models import (
+    KontrakManajemenKorporat,
+    ItemKontrakManajemenKorporat,
+)
+
+
+_KM_CORPORATE_GROUP_NAME = "KORPORAT"
+
+
+def _km_corporate_perm(user, action, model_name):
+    if user.is_superuser:
+        return True
+    return user.has_perm(f"risk.{action}_{model_name}")
+
+
+@admin.register(KontrakManajemenKorporat)
+class KontrakManajemenKorporatAdmin(KontrakManajemenAdmin):
+    def get_queryset(self, request):
+        # Bypass unit-assignment filter parent khusus view corporate.
+        qs = admin.ModelAdmin.get_queryset(self, request)
+        return qs.filter(unit_bisnis__name__iexact=_KM_CORPORATE_GROUP_NAME)
+
+    def has_module_permission(self, request):
+        return (
+            _km_corporate_perm(request.user, "view", "kontrakmanajemen")
+            or _km_corporate_perm(request.user, "change", "kontrakmanajemen")
+        )
+
+    def has_view_permission(self, request, obj=None):
+        return (
+            _km_corporate_perm(request.user, "view", "kontrakmanajemen")
+            or _km_corporate_perm(request.user, "change", "kontrakmanajemen")
+        )
+
+    def has_change_permission(self, request, obj=None):
+        return _km_corporate_perm(request.user, "change", "kontrakmanajemen")
+
+    def has_add_permission(self, request):
+        return _km_corporate_perm(request.user, "add", "kontrakmanajemen")
+
+    def has_delete_permission(self, request, obj=None):
+        return _km_corporate_perm(request.user, "delete", "kontrakmanajemen")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "unit_bisnis":
+            field = admin.ModelAdmin.formfield_for_foreignkey(
+                self, db_field, request, **kwargs
+            )
+            field.queryset = _KMCorporateGroup.objects.filter(
+                name__iexact=_KM_CORPORATE_GROUP_NAME
+            )
+            return field
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        unit = _KMCorporateGroup.objects.filter(
+            name__iexact=_KM_CORPORATE_GROUP_NAME
+        ).first()
+        if unit is None:
+            raise ValueError(
+                "Group KORPORAT belum tersedia. Jalankan importer KM Korporat."
+            )
+        obj.unit_bisnis = unit
+        return super().save_model(request, obj, form, change)
+
+
+@admin.register(ItemKontrakManajemenKorporat)
+class ItemKontrakManajemenKorporatAdmin(ItemKontrakManajemenAdmin):
+    list_display = tuple(ItemKontrakManajemenAdmin.list_display)
+    if "esg_kategori" not in list_display:
+        list_display += ("esg_kategori",)
+
+    fields = tuple(ItemKontrakManajemenAdmin.fields)
+    if "esg_kategori" not in fields:
+        fields += ("esg_kategori",)
+
+    list_filter = tuple(ItemKontrakManajemenAdmin.list_filter)
+    if "esg_kategori" not in list_filter:
+        list_filter += ("esg_kategori",)
+
+    def get_queryset(self, request):
+        qs = admin.ModelAdmin.get_queryset(self, request)
+        return qs.filter(
+            kontrak__unit_bisnis__name__iexact=_KM_CORPORATE_GROUP_NAME
+        )
+
+    def has_module_permission(self, request):
+        return (
+            _km_corporate_perm(request.user, "view", "itemkontrakmanajemen")
+            or _km_corporate_perm(request.user, "change", "itemkontrakmanajemen")
+        )
+
+    def has_view_permission(self, request, obj=None):
+        return (
+            _km_corporate_perm(request.user, "view", "itemkontrakmanajemen")
+            or _km_corporate_perm(request.user, "change", "itemkontrakmanajemen")
+        )
+
+    def has_change_permission(self, request, obj=None):
+        return _km_corporate_perm(
+            request.user, "change", "itemkontrakmanajemen"
+        )
+
+    def has_add_permission(self, request):
+        return _km_corporate_perm(
+            request.user, "add", "itemkontrakmanajemen"
+        )
+
+    def has_delete_permission(self, request, obj=None):
+        return _km_corporate_perm(
+            request.user, "delete", "itemkontrakmanajemen"
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "kontrak":
+            field = admin.ModelAdmin.formfield_for_foreignkey(
+                self, db_field, request, **kwargs
+            )
+            field.queryset = KontrakManajemenKorporat.objects.filter(
+                unit_bisnis__name__iexact=_KM_CORPORATE_GROUP_NAME
+            )
+            return field
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+# KM_KORPORAT_CUSTOM_ADMIN_SITE_V1
+try:
+    risk_admin_site.register(
+        KontrakManajemenKorporat,
+        KontrakManajemenKorporatAdmin,
+    )
+except admin.sites.AlreadyRegistered:
+    pass
+
+try:
+    risk_admin_site.register(
+        ItemKontrakManajemenKorporat,
+        ItemKontrakManajemenKorporatAdmin,
+    )
 except admin.sites.AlreadyRegistered:
     pass

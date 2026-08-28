@@ -394,7 +394,7 @@ k. Pelaporan progres ke Direksi dan Dewan Komisaris.""",
         "action": "- Pengesahan dokumen baru oleh Direksi.",
         "budget": D("2200000"), "target_accum": "10",
         "target_accum_unit": "hari", "pic": "MAN KUM",
-        "mapping": "bridge",
+        "mapping": "legal_opinion",
     },
     {
         "no": 9, "source_row": 18, "section": "C", "section_no": 4,
@@ -582,6 +582,9 @@ ANCHOR_ALIASES = {
         "Implementasi Governance Risk Compliance (GRC)",
         "Implementasi Sistem Manajemen Terintegritas",
         "Implementasi Sistem Manajemen Terintegrasi",
+    ),
+    "legal_opinion": (
+        "Penerbitan Advis Hukum/Pendapat Hukum/Legal Opinion",
     ),
     "contract_review": (
         "Reviu Draf Kontrak/Amandemen/HOA/MOU dari Unit Bisnis/Bidang",
@@ -1191,8 +1194,8 @@ def execute(apply):
         print(f"Unit                 : {unit.pk} {unit.name!r}")
         print(f"KM                   : {km.pk} {km.judul!r}")
         print("Source RKM items     : 16")
-        print("Canonical anchors    : 9")
-        print("Technical bridges    : 7 (ROLLBACK)")
+        print("Canonical anchors    : 10")
+        print("Technical bridges    : 6 (ROLLBACK)")
         print("RKM Summary          : 1 (ROLLBACK)")
         print("RKM Items            : 16 (ROLLBACK)")
         print("Existing KM relabel  : 0")
