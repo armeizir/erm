@@ -13,10 +13,39 @@
     if (details) details.open = true;
   });
 
-  function thresholdMatches(expression, value) {
+  function parseThresholdNumber(rawValue, unit) {
+    var text = String(rawValue || "").replace(/\s+/g, "");
+    var sign = "";
+    if (text[0] === "+" || text[0] === "-") {
+      sign = text[0];
+      text = text.slice(1);
+    }
+    var normalizedUnit = String(unit || "").trim().toLowerCase();
+    var percentUnit = ["%", "persen", "percent", "percentage"].indexOf(normalizedUnit) !== -1;
+
+    if (text.indexOf(".") !== -1 && text.indexOf(",") !== -1) {
+      if (text.lastIndexOf(",") > text.lastIndexOf(".")) {
+        text = text.replace(/\./g, "").replace(",", ".");
+      } else {
+        text = text.replace(/,/g, "");
+      }
+    } else if (text.indexOf(",") !== -1) {
+      text = text.replace(",", ".");
+    } else if (text.indexOf(".") !== -1) {
+      var parts = text.split(".");
+      var looksGroupedInteger = !percentUnit && parts[0] !== "0" && parts[0].length <= 3 &&
+        parts.length >= 2 && parts.slice(1).every(function (part) {
+          return /^\d{3}$/.test(part);
+        });
+      if (looksGroupedInteger) text = parts.join("");
+    }
+    return Number(sign + text);
+  }
+
+  function thresholdMatches(expression, value, unit) {
     var text = (expression || "").replace(/[–—]/g, "-").toLowerCase();
-    var numbers = (text.match(/\d+(?:[.,]\d+)?/g) || []).map(function (number) {
-      return Number(number.replace(",", "."));
+    var numbers = (text.match(/\d+(?:[.,]\d+)*/g) || []).map(function (number) {
+      return parseThresholdNumber(number, unit);
     });
     if (!numbers.length) return false;
     if (numbers.length > 1) {
@@ -43,11 +72,12 @@
       return;
     }
     var value = Number(input.value);
+    var unit = input.dataset.kriUnit || "";
     var categories = [
       ["green", "Hijau", input.dataset.kriGreen],
       ["yellow", "Kuning", input.dataset.kriYellow],
       ["red", "Merah", input.dataset.kriRed]
-    ].filter(function (entry) { return thresholdMatches(entry[2], value); });
+    ].filter(function (entry) { return thresholdMatches(entry[2], value, unit); });
     if (categories.length !== 1) {
       statusTarget.textContent = "Konfigurasi perlu diperiksa";
       rangeTarget.textContent = "Threshold tumpang tindih atau memiliki celah";

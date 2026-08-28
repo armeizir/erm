@@ -1857,6 +1857,36 @@ class MonthlyRiskReportAdminTests(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.realisasi_pic, "MAN KOM")
 
+    def test_monthly_monitoring_unmatched_legacy_pic_is_shown_as_source_hint(self):
+        report = self._report("BID PIC LEGACY UNMATCHED")
+        risk_event = self._risk_item(report)
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+            realisasi_pic="MAN OSIS",
+        )
+
+        form = MonthlyRiskReportItemForm(instance=item)
+
+        self.assertFalse(
+            form.initial.get("realisasi_pic_organization_unit")
+        )
+        self.assertEqual(
+            form.fields["realisasi_pic_organization_unit"].label,
+            "Mapping PIC ke Master Organisasi",
+        )
+        self.assertIn(
+            "Belum terhubung ke Master Organisasi",
+            form.fields["realisasi_pic_organization_unit"].help_text,
+        )
+        self.assertIn(
+            "Biarkan kosong sampai mapping resmi PIC diketahui",
+            form.fields["realisasi_pic_organization_unit"].help_text,
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.realisasi_pic, "MAN OSIS")
+        self.assertIsNone(item.realisasi_pic_organization_unit_id)
+
     def test_kri_threshold_higher_is_better_and_boundaries(self):
         report = self._report("BID KRI HIGHER")
         risk_event = self._risk_item(report)

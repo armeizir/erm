@@ -35,6 +35,18 @@ def calculate_quarterly_risk_exposure(impact, probability):
 
 
 def calculate_item_quarterly_exposures(item):
+    risk_type = getattr(item, "jenis_risiko", None)
+
+    # Kualitatif menggunakan eksposur manual. Legacy yang belum ditetapkan juga
+    # mempertahankan exposure existing dan TIDAK boleh dianggap Kuantitatif.
+    if risk_type != "kuantitatif":
+        return {
+            f"eksposur_risiko_q{quarter}": _as_decimal(
+                getattr(item, f"eksposur_risiko_q{quarter}", None)
+            )
+            for quarter in range(1, 5)
+        }
+
     values = {}
     for quarter in range(1, 5):
         try:

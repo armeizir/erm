@@ -2266,13 +2266,55 @@ class RKMSummaryAdmin(admin.ModelAdmin):
         )
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if not request.user.is_superuser:
-            if db_field.name == "unit_bisnis":
-                kwargs["queryset"] = assigned_unit_businesses_for_user(request.user)
-            elif db_field.name == "kontrak_manajemen":
-                kwargs["queryset"] = KontrakManajemen.objects.filter(
-                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+        # KM SETPER lama (KM 15) sudah menjadi historical reference untuk
+        # Monthly Report, Reassessment, dan RKM Juli 2026.
+        #
+        # Untuk ADD RKM baru, setelah KM resmi tersedia, KM legacy tersebut
+        # tidak boleh dipakai lagi. Pada CHANGE RKM lama, KM legacy tetap
+        # tersedia agar histori tidak rusak.
+        resolver_match = getattr(request, "resolver_match", None)
+        object_id = (
+            resolver_match.kwargs.get("object_id")
+            if resolver_match and resolver_match.kwargs
+            else None
+        )
+        is_change_view = bool(object_id)
+
+        if db_field.name == "unit_bisnis":
+            if not request.user.is_superuser:
+                kwargs["queryset"] = assigned_unit_businesses_for_user(
+                    request.user
                 )
+
+        elif db_field.name == "kontrak_manajemen":
+            if request.user.is_superuser:
+                qs = KontrakManajemen.objects.all()
+            else:
+                qs = KontrakManajemen.objects.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(
+                        request.user
+                    )
+                )
+
+            # Berlaku hanya untuk pembuatan RKM baru.
+            # Jangan mengubah pilihan pada RKM historical yang sedang diedit.
+            if not is_change_view:
+                official_setper_exists = KontrakManajemen.objects.filter(
+                    unit_bisnis_id=11,
+                    tahun=2026,
+                    judul="SETPER RESMI 2026",
+                    status="Final",
+                ).exists()
+
+                if official_setper_exists:
+                    qs = qs.exclude(
+                        unit_bisnis_id=11,
+                        tahun=2026,
+                        judul="SETPER",
+                    )
+
+            kwargs["queryset"] = qs
+
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def has_view_permission(self, request, obj=None):
@@ -3019,6 +3061,7 @@ REASSESSMENT_ITEM_IDENTITY_FIELDS = (
     "taksonomi_t3",
     "sasaran_kbumn",
     "kategori_risiko",
+    "jenis_risiko",
     "no_risiko",
     "peristiwa_risiko",
     "deskripsi_peristiwa_risiko",
@@ -3062,7 +3105,7 @@ REASSESSMENT_ITEM_QUARTERLY_FIELD_GROUPS = (
     ),
     (
         "EKSPOSUR RISIKO",
-        QUARTERLY_EXPOSURE_DISPLAY_FIELDS,
+        tuple(f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)),
     ),
     (
         "SKALA RISIKO",
@@ -3198,8 +3241,53 @@ class ReAssessmentItemTimelineForm(forms.ModelForm):
                 if getattr(self.instance, f"timeline_{month}", 0) == 1
             ]
 
+        risk_type_field = self.fields.get("jenis_risiko")
+        if risk_type_field:
+            risk_type_field.widget.attrs["class"] = (
+                f"{risk_type_field.widget.attrs.get('class', '')} risk-type-selector"
+            ).strip()
+
+        for quarter in range(1, 5):
+            exposure_field = self.fields.get(f"eksposur_risiko_q{quarter}")
+            if exposure_field:
+                exposure_field.widget.attrs.update({
+                    "min": "0",
+                    "step": "0.01",
+                    "data-quarter": str(quarter),
+                    "class": (
+                        f"{exposure_field.widget.attrs.get('class', '')} "
+                        "quarterly-exposure-input"
+                    ).strip(),
+                })
+            for prefix in ("nilai_dampak", "nilai_probabilitas"):
+                field = self.fields.get(f"{prefix}_q{quarter}")
+                if field:
+                    field.widget.attrs["data-quarter"] = str(quarter)
+
     def clean(self):
         cleaned_data = super().clean()
+        jenis_risiko = cleaned_data.get("jenis_risiko")
+        if jenis_risiko == "kualitatif":
+            # Nilai dampak/probabilitas numerik tidak wajib untuk risiko
+            # kualitatif. Eksposur diisi langsung per quarter. Jangan
+            # memaksa placeholder 0 karena itu dapat dibaca sebagai zero risk.
+            for quarter in range(1, 5):
+                exposure = cleaned_data.get(f"eksposur_risiko_q{quarter}")
+                if exposure is not None and exposure < 0:
+                    self.add_error(
+                        f"eksposur_risiko_q{quarter}",
+                        f"Eksposur Risiko Q{quarter} tidak boleh negatif.",
+                    )
+        elif jenis_risiko not in {"kuantitatif", "kualitatif"}:
+            # Legacy unresolved tidak boleh disimpan ulang tanpa keputusan.
+            # Form yang tidak berubah tetap dapat ditampilkan tanpa memaksa
+            # mass-edit seluruh data lama.
+            if self.is_bound and self.has_changed():
+                self.add_error(
+                    "jenis_risiko",
+                    "Pilih Jenis Risiko: Kuantitatif atau Kualitatif sebelum menyimpan perubahan.",
+                )
+
         summary = getattr(self.instance, "summary", None)
         owner = owner_organization_unit(summary)
         if cleaned_data.get("use_owner_organization"):
@@ -3293,8 +3381,9 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
     extra = 0
     ordering = ("no_item",)
     fields = REASSESSMENT_ITEM_FIELDS
-    readonly_fields = ("kode_penyebab_risiko", "legacy_pic_display") + tuple(
-        f"eksposur_risiko_q{quarter}" for quarter in range(1, 5)
+    readonly_fields = (
+        "kode_penyebab_risiko",
+        "legacy_pic_display",
     ) + QUARTERLY_EXPOSURE_DISPLAY_FIELDS + QUARTERLY_RISK_LEVEL_DISPLAY_FIELDS
 
     class Media:
@@ -4001,7 +4090,10 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
                     else ("quarterly-field-group",),
                     "fields": (fields,),
                     "description": (
-                        "Eksposur Risiko dihitung otomatis untuk setiap kuartal dari ""Nilai Dampak × Nilai Probabilitas pada kuartal yang sama. ""Skala/Level Risiko selanjutnya ditentukan berdasarkan Matriks Risiko. ""Untuk risiko kualitatif, eksposur numerik dapat tampil tanda '-' ""apabila nilai numerik memang tidak digunakan."
+                        "Kuantitatif: dihitung otomatis dari Nilai Dampak × "
+                        "Nilai Probabilitas. Kualitatif: isi Nilai Eksposur "
+                        "Risiko langsung; nilai dampak/probabilitas numerik "
+                        "tidak wajib."
                         if title == "EKSPOSUR RISIKO"
                         else None
                     ),
@@ -4026,10 +4118,6 @@ class ReAssessmentItemAdmin(QuarterlyRiskLevelDisplayMixin, admin.ModelAdmin):
     readonly_fields = (
         "kode_penyebab_risiko",
         "legacy_pic_display",
-        "eksposur_risiko_q1",
-        "eksposur_risiko_q2",
-        "eksposur_risiko_q3",
-        "eksposur_risiko_q4",
         "skala_risiko_q1",
         "skala_risiko_q2",
         "skala_risiko_q3",

@@ -11,13 +11,8 @@ if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
 
 DATABASES = {
     "default": {
-        "ENGINE": os.environ.get("DB_ENGINE", "django.db.backends.postgresql"),
-        "NAME": env_required("DB_NAME"),
-        "USER": env_required("DB_USER"),
-        "PASSWORD": env_required("DB_PASSWORD"),
-        "HOST": os.environ.get("DB_HOST", "localhost"),
-        "PORT": os.environ.get("DB_PORT", "5432"),
-        "CONN_MAX_AGE": int(os.environ.get("DB_CONN_MAX_AGE", "60")),
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
 
@@ -30,3 +25,45 @@ SECURE_HSTS_PRELOAD = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
+
+# BEGIN ERM HTTPS PROXY SETTINGS
+# Request publik menggunakan HTTPS, sedangkan Nginx meneruskannya
+# ke Gunicorn melalui HTTP lokal.
+SECURE_PROXY_SSL_HEADER = (
+    "HTTP_X_FORWARDED_PROTO",
+    "https",
+)
+
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([
+    *globals().get("CSRF_TRUSTED_ORIGINS", []),
+    "https://erm.plnbatam.com",
+]))
+# END ERM HTTPS PROXY SETTINGS
+
+
+# TEMP_DJANGO_ERROR_LOGGING_20260807
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console_error": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console_error"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "handlers": ["console_error"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
