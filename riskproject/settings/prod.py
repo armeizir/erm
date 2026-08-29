@@ -30,3 +30,41 @@ SECURE_HSTS_PRELOAD = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
+
+# BEGIN ERM HTTPS PROXY SETTINGS
+# Request publik menggunakan HTTPS, sedangkan Nginx meneruskannya
+# ke Gunicorn melalui HTTP lokal.
+SECURE_PROXY_SSL_HEADER = (
+    "HTTP_X_FORWARDED_PROTO",
+    "https",
+)
+
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([
+    *globals().get("CSRF_TRUSTED_ORIGINS", []),
+    "https://erm.plnbatam.com",
+]))
+# END ERM HTTPS PROXY SETTINGS
+
+
+# TEMP_DJANGO_ERROR_LOGGING_20260807
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console_error": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console_error"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "handlers": ["console_error"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}

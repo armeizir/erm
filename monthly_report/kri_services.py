@@ -15,11 +15,62 @@ class KRIThresholdResult:
     threshold_range: str
 
 
-def _numbers(expression):
-    return [Decimal(value.replace(",", ".")) for value in re.findall(r"\d+(?:[.,]\d+)?", expression)]
+def _parse_threshold_number(raw, unit=""):
+    # Parse angka threshold KRI dengan format Indonesia.
+    # 203.582 kVA -> 203582
+    # 1.234.567   -> 1234567
+    # 1.234,56    -> 1234.56
+    # 2,2         -> 2.2
+    # Decimal teknis seperti 0.274, 0.01, 90.0001 tetap decimal.
+    # Untuk satuan persen, titik tidak dianggap separator ribuan.
+    text = str(raw or "").strip().replace(" ", "")
+    if not text:
+        raise InvalidOperation
+
+    sign = ""
+    if text[0] in {"+", "-"}:
+        sign = text[0]
+        text = text[1:]
+
+    normalized_unit = str(unit or "").strip().casefold()
+    percent_unit = normalized_unit in {
+        "%",
+        "persen",
+        "percent",
+        "percentage",
+    }
+
+    if "." in text and "," in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
+        text = text.replace(",", ".")
+    elif "." in text:
+        parts = text.split(".")
+        looks_grouped_integer = (
+            not percent_unit
+            and parts[0] != "0"
+            and len(parts[0]) <= 3
+            and len(parts) >= 2
+            and all(len(part) == 3 and part.isdigit() for part in parts[1:])
+        )
+        if looks_grouped_integer:
+            text = "".join(parts)
+
+    return Decimal(sign + text)
 
 
-def _matches(expression, value):
+def _numbers(expression, unit=""):
+    tokens = re.findall(
+        r"[+-]?\d+(?:[.,]\d+)*",
+        str(expression or ""),
+    )
+    return [_parse_threshold_number(value, unit) for value in tokens]
+
+
+def _matches(expression, value, unit=""):
 
     # BEGIN KRI CATEGORICAL THRESHOLD SUPPORT
     normalized_expression = (
@@ -59,7 +110,7 @@ def _matches(expression, value):
     #   >=-1
     #   <-5
     #   100%
-    number_pattern = r"[+-]?\d+(?:[.,]\d+)?"
+    number_pattern = r"[+-]?\d+(?:[.,]\d+)*"
 
     signed_range = re.fullmatch(
         rf"\s*(?P<lower>{number_pattern})\s*%?\s*"
@@ -68,8 +119,12 @@ def _matches(expression, value):
         text,
     )
     if signed_range:
-        lower = Decimal(signed_range.group("lower").replace(",", "."))
-        upper = Decimal(signed_range.group("upper").replace(",", "."))
+        lower = _parse_threshold_number(
+            signed_range.group("lower"), unit
+        )
+        upper = _parse_threshold_number(
+            signed_range.group("upper"), unit
+        )
         if lower > upper:
             raise ValidationError(
                 "Batas bawah threshold KRI tidak boleh lebih besar dari batas atas."
@@ -83,8 +138,8 @@ def _matches(expression, value):
     )
     if signed_boundary:
         op = signed_boundary.group("op") or ""
-        boundary = Decimal(
-            signed_boundary.group("boundary").replace(",", ".")
+        boundary = _parse_threshold_number(
+            signed_boundary.group("boundary"), unit
         )
         if op in (">=", "≥"):
             return value >= boundary
@@ -98,7 +153,7 @@ def _matches(expression, value):
     # END KRI SIGNED RANGE SUPPORT V2
 
 
-    values = _numbers(text)
+    values = _numbers(text, unit)
     if not values:
         raise ValidationError("Konfigurasi threshold KRI belum lengkap. Hubungi administrator.")
     if len(values) >= 2:
@@ -143,7 +198,7 @@ def evaluate_kri_threshold(risk_event, actual_value):
     matches = [
         (status, expression)
         for status, expression in configured
-        if _matches(expression, value)
+        if _matches(expression, value, unit)
     ]
 
     if not matches:

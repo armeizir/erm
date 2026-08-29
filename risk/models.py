@@ -1020,6 +1020,22 @@ class ItemKontrakManajemen(models.Model):
 
     satuan = models.CharField(max_length=100, blank=True, null=True)
 
+    # KM_KORPORAT_ESG_FIELD_V1
+    ESG_KATEGORI_CHOICES = (
+        ("E", "E - Environmental"),
+        ("S", "S - Social"),
+        ("G", "G - Governance"),
+        ("C", "C - Corporate/Commercial"),
+    )
+    esg_kategori = models.CharField(
+        max_length=1,
+        choices=ESG_KATEGORI_CHOICES,
+        blank=True,
+        default="",
+        verbose_name="ESG/C",
+        help_text="Klasifikasi ESG/C pada indikator Kontrak Manajemen.",
+    )
+
     bobot = models.FloatField(default=0)
 
     target = models.CharField(max_length=100, blank=True, null=True)
@@ -1845,6 +1861,11 @@ class ProfileCompletenessMonitor(ReAssessmentSummary):
 
 
 class ReAssessmentItem(models.Model):
+    RISK_TYPE_CHOICES = (
+        ("kuantitatif", "Kuantitatif"),
+        ("kualitatif", "Kualitatif"),
+    )
+
     summary = models.ForeignKey(
         ReAssessmentSummary,
         on_delete=models.CASCADE,
@@ -1913,6 +1934,20 @@ class ReAssessmentItem(models.Model):
         blank=True,
         null=True,
         verbose_name="Kategori Risiko",
+    )
+    jenis_risiko = models.CharField(
+        max_length=20,
+        choices=RISK_TYPE_CHOICES,
+        default="kuantitatif",
+        null=True,
+        blank=True,
+        verbose_name="Jenis Risiko",
+        help_text=(
+            "Kuantitatif: eksposur dihitung otomatis dari Nilai Dampak × "
+            "Nilai Probabilitas. Kualitatif: nilai dampak/probabilitas numerik "
+            "tidak wajib dan Nilai Eksposur Risiko diisi langsung. Data legacy "
+            "yang belum terklasifikasi harus ditetapkan Jenis Risikonya saat diedit."
+        ),
     )
 
     no_risiko = models.PositiveIntegerField(verbose_name="No Risiko")
@@ -2167,7 +2202,8 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Eksposur Risiko Q1",
-        help_text="Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
+        help_text=("Kuantitatif: dihitung otomatis dari Nilai Dampak × Nilai Probabilitas. "
+                   "Kualitatif: diisi langsung sebagai nilai eksposur risiko."),
     )
     eksposur_risiko_q2 = models.DecimalField(
         max_digits=18,
@@ -2175,7 +2211,8 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Eksposur Risiko Q2",
-        help_text="Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
+        help_text=("Kuantitatif: dihitung otomatis dari Nilai Dampak × Nilai Probabilitas. "
+                   "Kualitatif: diisi langsung sebagai nilai eksposur risiko."),
     )
     eksposur_risiko_q3 = models.DecimalField(
         max_digits=18,
@@ -2183,7 +2220,8 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Eksposur Risiko Q3",
-        help_text="Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
+        help_text=("Kuantitatif: dihitung otomatis dari Nilai Dampak × Nilai Probabilitas. "
+                   "Kualitatif: diisi langsung sebagai nilai eksposur risiko."),
     )
     eksposur_risiko_q4 = models.DecimalField(
         max_digits=18,
@@ -2191,7 +2229,8 @@ class ReAssessmentItem(models.Model):
         null=True,
         blank=True,
         verbose_name="Eksposur Risiko Q4",
-        help_text="Dihitung otomatis dari Nilai Dampak × Nilai Probabilitas.",
+        help_text=("Kuantitatif: dihitung otomatis dari Nilai Dampak × Nilai Probabilitas. "
+                   "Kualitatif: diisi langsung sebagai nilai eksposur risiko."),
     )
 
     skala_risiko_q1 = models.CharField(
@@ -2427,9 +2466,19 @@ class ReAssessmentItem(models.Model):
 
         for quarter in range(1, 5):
             probability = getattr(self, f"nilai_probabilitas_q{quarter}")
-            if probability is not None and not Decimal("0") <= probability <= Decimal("100"):
+            if (
+                self.jenis_risiko != "kualitatif"
+                and probability is not None
+                and not Decimal("0") <= probability <= Decimal("100")
+            ):
                 errors[f"nilai_probabilitas_q{quarter}"] = (
                     f"Nilai Probabilitas Q{quarter} harus berada antara 0% dan 100%."
+                )
+
+            exposure = getattr(self, f"eksposur_risiko_q{quarter}")
+            if exposure is not None and exposure < 0:
+                errors[f"eksposur_risiko_q{quarter}"] = (
+                    f"Eksposur Risiko Q{quarter} tidak boleh negatif."
                 )
 
         if errors:
@@ -2483,22 +2532,23 @@ class ReAssessmentItem(models.Model):
             ).exclude(pk=self.pk).count()
             self.no_penyebab_risiko = string.ascii_uppercase[count]
 
-        if self.nilai_dampak is not None and self.nilai_dampak_q1 is None:
-            self.nilai_dampak_q1 = self.nilai_dampak
+        if self.jenis_risiko != "kualitatif":
+            if self.nilai_dampak is not None and self.nilai_dampak_q1 is None:
+                self.nilai_dampak_q1 = self.nilai_dampak
 
-        if self.nilai_probabilitas is not None and all(
-            getattr(self, f"nilai_probabilitas_q{quarter}") is None
-            for quarter in range(1, 5)
-        ):
-            q1 = self.nilai_probabilitas
-            q2 = (q1 * Decimal("0.75")).quantize(Decimal("0.01"))
-            q3 = (q2 * Decimal("0.75")).quantize(Decimal("0.01"))
-            q4 = (q3 * Decimal("0.75")).quantize(Decimal("0.01"))
+            if self.nilai_probabilitas is not None and all(
+                getattr(self, f"nilai_probabilitas_q{quarter}") is None
+                for quarter in range(1, 5)
+            ):
+                q1 = self.nilai_probabilitas
+                q2 = (q1 * Decimal("0.75")).quantize(Decimal("0.01"))
+                q3 = (q2 * Decimal("0.75")).quantize(Decimal("0.01"))
+                q4 = (q3 * Decimal("0.75")).quantize(Decimal("0.01"))
 
-            self.nilai_probabilitas_q1 = q1
-            self.nilai_probabilitas_q2 = q2
-            self.nilai_probabilitas_q3 = q3
-            self.nilai_probabilitas_q4 = q4
+                self.nilai_probabilitas_q1 = q1
+                self.nilai_probabilitas_q2 = q2
+                self.nilai_probabilitas_q3 = q3
+                self.nilai_probabilitas_q4 = q4
 
         assign_item_quarterly_exposures(self)
 
@@ -3824,3 +3874,17 @@ class RoadmapPenilaianSemester(models.Model):
         ) / Decimal("3")
         self.nilai_program = self.nilai_program.quantize(Decimal("0.01"))
         super().save(*args, **kwargs)
+
+# KM_KORPORAT_PROXY_MODELS_V1
+class KontrakManajemenKorporat(KontrakManajemen):
+    class Meta:
+        proxy = True
+        verbose_name = "Kontrak Manajemen Korporat"
+        verbose_name_plural = "Kontrak Manajemen Korporat"
+
+
+class ItemKontrakManajemenKorporat(ItemKontrakManajemen):
+    class Meta:
+        proxy = True
+        verbose_name = "Item KM Korporat"
+        verbose_name_plural = "Item KM Korporat"

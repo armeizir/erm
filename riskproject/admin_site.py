@@ -268,6 +268,20 @@ class RiskAdminSite(AdminSite):
                         ],
                     },
                     {
+                        # KM_KORPORAT_STRATEGIC_MENU_V1
+                        "title": "Kontrak Manajemen Korporat",
+                        "items": [
+                            item(
+                                "KM Korporat",
+                                "/admin/risk/kontrakmanajemenkorporat/",
+                            ),
+                            item(
+                                "Item KM Korporat",
+                                "/admin/risk/itemkontrakmanajemenkorporat/",
+                            ),
+                        ],
+                    },
+                    {
                         "title": "Profil Risiko Korporat",
                         "items": [
                             item("Profil Risiko Korporat", "/admin/risk/profilrisikokorporatsummary/"),

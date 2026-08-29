@@ -227,6 +227,13 @@ def _history_item_maps(report):
 
 
 def _risk_type(risk):
+    explicit = getattr(risk, "jenis_risiko", None)
+    if explicit == "kuantitatif":
+        return "Kuantitatif"
+    if explicit == "kualitatif":
+        return "Kualitatif"
+
+    # Fallback hanya untuk data legacy sebelum field Jenis Risiko tersedia.
     if any(
         getattr(risk, f"nilai_dampak_q{quarter}", None) not in (None, "", 0)
         for quarter in range(1, 5)
@@ -333,8 +340,13 @@ def _fill_iiib(workbook, report, items, items_by_month, items_by_quarter):
         ws.cell(row, 14, f'=IFERROR(M{row}/J{row},"n/a")')
         ws.cell(row, 15, _safe_text(item.realisasi_pic or getattr(risk, "pic_display", None) or risk.pic))
 
+        # MONTHLY_ACTUAL_TIMELINE_EXPORT_V1
         for month in range(1, 13):
-            ws.cell(row, 15 + month, _integer(getattr(risk, f"timeline_{month}", 0)) or None)
+            ws.cell(
+                row,
+                15 + month,
+                _integer(getattr(item, f"realisasi_timeline_{month}", 0)) or None,
+            )
 
         ws.cell(row, 28, _status_text(item))
         ws.cell(row, 29, _safe_text(item.penjelasan_status_rencana))

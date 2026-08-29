@@ -56,3 +56,46 @@
   .monitoring-risk-body fieldset.residual-grid { grid-template-columns: 1fr; }
   .monitoring-risk-body fieldset.residual-grid .field-realisasi_asumsi_dampak { grid-column: 1; }
 }
+
+/* MRR_RESIDUAL_GRID_V3
+   Residual III.A dibuat maksimal 2 kolom agar field, label, dan help text
+   tetap terbaca pada layar desktop. */
+.monitoring-risk-body fieldset.residual-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 14px 16px;
+}
+
+.monitoring-risk-body fieldset.residual-grid .form-row {
+  min-width: 0;
+}
+
+.monitoring-risk-body fieldset.residual-grid .form-row > div,
+.monitoring-risk-body fieldset.residual-grid .flex-container {
+  min-width: 0;
+}
+
+.monitoring-risk-body fieldset.residual-grid input,
+.monitoring-risk-body fieldset.residual-grid select,
+.monitoring-risk-body fieldset.residual-grid textarea {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.monitoring-risk-body fieldset.residual-grid .help,
+.monitoring-risk-body fieldset.residual-grid .helptext,
+.monitoring-risk-body fieldset.residual-grid p.help {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .monitoring-risk-body fieldset.residual-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .monitoring-risk-body fieldset.residual-grid .field-realisasi_asumsi_dampak {
+    grid-column: 1 !important;
+  }
+}

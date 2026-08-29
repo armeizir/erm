@@ -416,6 +416,15 @@ class MonthlyRiskReportItem(TimeStampedModel):
         blank=True,
         verbose_name="Realisasi Biaya Perlakuan Risiko",
     )
+
+    # MONTHLY_PLANNED_TREATMENT_COST_V2
+    rencana_biaya_perlakuan = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Rencana Biaya Perlakuan Risiko",
+    )
     persentase_serapan_biaya = models.DecimalField(
         max_digits=18,
         decimal_places=2,
@@ -456,6 +465,46 @@ class MonthlyRiskReportItem(TimeStampedModel):
         blank=True,
         verbose_name="Progress Pelaksanaan Bulan Ini (%)",
     )
+
+    # ACTUAL_TREATMENT_TIMELINE_FIELDS_V1
+    # Realisasi timeline III.B (Jan-Dec) disimpan terpisah dari timeline rencana
+    # pada ReAssessmentItem.timeline_1..timeline_12.
+    realisasi_timeline_1 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Januari"
+    )
+    realisasi_timeline_2 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Februari"
+    )
+    realisasi_timeline_3 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Maret"
+    )
+    realisasi_timeline_4 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline April"
+    )
+    realisasi_timeline_5 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Mei"
+    )
+    realisasi_timeline_6 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Juni"
+    )
+    realisasi_timeline_7 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Juli"
+    )
+    realisasi_timeline_8 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Agustus"
+    )
+    realisasi_timeline_9 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline September"
+    )
+    realisasi_timeline_10 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Oktober"
+    )
+    realisasi_timeline_11 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline November"
+    )
+    realisasi_timeline_12 = models.PositiveSmallIntegerField(
+        default=0, verbose_name="Realisasi Timeline Desember"
+    )
     realisasi_threshold_kri = models.CharField(
         max_length=255,
         null=True,
@@ -468,6 +517,15 @@ class MonthlyRiskReportItem(TimeStampedModel):
         null=True,
         blank=True,
         verbose_name="Nilai Realisasi KRI",
+    )
+    realisasi_kri_text = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="Realisasi KRI Teks/Komposit",
+        help_text=(
+            "Digunakan bila realisasi KRI tidak dapat dinyatakan dengan "
+            "satu angka, misalnya R = 101% dan I = 35%."
+        ),
     )
     realisasi_threshold_kri_skor = models.CharField(
         max_length=100,
@@ -556,6 +614,15 @@ class MonthlyRiskReportItem(TimeStampedModel):
                 )
         if (
             self.realisasi_nilai_kri is not None
+            and (self.realisasi_kri_text or "").strip()
+        ):
+            errors["realisasi_kri_text"] = (
+                "Isi salah satu saja: Nilai Realisasi KRI numerik atau "
+                "Realisasi KRI Teks/Komposit."
+            )
+
+        if (
+            self.realisasi_nilai_kri is not None
             and self.risk_event_id
             and self.report_id
             and self.report.status in {"draft", "revision"}
@@ -586,19 +653,45 @@ class MonthlyRiskReportItem(TimeStampedModel):
         return RiskMatrix.objects.filter(aktif=True, is_default=True).first()
 
     def _calculate_realisasi(self):
-        self.persentase_serapan_biaya = None
-        if self.realisasi_biaya_perlakuan is not None and self.risk_event_id:
+        # MONTHLY_COST_ABSORPTION_V2
+        # Prioritas denominator:
+        # 1. Rencana biaya pada laporan bulanan
+        # 2. Biaya perlakuan pada master profil risiko
+        #
+        # Untuk data legacy tanpa denominator, angka serapan hasil import
+        # tetap dipertahankan dan tidak diubah menjadi None.
+        imported_absorption = self.persentase_serapan_biaya
+
+        anggaran = self.rencana_biaya_perlakuan
+
+        if anggaran in (None, 0, Decimal("0")) and self.risk_event_id:
             anggaran = self.risk_event.biaya_perlakuan_risiko
-            if anggaran not in (None, 0, Decimal("0")):
-                self.persentase_serapan_biaya = (
-                    self.realisasi_biaya_perlakuan / anggaran * Decimal("100")
-                ).quantize(Decimal("0.01"))
+
+        if self.realisasi_biaya_perlakuan is None:
+            self.persentase_serapan_biaya = None
+
+        elif anggaran not in (None, 0, Decimal("0")):
+            self.persentase_serapan_biaya = (
+                self.realisasi_biaya_perlakuan
+                / anggaran
+                * Decimal("100")
+            ).quantize(Decimal("0.01"))
+
+        else:
+            self.persentase_serapan_biaya = imported_absorption
 
         # Nilai eksposur, skala nilai risiko, dan level risiko pada laporan
         # bulanan mengikuti Kertas Kerja III.A (input manual atau import).
         # Jangan hitung ulang atau timpa nilainya saat item disimpan.
 
     def save(self, *args, **kwargs):
+        if self.risk_event_id:
+            canonical_risk_type = getattr(self.risk_event, "jenis_risiko", None)
+            if canonical_risk_type in {"kuantitatif", "kualitatif"}:
+                self.jenis_risiko = canonical_risk_type
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {"jenis_risiko"}
+
         if self.realisasi_pic_organization_unit_id:
             self.realisasi_pic = str(self.realisasi_pic_organization_unit)
             if kwargs.get("update_fields") is not None:

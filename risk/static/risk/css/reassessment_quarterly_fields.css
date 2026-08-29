@@ -60,3 +60,18 @@
         grid-template-columns: minmax(0, 1fr);
     }
 }
+
+
+/* Qualitative exposure patch v2 */
+.qualitative-optional-input {
+    background: var(--darkened-bg, #f4f4f4);
+    opacity: 0.75;
+}
+
+.qualitative-exposure-input {
+    font-weight: 600;
+}
+
+.quantitative-exposure-input[readonly] {
+    background: var(--darkened-bg, #f4f4f4);
+}

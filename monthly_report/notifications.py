@@ -341,7 +341,7 @@ def resolve_monthly_report_notification_recipients(
 
         return _merge_unique_emails(emails)
 
-    status = report.status
+    status = (report.status or "").strip().lower()
     prepared_by = getattr(report, "prepared_by", None)
     reviewed_by = getattr(report, "reviewed_by", None)
     approved_by = getattr(report, "approved_by", None)
@@ -364,9 +364,28 @@ def resolve_monthly_report_notification_recipients(
 
     pairing_users = [pairing] if pairing is not None else []
 
+    # Pairing + rantai kepala organisasi dipakai sebagai jalur awareness
+    # untuk workflow submitted / under_review / approved. Fixture unit test
+    # dapat memberikan approved_recipients tanpa model MonthlyRiskReport
+    # lengkap, jadi jangan memaksa resolver berbasis reassessment.
+    hierarchy_recipients = None
+    hierarchy_cc_emails = []
+    supports_report_hierarchy = bool(
+        getattr(report, "reassessment_id", None)
+    )
+    if status in {"submitted", "under_review", "approved"}:
+        hierarchy_recipients = stage.get("approved_recipients")
+        if hierarchy_recipients is None and supports_report_hierarchy:
+            hierarchy_recipients = build_approved_report_recipients(report)
+
+        hierarchy_cc_emails = list(
+            getattr(hierarchy_recipients, "cc", []) or []
+        )
+
     to_users = []
     cc_users = []
     bcc_users = []
+    bcc_extra_emails = []
 
     if status in {"draft", "revision"}:
         to_users = prepared_users
@@ -378,31 +397,26 @@ def resolve_monthly_report_notification_recipients(
         to_users = [reviewed_by]
         cc_users = [approved_by, *prepared_users]
         bcc_users = pairing_users
+        bcc_extra_emails = hierarchy_cc_emails
         to_emails = emails_for(to_users, "Reviewed")
 
     elif status == "under_review":
         to_users = [approved_by]
         cc_users = [reviewed_by, *prepared_users]
         bcc_users = pairing_users
+        bcc_extra_emails = hierarchy_cc_emails
         to_emails = emails_for(to_users, "Approved")
 
     elif status == "approved":
-        approved_recipients = stage.get(
-            "approved_recipients"
-        )
-
-        if approved_recipients is None:
-            from .recipient_services import (
-                build_approved_report_recipients,
-            )
-
-            approved_recipients = (
-                build_approved_report_recipients(report)
-            )
+        approved_recipients = hierarchy_recipients
 
         to_emails = _merge_unique_emails(
             list(getattr(approved_recipients, "to", []) or []),
-            list(getattr(approved_recipients, "cc", []) or []),
+            (
+                []
+                if supports_report_hierarchy
+                else list(getattr(approved_recipients, "cc", []) or [])
+            ),
         )
 
         if not to_emails:
@@ -416,12 +430,22 @@ def resolve_monthly_report_notification_recipients(
             getattr(approved_recipients, "to_users", [])
             or pairing_users
         )
+
+        # Setelah Approved:
+        # - Pairing menjadi penerima utama;
+        # - reviewer/approver tetap mendapat salinan;
+        # - rantai kepala organisasi dikirim sebagai BCC.
         cc_users = [
-            approved_by,
-            reviewed_by,
+            *(
+                [reviewed_by, approved_by]
+                if supports_report_hierarchy
+                else [approved_by, reviewed_by]
+            ),
             *prepared_users,
         ]
         bcc_users = []
+        if supports_report_hierarchy:
+            bcc_extra_emails = hierarchy_cc_emails
 
     else:
         raise ValidationError(
@@ -439,7 +463,8 @@ def resolve_monthly_report_notification_recipients(
     )
 
     bcc_emails = _merge_unique_emails(
-        emails_for(bcc_users, "Pairing"),
+        emails_for(bcc_users, "Pairing / atasan organisasi"),
+        bcc_extra_emails,
         excluded=[*to_emails, *cc_emails],
     )
 
