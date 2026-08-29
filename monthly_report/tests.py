@@ -48,6 +48,7 @@ from .models import (
     MonthlyRiskReportItem,
     MonthlyRiskReportLossEvent,
     MonthlyRiskReportImportBatch,
+    MonthlyRiskReportImportRow,
 )
 from .import_services import (
     IMPORT_PARSER_VERSION,
@@ -126,6 +127,47 @@ class MonthlyRiskReportAdminTests(TestCase):
             risk_event=risk_event,
         )
         self.assertEqual(report_item.km_item_id, risk_event.km_item_id)
+
+    def test_report_delete_cascades_import_batches_and_matched_rows(self):
+        report = self._report("BID DELETE IMPORT")
+        risk_event = self._risk_item(report)
+        report_item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+        )
+        batch = MonthlyRiskReportImportBatch.objects.create(
+            report=report,
+            source_file="monthly_report/imports/delete-test.xlsx",
+            original_filename="delete-test.xlsx",
+            file_sha256="d" * 64,
+            uploaded_by=self.admin_user,
+        )
+        import_row = MonthlyRiskReportImportRow.objects.create(
+            batch=batch,
+            source_reference="III.A:10",
+            matched_report_item=report_item,
+            validation_level=MonthlyRiskReportImportRow.LEVEL_GREEN,
+        )
+
+        report_id = report.pk
+        batch_id = batch.pk
+        row_id = import_row.pk
+        item_id = report_item.pk
+
+        report.delete()
+
+        self.assertFalse(
+            MonthlyRiskReport.objects.filter(pk=report_id).exists()
+        )
+        self.assertFalse(
+            MonthlyRiskReportItem.objects.filter(pk=item_id).exists()
+        )
+        self.assertFalse(
+            MonthlyRiskReportImportBatch.objects.filter(pk=batch_id).exists()
+        )
+        self.assertFalse(
+            MonthlyRiskReportImportRow.objects.filter(pk=row_id).exists()
+        )
 
     def _assign_pairing_officer(self, report, username="pairing", email="pairing@example.com"):
         User = get_user_model()

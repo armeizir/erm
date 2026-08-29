@@ -1098,7 +1098,7 @@ class MonthlyRiskReportImportRow(TimeStampedModel):
     risk_event_text = models.TextField(blank=True, default="")
     matched_report_item = models.ForeignKey(
         MonthlyRiskReportItem,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="import_rows",
         null=True,
         blank=True,
