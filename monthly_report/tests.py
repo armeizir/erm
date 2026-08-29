@@ -1793,7 +1793,7 @@ class MonthlyRiskReportAdminTests(TestCase):
             "realisasi_rencana_perlakuan": "Realisasi Rencana Perlakuan Risiko",
             "realisasi_output_perlakuan": "Realisasi Output atas Masing-masing Breakdown Perlakuan Risiko",
             "realisasi_biaya_perlakuan": "Realisasi Biaya Perlakuan Risiko (Rp/USD)",
-            "realisasi_pic_organization_unit": "Realisasi PIC",
+            "realisasi_pic_organization_unit": "Mapping PIC ke Master Organisasi",
             "status_rencana_perlakuan": "Status Rencana Perlakuan Risiko",
             "penjelasan_status_rencana": "Penjelasan Status Rencana Perlakuan",
             "progress_pelaksanaan_percent": "Progress Pelaksanaan Rencana Perlakuan (%)",
@@ -2290,9 +2290,27 @@ class MonthlyRiskReportAdminTests(TestCase):
         response = report_admin.peta_risiko_iiic_view(request, str(report_infra.pk))
 
         self.assertNotEqual(response.context_data["kpmr_calculation"].score_total, Decimal("81.00"))
-        self.assertIn(
-            "Data eksposur kelompok belum lengkap. Parameter I1 perlu verifikasi data dan fallback skor matriks tidak digunakan.",
-            response.context_data["kpmr_calculation"].notes,
+        notes = response.context_data["kpmr_calculation"].notes
+        self.assertTrue(
+            any(
+                "I1 hybrid belum dapat dihitung"
+                in note
+                for note in notes
+            )
+        )
+        self.assertTrue(
+            any(
+                "[METODE HYBRID KUANTITATIF-KUALITATIF]"
+                in note
+                for note in notes
+            )
+        )
+        self.assertTrue(
+            any(
+                "ASESMEN RESMI KPMR:" in note
+                and "Diterapkan: I1=b." in note
+                for note in notes
+            )
         )
 
     def test_monthly_report_notification_sends_prepare_stage_to_risk_office_and_cc_pairing(self):
