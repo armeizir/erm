@@ -165,8 +165,9 @@ MAPPING = {
         ),
         (
             "UB BES",
-            16,
+            4,
             "Terjadinya kecelakaan kerja dalam lingkungan kerja perusahaan",
+            "Tidak mengikuti SOP dan tidak menggunakan APD sesuai standar",
         ),
         (
             "UB INFRA",
@@ -219,7 +220,12 @@ def corporate_risk(no_risiko: int):
     return qs.get()
 
 
-def resolve_unit_risk(unit_name: str, no_risiko: int, event: str):
+def resolve_unit_risk(
+    unit_name: str,
+    no_risiko: int,
+    event: str,
+    cause: str | None = None,
+):
     """
     Resolve ReAssessmentItem canonical secara konservatif.
 
@@ -256,6 +262,31 @@ def resolve_unit_risk(unit_name: str, no_risiko: int, event: str):
         row for row in numbered
         if normalized(row.peristiwa_risiko) == normalized(event)
     ]
+
+    if cause and len(exact) > 1:
+        cause_exact = [
+            row for row in exact
+            if normalized(row.penyebab_risiko) == normalized(cause)
+        ]
+
+        if len(cause_exact) == 1:
+            selected = cause_exact[0]
+
+            print()
+            print(
+                "CANONICAL EXACT via risk cause:"
+            )
+            print(
+                f"  unit={unit_name!r} | "
+                f"R={no_risiko} | "
+                f"RE={selected.pk} | "
+                f"cause={selected.penyebab_risiko!r}"
+            )
+
+            return selected
+
+        if len(cause_exact) > 1:
+            exact = cause_exact
 
     if len(exact) == 1:
         return exact[0]
@@ -327,6 +358,32 @@ def resolve_unit_risk(unit_name: str, no_risiko: int, event: str):
         row for row in base_qs
         if normalized(row.peristiwa_risiko) == normalized(event)
     ]
+
+    if cause and len(event_candidates) > 1:
+        cause_candidates = [
+            row for row in event_candidates
+            if normalized(row.penyebab_risiko) == normalized(cause)
+        ]
+
+        if len(cause_candidates) == 1:
+            selected = cause_candidates[0]
+
+            print()
+            print(
+                "CANONICAL FALLBACK via risk cause:"
+            )
+            print(
+                f"  unit={unit_name!r} | "
+                f"mapping R={no_risiko} | "
+                f"DB R={selected.no_risiko} | "
+                f"RE={selected.pk} | "
+                f"cause={selected.penyebab_risiko!r}"
+            )
+
+            return selected
+
+        if cause_candidates:
+            event_candidates = cause_candidates
 
     if len(event_candidates) == 1:
         selected = event_candidates[0]
@@ -446,11 +503,22 @@ def build_plan():
         corp = corporate_risk(corporate_no)
         desired = []
 
-        for unit_name, unit_risk_no, event in MAPPING[corporate_no]:
+        for mapping_row in MAPPING[corporate_no]:
+            if len(mapping_row) == 3:
+                unit_name, unit_risk_no, event = mapping_row
+                cause = None
+            elif len(mapping_row) == 4:
+                unit_name, unit_risk_no, event, cause = mapping_row
+            else:
+                raise RuntimeError(
+                    f"Invalid mapping row: {mapping_row!r}"
+                )
+
             source = resolve_unit_risk(
                 unit_name,
                 unit_risk_no,
                 event,
+                cause=cause,
             )
             desired.append(source)
 
