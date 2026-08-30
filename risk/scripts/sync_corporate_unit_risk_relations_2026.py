@@ -32,6 +32,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "riskproject.settings.dev")
 django.setup()
 
 
+from monthly_report.models import MonthlyRiskReportItem
+
 from risk.models import (  # noqa: E402
     ProfilRisikoKorporatItem,
     ProfilRisikoKorporatSumber,
@@ -218,12 +220,23 @@ def corporate_risk(no_risiko: int):
 
 
 def resolve_unit_risk(unit_name: str, no_risiko: int, event: str):
-    qs = (
+    """
+    Resolve ReAssessmentItem canonical secara konservatif.
+
+    Urutan:
+    1. unit + no_risiko + event exact
+    2. jika nomor risiko berbeda antar database, cari unit + event
+    3. jika event duplikat, histori MonthlyRiskReportItem menjadi
+       canonical signal
+    4. jika masih ambigu, STOP
+
+    Tidak pernah memilih kandidat secara arbitrer.
+    """
+    base_qs = (
         ReAssessmentItem.objects
         .filter(
             summary__tahun=YEAR,
             summary__unit_bisnis__name=unit_name,
-            no_risiko=no_risiko,
             is_active=True,
         )
         .select_related(
@@ -232,31 +245,163 @@ def resolve_unit_risk(unit_name: str, no_risiko: int, event: str):
         )
     )
 
+    # --------------------------------------------------------
+    # 1. Preferred: nomor risiko + event sesuai mapping
+    # --------------------------------------------------------
+    numbered = list(
+        base_qs.filter(no_risiko=no_risiko)
+    )
+
     exact = [
-        row for row in qs
+        row for row in numbered
         if normalized(row.peristiwa_risiko) == normalized(event)
     ]
 
-    if len(exact) != 1:
+    if len(exact) == 1:
+        return exact[0]
+
+    if len(exact) > 1:
         print()
         print(
             f"ERROR SOURCE: unit={unit_name!r}, "
             f"R={no_risiko}, event={event!r}"
         )
-        print(f"Candidate count exact = {len(exact)}")
+        print(
+            f"Candidate exact dengan nomor risiko yang sama = "
+            f"{len(exact)}"
+        )
 
-        for row in qs:
+        for row in exact:
             print(
-                f"  RE={row.pk} | no_item={row.no_item} | "
+                f"  RE={row.pk} | "
+                f"no_item={row.no_item} | "
+                f"R={row.no_risiko} | "
                 f"event={row.peristiwa_risiko!r}"
             )
 
         raise RuntimeError(
-            "Source risk tidak ditemukan secara unik. "
+            "Terdapat lebih dari satu source risk exact. "
             "Tidak aman untuk meneruskan sinkronisasi."
         )
 
-    return exact[0]
+    # --------------------------------------------------------
+    # 2. Fallback: nomor risiko bisa berbeda antar snapshot DB.
+    #    Cari event canonical pada unit yang sama.
+    # --------------------------------------------------------
+    event_candidates = [
+        row for row in base_qs
+        if normalized(row.peristiwa_risiko) == normalized(event)
+    ]
+
+    if len(event_candidates) == 1:
+        selected = event_candidates[0]
+
+        print()
+        print(
+            "CANONICAL FALLBACK: "
+            f"unit={unit_name!r}, "
+            f"mapping R={no_risiko}, "
+            f"DB R={selected.no_risiko}, "
+            f"RE={selected.pk}"
+        )
+        print(
+            "  reason: event unik pada unit yang sama"
+        )
+
+        return selected
+
+    # --------------------------------------------------------
+    # 3. Event duplikat: histori MRR sebagai canonical signal.
+    # --------------------------------------------------------
+    if len(event_candidates) > 1:
+        usage = []
+
+        for candidate in event_candidates:
+            count = (
+                MonthlyRiskReportItem.objects
+                .filter(risk_event_id=candidate.pk)
+                .count()
+            )
+
+            usage.append(
+                (candidate, count)
+            )
+
+        used = [
+            (candidate, count)
+            for candidate, count in usage
+            if count > 0
+        ]
+
+        # Sangat konservatif:
+        # hanya satu kandidat yang pernah digunakan MRR.
+        if len(used) == 1:
+            selected, count = used[0]
+
+            print()
+            print(
+                "CANONICAL FALLBACK via Monthly Report history:"
+            )
+            print(
+                f"  unit={unit_name!r} | "
+                f"mapping R={no_risiko} | "
+                f"DB R={selected.no_risiko} | "
+                f"RE={selected.pk} | "
+                f"usage={count}"
+            )
+
+            return selected
+
+        print()
+        print(
+            f"ERROR SOURCE: unit={unit_name!r}, "
+            f"R={no_risiko}, event={event!r}"
+        )
+        print(
+            "Event ditemukan lebih dari satu dan tidak dapat "
+            "ditentukan secara unik dari histori MRR:"
+        )
+
+        for candidate, count in usage:
+            print(
+                f"  RE={candidate.pk} | "
+                f"no_item={candidate.no_item} | "
+                f"R={candidate.no_risiko} | "
+                f"MRR_USAGE={count} | "
+                f"event={candidate.peristiwa_risiko!r}"
+            )
+
+        raise RuntimeError(
+            "Source risk ambigu setelah audit histori MRR. "
+            "Tidak aman untuk meneruskan sinkronisasi."
+        )
+
+    # --------------------------------------------------------
+    # 4. Tidak ada event yang cocok sama sekali.
+    # --------------------------------------------------------
+    print()
+    print(
+        f"ERROR SOURCE: unit={unit_name!r}, "
+        f"R={no_risiko}, event={event!r}"
+    )
+    print("Candidate event pada unit tersebut = 0")
+
+    if numbered:
+        print(
+            f"Risiko dengan nomor R={no_risiko} yang tersedia:"
+        )
+
+        for row in numbered:
+            print(
+                f"  RE={row.pk} | "
+                f"no_item={row.no_item} | "
+                f"event={row.peristiwa_risiko!r}"
+            )
+
+    raise RuntimeError(
+        "Source risk tidak ditemukan. "
+        "Tidak aman untuk meneruskan sinkronisasi."
+    )
 
 
 def build_plan():
