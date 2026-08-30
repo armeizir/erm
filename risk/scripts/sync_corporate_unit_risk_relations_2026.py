@@ -159,8 +159,8 @@ MAPPING = {
     ],
     14: [
         (
-            "SETPER",
-            27,
+            "BID K3L",
+            6,
             "Terjadinya kecelakaan kerja dalam lingkungan kerja perusahaan sehingga berpotensi mempengaruhi nilai kepatuhan K3 Perusahaan",
         ),
         (
@@ -261,27 +261,62 @@ def resolve_unit_risk(unit_name: str, no_risiko: int, event: str):
         return exact[0]
 
     if len(exact) > 1:
+        usage = []
+
+        for candidate in exact:
+            count = (
+                MonthlyRiskReportItem.objects
+                .filter(risk_event_id=candidate.pk)
+                .count()
+            )
+            usage.append((candidate, count))
+
+        used = [
+            (candidate, count)
+            for candidate, count in usage
+            if count > 0
+        ]
+
+        # Hanya aman jika tepat satu kandidat yang benar-benar
+        # mempunyai histori Monthly Risk Report.
+        if len(used) == 1:
+            selected, count = used[0]
+
+            print()
+            print(
+                "CANONICAL EXACT via Monthly Report history:"
+            )
+            print(
+                f"  unit={unit_name!r} | "
+                f"R={no_risiko} | "
+                f"RE={selected.pk} | "
+                f"usage={count}"
+            )
+
+            return selected
+
         print()
         print(
             f"ERROR SOURCE: unit={unit_name!r}, "
             f"R={no_risiko}, event={event!r}"
         )
         print(
-            f"Candidate exact dengan nomor risiko yang sama = "
-            f"{len(exact)}"
+            "Exact candidate lebih dari satu dan histori MRR "
+            "tidak menghasilkan satu canonical source:"
         )
 
-        for row in exact:
+        for candidate, count in usage:
             print(
-                f"  RE={row.pk} | "
-                f"no_item={row.no_item} | "
-                f"R={row.no_risiko} | "
-                f"event={row.peristiwa_risiko!r}"
+                f"  RE={candidate.pk} | "
+                f"no_item={candidate.no_item} | "
+                f"R={candidate.no_risiko} | "
+                f"MRR_USAGE={count} | "
+                f"event={candidate.peristiwa_risiko!r}"
             )
 
         raise RuntimeError(
-            "Terdapat lebih dari satu source risk exact. "
-            "Tidak aman untuk meneruskan sinkronisasi."
+            "Terdapat lebih dari satu source risk exact dan "
+            "canonical source tidak dapat ditentukan."
         )
 
     # --------------------------------------------------------
