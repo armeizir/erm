@@ -237,13 +237,40 @@ def _base_relationships(corporate_items):
                     "unit": str(unit),
                     "profile": summary.judul,
                     "risk_event_ids": set(),
+                    "linked_risks": [],
                     "source_count": 0,
                 },
             )
-            support["risk_event_ids"].add(reassessment_item.pk)
+
+            if reassessment_item.pk not in support["risk_event_ids"]:
+                support["risk_event_ids"].add(reassessment_item.pk)
+                support["linked_risks"].append(
+                    {
+                        "id": reassessment_item.pk,
+                        "risk_no": (
+                            reassessment_item.no_risiko
+                            or reassessment_item.no_item
+                            or reassessment_item.pk
+                        ),
+                        "event": (
+                            reassessment_item.peristiwa_risiko
+                            or "Peristiwa risiko belum diisi"
+                        ),
+                    }
+                )
+
             support["source_count"] += 1
             summary_ids.add(summary.pk)
             unit_map[unit.pk] = str(unit)
+
+        for support in supports.values():
+            support["linked_risks"] = sorted(
+                support["linked_risks"],
+                key=lambda row: (
+                    str(row["risk_no"]).casefold(),
+                    str(row["event"]).casefold(),
+                ),
+            )
 
         corporate_level = corporate.get_level_name("residual")
         relationships.append(

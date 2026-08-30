@@ -252,6 +252,13 @@
                     <span class="minor">
                       {% if row.report %}{{ row.report_code }}{% else %}Laporan bulan terpilih belum tersedia{% endif %}
                     </span>
+
+                    {% for linked_risk in row.linked_risks %}
+                      <span class="minor">
+                        <strong>R{{ linked_risk.risk_no }}</strong>
+                        — {{ linked_risk.event }}
+                      </span>
+                    {% endfor %}
                   </div>
                   <div class="cell">
                     <span class="badge {{ row.risk_status.key }}">{{ row.risk_status.label }}</span>
