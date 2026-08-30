@@ -80,8 +80,8 @@ MAPPING = {
     4: [
         (
             "BID BIS",
-            9,
-            "Tidak tercapainya pendapatan dari luar PLN Group",
+            3,
+            "Parameter komersial proyek belum matang - CCUS",
         ),
         (
             "UB BES",
