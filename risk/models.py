@@ -1677,16 +1677,27 @@ class RKMItem(models.Model):
         target_value = self._parse_decimal_value(target)
         realisasi_value = self._parse_decimal_value(realisasi)
         self.persen_capaian = None
-        if target_value is None or realisasi_value is None or target_value == 0:
+
+        if not self.km_item_id:
             return
 
-        if self.km_item_id and self.km_item.polaritas == "negatif":
-            if realisasi_value == 0:
-                return
-            capaian = target_value / realisasi_value * Decimal("100")
-        else:
-            capaian = realisasi_value / target_value * Decimal("100")
-        self.persen_capaian = capaian.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        # Satu engine scoring untuk RKM, Admin, dan Strategy Map.
+        from .km_scoring import calculate_km_score
+
+        capaian, _nilai = calculate_km_score(
+            self.km_item,
+            target_value,
+            realisasi_value,
+        )
+
+        # Compliance adalah deduction, bukan % capaian.
+        if capaian is None:
+            return
+
+        self.persen_capaian = capaian.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
 
     def save(self, *args, **kwargs):
         if self.km_item:
@@ -3473,6 +3484,113 @@ class ProfilRisikoKorporatSumber(models.Model):
 
     def __str__(self):
         return f"{self.risiko_korporat} <- {self.reassessment_item}"
+
+
+
+class ProfilRisikoKorporatKinerja(models.Model):
+    """
+    Bridge Risiko Korporat <-> IKK/KM Korporat.
+
+    Model ini hanya menyimpan relationship.
+    Nilai realisasi/capaian/NKO tetap berasal dari RKMItem.
+    """
+
+    risiko_korporat = models.ForeignKey(
+        ProfilRisikoKorporatItem,
+        on_delete=models.CASCADE,
+        related_name="kinerja_terkait",
+        verbose_name="Risiko Korporat",
+    )
+
+    item_kinerja = models.ForeignKey(
+        ItemKontrakManajemen,
+        on_delete=models.PROTECT,
+        related_name="risiko_korporat_terkait",
+        verbose_name="IKK Korporat",
+    )
+
+    keterangan = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Keterangan Relasi",
+    )
+
+    class Meta:
+        verbose_name = "Relasi Risiko Korporat — IKK"
+        verbose_name_plural = "KORPORAT — Relasi Risiko dan IKK"
+        ordering = [
+            "risiko_korporat",
+            "item_kinerja__no_urut",
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "risiko_korporat",
+                    "item_kinerja",
+                ],
+                name="unik_risiko_korporat_ikk",
+            )
+        ]
+
+    def clean(self):
+        errors = {}
+
+        if self.item_kinerja_id:
+            try:
+                unit_name = (
+                    self.item_kinerja
+                    .kontrak
+                    .unit_bisnis
+                    .name
+                )
+            except Exception:
+                unit_name = ""
+
+            if str(unit_name or "").strip().casefold() != "korporat":
+                errors["item_kinerja"] = (
+                    "IKK harus berasal dari Kontrak Manajemen "
+                    "milik Group KORPORAT."
+                )
+
+        if self.risiko_korporat_id and self.item_kinerja_id:
+            risk_year = getattr(
+                getattr(
+                    self.risiko_korporat,
+                    "summary",
+                    None,
+                ),
+                "tahun",
+                None,
+            )
+            km_year = getattr(
+                getattr(
+                    self.item_kinerja,
+                    "kontrak",
+                    None,
+                ),
+                "tahun",
+                None,
+            )
+
+            if (
+                risk_year
+                and km_year
+                and risk_year != km_year
+            ):
+                errors["item_kinerja"] = (
+                    "Tahun IKK harus sama dengan tahun "
+                    "Profil Risiko Korporat."
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return (
+            f"{self.risiko_korporat} -> "
+            f"IKK {self.item_kinerja.no_urut}"
+        )
+
 
 # =========================================================
 # KPMR PLN 2026 (RESMI)

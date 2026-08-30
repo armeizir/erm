@@ -65,6 +65,7 @@ from .models import (
     ProfilRisikoKorporatItem,
     ProfilRisikoKorporatPenyebab,  # 🔥 WAJIB TAMBAH
     ProfilRisikoKorporatSumber,
+    ProfilRisikoKorporatKinerja,
     SasaranKBUMN,
     TaksonomiT3,
     KategoriRisiko,
@@ -1092,17 +1093,10 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
             return None
 
     def calculate_km_score(self, item, target, realisasi):
-        if target is None or realisasi is None or target == 0:
-            return None, None
-        if item.polaritas == "negatif":
-            pencapaian = (target / realisasi * Decimal("100")) if realisasi else None
-        else:
-            pencapaian = realisasi / target * Decimal("100")
-        if pencapaian is None:
-            return None, None
-        bobot = Decimal(str(item.bobot or 0))
-        nilai = bobot * pencapaian / Decimal("100")
-        return pencapaian, nilai
+        # Gunakan engine canonical yang sama dengan view dan RKM.
+        from .km_scoring import calculate_km_score
+
+        return calculate_km_score(item, target, realisasi)
 
     def indikator_km(self, pencapaian):
         if pencapaian is None:
@@ -5851,10 +5845,52 @@ class RencanaPerlakuanRisikoKorporatInline(admin.StackedInline):
         "jenis_rencana_perlakuan_risiko",
     )
 
+
+class ProfilRisikoKorporatKinerjaInline(admin.TabularInline):
+    model = ProfilRisikoKorporatKinerja
+    extra = 0
+    fields = (
+        "item_kinerja",
+        "keterangan",
+    )
+    autocomplete_fields = (
+        "item_kinerja",
+    )
+
+    def formfield_for_foreignkey(
+        self,
+        db_field,
+        request,
+        **kwargs,
+    ):
+        if db_field.name == "item_kinerja":
+            kwargs["queryset"] = (
+                ItemKontrakManajemen.objects
+                .filter(
+                    kontrak__unit_bisnis__name__iexact="KORPORAT"
+                )
+                .select_related(
+                    "kontrak",
+                    "kontrak__unit_bisnis",
+                )
+                .order_by(
+                    "-kontrak__tahun",
+                    "no_urut",
+                )
+            )
+
+        return super().formfield_for_foreignkey(
+            db_field,
+            request,
+            **kwargs,
+        )
+
+
 @admin.register(ProfilRisikoKorporatItem)
 class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     inlines = [
         ProfilRisikoKorporatPenyebabInline,
+        ProfilRisikoKorporatKinerjaInline,
     ]
 
     list_display = (
@@ -6013,6 +6049,82 @@ class ProfilRisikoKorporatSumberAdmin(admin.ModelAdmin):
             return obj.reassessment_item.summary.unit_bisnis
         return "-"
     unit_bisnis_reassessment.short_description = "Unit/Bidang"
+
+@admin.register(ProfilRisikoKorporatKinerja)
+class ProfilRisikoKorporatKinerjaAdmin(admin.ModelAdmin):
+    list_display = (
+        "risiko_korporat",
+        "ikk_no",
+        "item_kinerja",
+        "tahun_km",
+    )
+
+    search_fields = (
+        "risiko_korporat__no_risiko",
+        "risiko_korporat__peristiwa_risiko",
+        "item_kinerja__indikator_kinerja_kunci",
+        "item_kinerja__kontrak__judul",
+    )
+
+    list_filter = (
+        "risiko_korporat__summary__tahun",
+        "item_kinerja__kontrak__tahun",
+        "item_kinerja__esg_kategori",
+    )
+
+    autocomplete_fields = (
+        "risiko_korporat",
+        "item_kinerja",
+    )
+
+    ordering = (
+        "risiko_korporat",
+        "item_kinerja__no_urut",
+    )
+
+    @admin.display(
+        description="IKK",
+        ordering="item_kinerja__no_urut",
+    )
+    def ikk_no(self, obj):
+        return f"IKK {obj.item_kinerja.no_urut:02}"
+
+    @admin.display(
+        description="Tahun",
+        ordering="item_kinerja__kontrak__tahun",
+    )
+    def tahun_km(self, obj):
+        return obj.item_kinerja.kontrak.tahun
+
+    def formfield_for_foreignkey(
+        self,
+        db_field,
+        request,
+        **kwargs,
+    ):
+        if db_field.name == "item_kinerja":
+            kwargs["queryset"] = (
+                ItemKontrakManajemen.objects
+                .filter(
+                    kontrak__unit_bisnis__name__iexact="KORPORAT"
+                )
+                .select_related(
+                    "kontrak",
+                    "kontrak__unit_bisnis",
+                )
+                .order_by(
+                    "-kontrak__tahun",
+                    "no_urut",
+                )
+            )
+
+        return super().formfield_for_foreignkey(
+            db_field,
+            request,
+            **kwargs,
+        )
+
+
 
 class TahunBukuAdmin(admin.ModelAdmin):
     list_display = ("tahun", "aktif")

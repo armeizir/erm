@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
 from .strategy_risk_map import (
+    _support_risk_status,
     _base_relationships,
     _nko_status,
     _risk_status_from_level,
@@ -19,6 +20,22 @@ class StrategyRiskMapHelperTests(SimpleTestCase):
         self.assertEqual(_risk_status_from_level("Moderate to High")["label"], "Tidak Aman")
         self.assertEqual(_risk_status_from_level("High")["label"], "Tidak Aman")
         self.assertEqual(_risk_status_from_level(None)["label"], "Belum Ada Data")
+
+    def test_support_status_distinguishes_missing_report(self):
+        self.assertEqual(
+            _support_risk_status(None, None)["label"],
+            "Belum Ada Laporan",
+        )
+
+        self.assertEqual(
+            _support_risk_status(object(), None)["label"],
+            "Penilaian Belum Diisi",
+        )
+
+        self.assertEqual(
+            _support_risk_status(object(), "Moderate")["label"],
+            "Perlu Perhatian",
+        )
 
     def test_nko_status_mapping(self):
         self.assertEqual(_nko_status("101")["label"], "Tercapai")
@@ -120,5 +137,7 @@ class StrategyRiskMapPageTests(TestCase):
         self.assertContains(response, "Executive Risk Relationship Map")
         self.assertContains(response, "Profil Risiko Korporat")
         self.assertContains(response, "Bidang / Unit Bisnis")
-        self.assertContains(response, "KM (NKO)")
+        # Empty state tidak mempunyai unit_performance_rows,
+        # sehingga tabel ringkasan memang tidak dirender.
+        self.assertNotContains(response, "KM (NKO)")
         self.assertNotContains(response, "Arsitektur Integrasi")

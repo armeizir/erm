@@ -13,6 +13,7 @@ from .models import (
     KPMRPeriode,
     ProfilRisikoKorporatItem,
     ProfilRisikoKorporatSummary,
+    RKMItem,
     RKMSummary,
 )
 
@@ -111,6 +112,36 @@ def _risk_status_from_level(level):
     return {"key": "red", "label": "Tidak Aman", "level": level, "severity": rank}
 
 
+
+def _support_risk_status(report, actual_level):
+    """
+    Status khusus relationship Risiko Unit.
+
+    Bedakan:
+    - laporan periode belum tersedia;
+    - laporan tersedia tetapi penilaian risiko aktual belum diisi;
+    - level aktual tersedia dan dapat diringkas.
+    """
+    if report is None:
+        return {
+            "key": "nodata",
+            "label": "Belum Ada Laporan",
+            "level": "-",
+            "severity": 0,
+        }
+
+    if not actual_level:
+        return {
+            "key": "nodata",
+            "label": "Penilaian Belum Diisi",
+            "level": "-",
+            "severity": 0,
+        }
+
+    return _risk_status_from_level(actual_level)
+
+
+
 def _nko_status(value):
     value = _decimal(value)
     if value is None:
@@ -207,9 +238,324 @@ def _corporate_items(year):
         .prefetch_related(
             "sumber_risiko__reassessment_item__summary__unit_bisnis",
             "sumber_risiko__reassessment_item__summary__kontrak_manajemen",
+            "kinerja_terkait__item_kinerja__kontrak__unit_bisnis",
         )
         .order_by("summary__judul", "no_item", "no_risiko", "pk")
     )
+
+
+
+
+MONTH_FIELD_SUFFIXES = {
+    1: "januari",
+    2: "februari",
+    3: "maret",
+    4: "april",
+    5: "mei",
+    6: "juni",
+    7: "juli",
+    8: "agustus",
+    9: "september",
+    10: "oktober",
+    11: "november",
+    12: "desember",
+}
+
+
+def _format_number_id(value, digits=2):
+    """
+    Format angka untuk tampilan Indonesia.
+    4430.99 -> 4.430,99
+    """
+    value = _decimal(value)
+
+    if value is None:
+        return "-"
+
+    formatted = f"{value:,.{digits}f}"
+    return (
+        formatted
+        .replace(",", "__THOUSAND__")
+        .replace(".", ",")
+        .replace("__THOUSAND__", ".")
+    )
+
+
+def _display_kpi_value(value):
+    if value in (None, ""):
+        return "-"
+
+    numeric = _decimal(value)
+
+    if numeric is not None:
+        return _format_number_id(numeric)
+
+    return str(value).strip() or "-"
+
+
+def _kpi_performance_status(percentage, is_deduction=False):
+    if is_deduction:
+        return {
+            "key": "neutral",
+            "label": "Nilai Pengurang",
+        }
+
+    percentage = _decimal(percentage)
+
+    if percentage is None:
+        return {
+            "key": "nodata",
+            "label": "Belum Ada Data",
+        }
+
+    if percentage >= Decimal("100"):
+        return {
+            "key": "green",
+            "label": "Tercapai",
+        }
+
+    if percentage >= Decimal("95"):
+        return {
+            "key": "amber",
+            "label": "Hampir Tercapai",
+        }
+
+    return {
+        "key": "red",
+        "label": "Perlu Peningkatan",
+    }
+
+
+def _next_month_label(year, month):
+    if month == 12:
+        next_year = year + 1
+        next_month = 1
+    else:
+        next_year = year
+        next_month = month + 1
+
+    return f"{MONTH_LABELS[next_month]} {next_year}"
+
+
+def _corporate_kpi_performance_map(year, month):
+    """
+    Ambil RKM Korporat EXACT pada bulan yang dipilih.
+    Tidak fallback ke periode sebelumnya.
+    """
+    if not year or not month:
+        return {}
+
+    suffix = MONTH_FIELD_SUFFIXES.get(month)
+
+    if not suffix:
+        return {}
+
+    rkm = (
+        RKMSummary.objects
+        .filter(
+            tahun=year,
+            bulan=month,
+            kontrak_manajemen__unit_bisnis__name__iexact="KORPORAT",
+        )
+        .select_related("kontrak_manajemen")
+        .order_by("-pk")
+        .first()
+    )
+
+    if not rkm:
+        return {}
+
+    target_field = f"target_{suffix}"
+    realisasi_field = f"realisasi_{suffix}"
+
+    result = {}
+
+    rows = (
+        RKMItem.objects
+        .filter(summary=rkm)
+        .select_related("km_item")
+        .order_by("km_item__no_urut", "pk")
+    )
+
+    for row in rows:
+        km_item = row.km_item
+
+        if not km_item:
+            continue
+
+        target_raw = getattr(row, target_field, None)
+
+        # Compliance / deduction bisa tidak mempunyai target bulanan
+        # numerik; gunakan KPI target resmi sebagai fallback.
+        if target_raw in (None, ""):
+            target_raw = row.kpi_target
+
+        realisasi_raw = getattr(
+            row,
+            realisasi_field,
+            None,
+        )
+
+        if realisasi_raw in (None, ""):
+            realisasi_raw = row.realisasi
+
+        unit = (
+            row.kpi_satuan
+            or row.target_akumulasi_satuan
+            or getattr(km_item, "satuan", "")
+            or ""
+        )
+
+        is_deduction = (
+            str(unit).strip().casefold() == "nilai pengurang"
+            or km_item.no_urut == 10
+        )
+
+        status = _kpi_performance_status(
+            row.persen_capaian,
+            is_deduction=is_deduction,
+        )
+
+        if is_deduction:
+            achievement_label = "Nilai Pengurang"
+            achievement_display = _display_kpi_value(
+                realisasi_raw
+            )
+        else:
+            achievement_label = "Capaian"
+            achievement_display = (
+                f"{_format_number_id(row.persen_capaian)}%"
+                if row.persen_capaian is not None
+                else "-"
+            )
+
+        result[km_item.pk] = {
+            "available": True,
+            "rkm_id": rkm.pk,
+            "rkm_status": rkm.status or "-",
+            "month_label": (
+                f"{MONTH_LABELS.get(month, month)} {year}"
+            ),
+            "target": target_raw,
+            "target_display": _display_kpi_value(target_raw),
+            "realisasi": realisasi_raw,
+            "realisasi_display": _display_kpi_value(
+                realisasi_raw
+            ),
+            "unit": unit,
+            "percentage": row.persen_capaian,
+            "achievement_label": achievement_label,
+            "achievement_display": achievement_display,
+            "status": status,
+            "forecast_month_label": _next_month_label(
+                year,
+                month,
+            ),
+            "forecast_display": "Belum tersedia",
+        }
+
+    return result
+
+
+def _enrich_kpi_rows(kpis, performance_map, year, month):
+    result = []
+
+    for kpi in kpis:
+        performance = performance_map.get(kpi["id"])
+
+        if performance is None:
+            performance = {
+                "available": False,
+                "rkm_id": None,
+                "rkm_status": "-",
+                "month_label": (
+                    f"{MONTH_LABELS.get(month, month)} {year}"
+                ),
+                "target_display": "-",
+                "realisasi_display": "-",
+                "unit": "",
+                "percentage": None,
+                "achievement_label": "Capaian",
+                "achievement_display": "-",
+                "status": {
+                    "key": "nodata",
+                    "label": "Belum Ada Data",
+                },
+                "forecast_month_label": _next_month_label(
+                    year,
+                    month,
+                ),
+                "forecast_display": "Belum tersedia",
+            }
+
+        result.append(
+            {
+                **kpi,
+                "performance": performance,
+            }
+        )
+
+    return result
+
+
+
+def _linked_kpis(corporate):
+    """
+    Daftar IKK Korporat yang terkait dengan satu Risiko Korporat.
+
+    Bila object belum memiliki relasi kinerja_terkait
+    (misalnya fixture/test legacy), kembalikan list kosong.
+    Hanya relationship; nilai NKO tetap berasal dari RKM.
+    """
+    rows = []
+    seen = set()
+
+    relation_manager = getattr(
+        corporate,
+        "kinerja_terkait",
+        None,
+    )
+
+    if relation_manager is None:
+        return rows
+
+    relations = (
+        relation_manager.all()
+        if hasattr(relation_manager, "all")
+        else relation_manager
+    )
+
+    for relation in relations:
+        item = getattr(relation, "item_kinerja", None)
+
+        if item is None:
+            continue
+
+        if item.pk in seen:
+            continue
+
+        seen.add(item.pk)
+
+        rows.append(
+            {
+                "id": item.pk,
+                "no": item.no_urut,
+                "name": (
+                    item.indikator_kinerja_kunci
+                    or "IKK belum diisi"
+                ),
+                "esg": item.esg_kategori or "-",
+            }
+        )
+
+    return sorted(
+        rows,
+        key=lambda row: (
+            row["no"],
+            str(row["name"]).casefold(),
+        ),
+    )
+
 
 
 def _base_relationships(corporate_items):
@@ -282,6 +628,7 @@ def _base_relationships(corporate_items):
                 "category": str(corporate.kategori_risiko) if corporate.kategori_risiko_id else "-",
                 "corporate_level": corporate_level or "-",
                 "corporate_status": _risk_status_from_level(corporate_level),
+                "kpis": _linked_kpis(corporate),
                 "supports": list(supports.values()),
             }
         )
@@ -424,19 +771,33 @@ def _nko_for_summary(summary, year, month, cache):
 
 def _enrich_relationships(relationships, reports, kpmr_map, year, month):
     nko_cache = {}
+    kpi_performance_map = _corporate_kpi_performance_map(
+        year,
+        month,
+    )
+
     for relation in relationships:
+        relation["kpis"] = _enrich_kpi_rows(
+            relation.get("kpis") or [],
+            kpi_performance_map,
+            year,
+            month,
+        )
+
         enriched = []
         for support in relation["supports"]:
             summary = support["summary"]
             report = reports.get(summary.pk)
             actual_level = _worst_actual_for_support(report, support["risk_event_ids"])
-            risk_status = _risk_status_from_level(actual_level)
+            risk_status = _support_risk_status(report, actual_level)
 
             enriched.append(
                 {
                     **support,
                     "report": report,
                     "report_code": report.kode if report else "-",
+                    "has_report": report is not None,
+                    "has_actual_level": bool(actual_level),
                     "actual_level": actual_level or "-",
                     "risk_status": risk_status,
                     "kpmr": kpmr_map.get(
@@ -474,6 +835,118 @@ def _filter_relationships(relationships, selected_unit_id):
         if supports:
             filtered.append({**relation, "supports": supports})
     return filtered
+
+
+
+def _unit_performance_summary(relationships):
+    """
+    Ringkasan per Bidang/Unit Bisnis untuk relationship map.
+
+    Jumlah risiko = DISTINCT ReAssessmentItem yang terhubung
+    dengan risiko korporat yang sedang tampil.
+
+    KPMR = level unit.
+    NKO  = KM dari profil risiko unit pada periode terpilih.
+    """
+    grouped = {}
+
+    for relation in relationships:
+        for support in relation["supports"]:
+            unit_id = support["unit_id"]
+
+            row = grouped.setdefault(
+                unit_id,
+                {
+                    "unit_id": unit_id,
+                    "unit": support["unit"],
+                    "risk_event_ids": set(),
+                    "kpmr": None,
+                    "nko_by_contract": {},
+                },
+            )
+
+            row["risk_event_ids"].update(
+                support.get("risk_event_ids") or set()
+            )
+
+            # KPMR merupakan data level unit sehingga cukup satu
+            # record terbaik dari enrichment existing.
+            candidate_kpmr = support.get("kpmr") or {}
+            current_kpmr = row["kpmr"]
+
+            if (
+                current_kpmr is None
+                or (
+                    current_kpmr.get("score") is None
+                    and candidate_kpmr.get("score") is not None
+                )
+            ):
+                row["kpmr"] = candidate_kpmr
+
+            # Biasanya satu Unit/Bidang mempunyai satu KM canonical.
+            # Jangan secara diam-diam memilih salah satu jika ternyata
+            # terdapat lebih dari satu KM.
+            summary = support.get("summary")
+            contract_id = getattr(
+                summary,
+                "kontrak_manajemen_id",
+                None,
+            )
+            candidate_nko = support.get("nko") or {}
+
+            if contract_id and candidate_nko.get("value") is not None:
+                row["nko_by_contract"][contract_id] = candidate_nko
+
+    result = []
+
+    for row in grouped.values():
+        nko_candidates = list(
+            row["nko_by_contract"].values()
+        )
+
+        if len(nko_candidates) == 1:
+            nko = nko_candidates[0]
+        elif len(nko_candidates) > 1:
+            nko = {
+                "value": None,
+                "display": "Multi",
+                "status": {
+                    "key": "nodata",
+                    "label": f"{len(nko_candidates)} KM",
+                },
+                "rkm_status": "-",
+            }
+        else:
+            nko = {
+                "value": None,
+                "display": "-",
+                "status": _nko_status(None),
+                "rkm_status": "-",
+            }
+
+        kpmr = row["kpmr"] or {
+            "score": None,
+            "score_display": "-",
+            "rating": "-",
+            "record_status": "-",
+            "is_provisional": False,
+            "quarter": None,
+        }
+
+        result.append(
+            {
+                "unit_id": row["unit_id"],
+                "unit": row["unit"],
+                "risk_count": len(row["risk_event_ids"]),
+                "kpmr": kpmr,
+                "nko": nko,
+            }
+        )
+
+    return sorted(
+        result,
+        key=lambda row: row["unit"].casefold(),
+    )
 
 
 def _summary_cards(relationships):
@@ -528,8 +1001,8 @@ def strategy_risk_map(request):
         {
             "page_title": "Executive Risk Relationship Map",
             "page_subtitle": (
-                "Relasi Profil Risiko Korporat dengan Profil Risiko Bidang/Unit Bisnis, "
-                "KPMR, dan KM (NKO)"
+                "Relasi Profil Risiko Korporat dengan risiko pendukung "
+                "Bidang/Unit Bisnis dan status risiko aktual."
             ),
             "periods": periods,
             "selected_year": year,
@@ -539,6 +1012,7 @@ def strategy_risk_map(request):
             "units": units,
             "selected_unit": selected_unit,
             "relationships": relationships,
+            "unit_performance_rows": _unit_performance_summary(relationships),
             "summary": _summary_cards(relationships),
         },
     )

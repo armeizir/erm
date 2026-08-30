@@ -86,6 +86,67 @@
     }
     .risk-event { margin:10px 0 8px; color:#17324d; font-size:15px; font-weight:780; line-height:1.38; }
     .risk-meta { color:var(--muted); font-size:11px; line-height:1.45; }
+
+    .ikk-impact {
+      margin-top:12px;
+      padding-top:10px;
+      border-top:1px solid #e3ebf2;
+    }
+    .ikk-impact-title {
+      margin-bottom:6px;
+      color:var(--muted);
+      font-size:9px;
+      font-weight:850;
+      letter-spacing:.05em;
+      text-transform:uppercase;
+    }
+    .ikk-impact-item {
+      margin-top:4px;
+      color:#405c72;
+      font-size:10px;
+      line-height:1.35;
+    }
+    .ikk-impact-item strong {
+      color:var(--navy);
+    }
+    .ikk-performance-card {
+      margin-top:7px;
+      padding:8px 9px;
+      border:1px solid #e1eaf1;
+      border-radius:9px;
+      background:#f9fbfd;
+    }
+    .ikk-performance-name {
+      color:#405c72;
+      font-size:10px;
+      line-height:1.35;
+    }
+    .ikk-performance-name strong {
+      color:var(--navy);
+    }
+    .ikk-performance-grid {
+      display:grid;
+      grid-template-columns:minmax(82px,.85fr) minmax(80px,1fr);
+      gap:3px 8px;
+      margin-top:7px;
+      color:var(--muted);
+      font-size:9px;
+      line-height:1.35;
+    }
+    .ikk-performance-value {
+      color:#294960;
+      font-weight:750;
+      text-align:right;
+    }
+    .ikk-performance-status.green { color:var(--green); }
+    .ikk-performance-status.amber { color:var(--amber); }
+    .ikk-performance-status.red { color:var(--red); }
+    .ikk-performance-status.nodata { color:var(--gray); }
+    .ikk-performance-status.neutral { color:#526b7e; }
+    .ikk-forecast-value {
+      color:#657d8f;
+      font-style:italic;
+    }
     .badge {
       display:inline-flex; align-items:center; gap:6px; padding:5px 9px;
       border-radius:999px; font-size:11px; font-weight:850; white-space:nowrap;
@@ -107,7 +168,7 @@
     .support-table { overflow:hidden; border:1px solid var(--line); border-radius:13px; background:#fff; }
     .table-row {
       display:grid;
-      grid-template-columns:minmax(120px,1.2fr) minmax(150px,1.55fr) minmax(135px,1.25fr) minmax(105px,.85fr) minmax(110px,.95fr);
+      grid-template-columns:minmax(125px,1.05fr) minmax(150px,1.2fr) minmax(230px,1.8fr) minmax(140px,1.05fr);
       align-items:center; min-height:62px; border-bottom:1px solid #e7edf2;
     }
     .table-row:last-child { border-bottom:0; }
@@ -124,6 +185,83 @@
       padding:20px; border:1px dashed #cbd9e5; border-radius:13px;
       color:var(--muted); text-align:center; font-size:12px;
     }
+
+    .linked-risk {
+      padding:3px 0;
+      color:var(--ink);
+      font-size:11px;
+      line-height:1.38;
+    }
+    .linked-risk + .linked-risk {
+      border-top:1px dashed #e5ecf2;
+      margin-top:4px;
+      padding-top:6px;
+    }
+    .linked-risk strong {
+      display:inline;
+      margin-right:4px;
+      color:var(--navy);
+      font-size:11px;
+    }
+
+    .unit-performance-section {
+      margin:18px 20px 20px;
+      overflow:hidden;
+      border:1px solid var(--line);
+      border-radius:15px;
+      background:#fff;
+    }
+    .unit-performance-head {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      padding:15px 17px;
+      border-bottom:1px solid var(--line);
+      background:#fbfdff;
+    }
+    .unit-performance-head strong {
+      display:block;
+      color:var(--navy);
+      font-size:14px;
+    }
+    .unit-performance-head span {
+      color:var(--muted);
+      font-size:11px;
+    }
+    .unit-summary-row {
+      display:grid;
+      grid-template-columns:
+        minmax(180px,1.5fr)
+        minmax(130px,.8fr)
+        minmax(150px,1fr)
+        minmax(160px,1fr);
+      align-items:center;
+      min-height:62px;
+      border-bottom:1px solid #e7edf2;
+    }
+    .unit-summary-row:last-child {
+      border-bottom:0;
+    }
+    .unit-summary-row.header {
+      min-height:40px;
+      background:#f5f8fb;
+      color:var(--muted);
+      font-size:10px;
+      font-weight:850;
+      letter-spacing:.03em;
+      text-transform:uppercase;
+    }
+    .unit-summary-cell {
+      min-width:0;
+      padding:10px 14px;
+      font-size:12px;
+      line-height:1.4;
+    }
+    .unit-summary-cell strong {
+      color:var(--navy);
+    }
+
     .legend {
       display:flex; flex-wrap:wrap; align-items:center; gap:14px; padding:15px 18px;
       border-top:1px solid var(--line); background:#fbfdff; color:var(--muted); font-size:11px;
@@ -226,6 +364,78 @@
               Residual Korporat: <strong>{{ relation.corporate_level }}</strong><br>
               {{ relation.summary }} · {{ relation.category }}
             </div>
+
+            <div class="ikk-impact">
+              <div class="ikk-impact-title">
+                Indikator Kinerja Terkait
+              </div>
+
+              {% for ikk in relation.kpis %}
+                <div class="ikk-performance-card">
+                  <div class="ikk-performance-name">
+                    <strong>IKK {{ ikk.no|stringformat:"02d" }}</strong>
+                    · {{ ikk.name }}
+                  </div>
+
+                  {% if ikk.performance.available %}
+                    <div class="ikk-performance-grid">
+                      <span>
+                        Target {{ ikk.performance.month_label }}
+                      </span>
+                      <span class="ikk-performance-value">
+                        {{ ikk.performance.target_display }}
+                        {% if ikk.performance.unit %}
+                          {{ ikk.performance.unit }}
+                        {% endif %}
+                      </span>
+
+                      <span>
+                        Realisasi {{ ikk.performance.month_label }}
+                      </span>
+                      <span class="ikk-performance-value">
+                        {{ ikk.performance.realisasi_display }}
+                        {% if ikk.performance.unit %}
+                          {{ ikk.performance.unit }}
+                        {% endif %}
+                      </span>
+
+                      <span>
+                        {{ ikk.performance.achievement_label }}
+                      </span>
+                      <span class="ikk-performance-value ikk-performance-status {{ ikk.performance.status.key }}">
+                        {{ ikk.performance.achievement_display }}
+                        · {{ ikk.performance.status.label }}
+                      </span>
+
+                      <span>
+                        Prediksi {{ ikk.performance.forecast_month_label }}
+                      </span>
+                      <span class="ikk-performance-value ikk-forecast-value">
+                        {{ ikk.performance.forecast_display }}
+                      </span>
+                    </div>
+                  {% else %}
+                    <div class="ikk-performance-grid">
+                      <span>RKM {{ ikk.performance.month_label }}</span>
+                      <span class="ikk-performance-value">
+                        Belum tersedia
+                      </span>
+
+                      <span>
+                        Prediksi {{ ikk.performance.forecast_month_label }}
+                      </span>
+                      <span class="ikk-performance-value ikk-forecast-value">
+                        Belum tersedia
+                      </span>
+                    </div>
+                  {% endif %}
+                </div>
+              {% empty %}
+                <div class="ikk-impact-item">
+                  Belum dipetakan.
+                </div>
+              {% endfor %}
+            </div>
           </div>
         </div>
 
@@ -237,44 +447,46 @@
               <div class="table-row header">
                 <div class="cell">Bidang / Unit Bisnis</div>
                 <div class="cell">Profil Risiko Unit</div>
+                <div class="cell">Risiko Unit Terhubung</div>
                 <div class="cell">Status Risiko</div>
-                <div class="cell">KPMR</div>
-                <div class="cell">KM (NKO)</div>
               </div>
+
               {% for row in relation.supports %}
                 <div class="table-row">
                   <div class="cell">
                     <strong>{{ row.unit }}</strong>
-                    <span class="minor">{{ row.source_count }} sumber risiko terhubung</span>
                   </div>
+
                   <div class="cell">
                     <strong>{{ row.profile }}</strong>
                     <span class="minor">
-                      {% if row.report %}{{ row.report_code }}{% else %}Laporan bulan terpilih belum tersedia{% endif %}
+                      {% if row.report %}
+                        {{ row.report_code }}
+                      {% else %}
+                        Laporan bulan terpilih belum tersedia
+                      {% endif %}
                     </span>
+                  </div>
 
-                    {% for linked_risk in row.linked_risks %}
+                  <div class="cell">
+                    {% for linked in row.linked_risks %}
+                      <div class="linked-risk">
+                        <strong>R{{ linked.risk_no }}</strong>
+                        — {{ linked.event }}
+                      </div>
+                    {% empty %}
                       <span class="minor">
-                        <strong>R{{ linked_risk.risk_no }}</strong>
-                        — {{ linked_risk.event }}
+                        Risiko unit terhubung belum tersedia.
                       </span>
                     {% endfor %}
                   </div>
+
                   <div class="cell">
-                    <span class="badge {{ row.risk_status.key }}">{{ row.risk_status.label }}</span>
-                    <span class="minor">Level aktual: {{ row.actual_level }}</span>
-                  </div>
-                  <div class="cell">
-                    <span class="metric">{{ row.kpmr.score_display }}</span>
-                    <span class="minor">
-                      {{ row.kpmr.rating }}{% if row.kpmr.is_provisional %} · Draft/Provisional{% endif %}
+                    <span class="badge {{ row.risk_status.key }}">
+                      {{ row.risk_status.label }}
                     </span>
-                  </div>
-                  <div class="cell">
-                    <span class="metric">{{ row.nko.display }}</span>
                     <span class="minor">
-                      <span class="badge {{ row.nko.status.key }}">{{ row.nko.status.label }}</span>
-                      {% if row.nko.rkm_status != "-" %} · RKM {{ row.nko.rkm_status }}{% endif %}
+                      Level aktual: {{ row.actual_level }}
                     </span>
                   </div>
                 </div>
@@ -293,6 +505,79 @@
       </div>
     {% endfor %}
 
+
+    {% if unit_performance_rows %}
+      <section class="unit-performance-section">
+        <div class="unit-performance-head">
+          <div>
+            <strong>Ringkasan Bidang / Unit Bisnis</strong>
+            <span>
+              Risiko terhubung, KPMR, dan NKO pada periode terpilih.
+            </span>
+          </div>
+          <span>{{ selected_period_label }}</span>
+        </div>
+
+        <div class="unit-summary-row header">
+          <div class="unit-summary-cell">
+            Bidang / Unit Bisnis
+          </div>
+          <div class="unit-summary-cell">
+            Jumlah Risiko Terhubung
+          </div>
+          <div class="unit-summary-cell">
+            KPMR
+          </div>
+          <div class="unit-summary-cell">
+            NKO
+          </div>
+        </div>
+
+        {% for row in unit_performance_rows %}
+          <div class="unit-summary-row">
+            <div class="unit-summary-cell">
+              <strong>{{ row.unit }}</strong>
+            </div>
+
+            <div class="unit-summary-cell">
+              <span class="metric">
+                {{ row.risk_count }}
+              </span>
+            </div>
+
+            <div class="unit-summary-cell">
+              <span class="metric">
+                {{ row.kpmr.score_display }}
+              </span>
+              <span class="minor">
+                {{ row.kpmr.rating }}
+                {% if row.kpmr.quarter %}
+                  · Q{{ row.kpmr.quarter }}
+                {% endif %}
+                {% if row.kpmr.is_provisional %}
+                  · Draft/Provisional
+                {% endif %}
+              </span>
+            </div>
+
+            <div class="unit-summary-cell">
+              <span class="metric">
+                {{ row.nko.display }}
+              </span>
+              <span class="minor">
+                <span class="badge {{ row.nko.status.key }}">
+                  {{ row.nko.status.label }}
+                </span>
+                {% if row.nko.rkm_status != "-" %}
+                  · RKM {{ row.nko.rkm_status }}
+                {% endif %}
+              </span>
+            </div>
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
     <div class="legend">
       <strong>Legenda status risiko:</strong>
       <span class="badge green">Aman</span>
@@ -309,7 +594,8 @@
     Low/Low to Moderate diringkas sebagai <b>Aman</b>, Moderate sebagai <b>Perlu Perhatian</b>,
     dan Moderate to High/High sebagai <b>Tidak Aman</b>.
     KPMR memakai periode triwulan terkait dan menandai hasil Draft/Provisional.
-    KM (NKO) hanya ditampilkan bila RKM untuk bulan yang dipilih tersedia dan memakai perhitungan KM existing.
+    KPMR dan NKO dirangkum pada tabel Bidang / Unit Bisnis agar tidak berulang pada setiap relasi risiko.
+    NKO hanya tersedia bila RKM untuk periode yang dipilih tersedia dan memakai engine perhitungan KM existing.
   </div>
 </main>
 </body>

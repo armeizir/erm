@@ -468,16 +468,10 @@ def _format_percent(value):
 
 
 def _calculate_km_score(item, target, realisasi):
-    if target is None or realisasi is None or target == 0:
-        return None, None
-    if item.polaritas == "negatif":
-        achievement = (target / realisasi * Decimal("100")) if realisasi else None
-    else:
-        achievement = realisasi / target * Decimal("100")
-    if achievement is None:
-        return None, None
-    score = Decimal(str(item.bobot or 0)) * achievement / Decimal("100")
-    return achievement, score
+    # Single source of truth untuk KM Unit/Bidang dan NKO Korporat.
+    from .km_scoring import calculate_km_score
+
+    return calculate_km_score(item, target, realisasi)
 
 
 def _corporate_profile_rows(year):
