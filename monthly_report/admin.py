@@ -807,7 +807,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
 
     @property
     def risk_heading(self):
-        risk_number = self.risk.no_risiko if self.risk else self._value("risk_event") or "Baru"
+        risk_number = self.risk.no_item if self.risk else self._value("risk_event") or "Baru"
         period = (
             self.instance.report.periode.nama_periode
             if self.instance and self.instance.report_id and self.instance.report.periode_id
@@ -917,6 +917,19 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
 class MonthlyRiskReportItemInline(admin.StackedInline):
     model = MonthlyRiskReportItem
     form = MonthlyRiskReportItemForm
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("risk_event")
+            .order_by(
+                "risk_event__no_item",
+                "risk_event__no_penyebab_risiko",
+                "risk_event__no_risiko",
+                "pk",
+            )
+        )
     template = "admin/monthly_report/monthlyriskreport/edit_inline/monitoring_stacked.html"
     extra = 0
     autocomplete_fields = ("realisasi_pic_organization_unit",)

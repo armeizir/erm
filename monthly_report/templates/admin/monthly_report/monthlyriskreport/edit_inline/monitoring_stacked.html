@@ -13,7 +13,7 @@
       <strong>Daftar Risiko:</strong>
       {% for inline_admin_form in inline_admin_formset %}
         {% if not forloop.last or not inline_admin_formset.has_add_permission %}
-          <a href="#risk-monitoring-{{ forloop.counter0 }}">Risiko {% if inline_admin_form.form.risk %}{{ inline_admin_form.form.risk.no_risiko }}{% else %}{{ forloop.counter }}{% endif %}</a>
+          <a href="#risk-monitoring-{{ forloop.counter0 }}">Risiko {% if inline_admin_form.form.risk %}{{ inline_admin_form.form.risk.no_item }}{% else %}{{ forloop.counter }}{% endif %}</a>
         {% endif %}
       {% endfor %}
     </nav>
