@@ -3325,6 +3325,48 @@ class ReAssessmentItemTimelineForm(forms.ModelForm):
             if validation_error:
                 self._errors.pop("pic_user_assignment", None)
                 self.add_error("pic_user_assignment", validation_error)
+        # Validasi identitas item aktif sebelum ModelAdmin memanggil
+        # ReAssessmentItem.save(). Model tetap mempertahankan UniqueConstraint
+        # sebagai proteksi integritas database, tetapi benturan di Admin harus
+        # ditampilkan sebagai validation error, bukan HTTP 500.
+        summary = cleaned_data.get("summary")
+        no_item = cleaned_data.get("no_item")
+        no_risiko = cleaned_data.get("no_risiko")
+        is_active = cleaned_data.get(
+            "is_active",
+            getattr(self.instance, "is_active", True),
+        )
+
+        if (
+            summary is not None
+            and no_item not in (None, "")
+            and no_risiko not in (None, "")
+            and is_active
+        ):
+            conflicts = ReAssessmentItem.objects.filter(
+                summary=summary,
+                no_item=no_item,
+                no_risiko=no_risiko,
+                is_active=True,
+            )
+
+            if self.instance and self.instance.pk:
+                conflicts = conflicts.exclude(pk=self.instance.pk)
+
+            conflict = conflicts.order_by("pk").first()
+
+            if conflict is not None:
+                message = (
+                    f"No. Item {no_item} dan No. Risiko {no_risiko} "
+                    f"sudah digunakan oleh Item Risiko ID {conflict.pk} "
+                    f"pada Profil Risiko yang sama."
+                )
+
+                if "no_risiko" in self.fields:
+                    self.add_error("no_risiko", message)
+                else:
+                    self.add_error(None, message)
+
         return cleaned_data
 
     def save(self, commit=True):
