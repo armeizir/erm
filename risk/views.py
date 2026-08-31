@@ -519,18 +519,32 @@ def _unit_profile_rows(year, month):
             reports = reports.filter(periode__tanggal_mulai__month=month)
         report = reports.first()
         if report:
+            # Jumlah risiko utama yang berlaku pada periode laporan.
+            # Satu no_item dapat mempunyai beberapa baris penyebab/risk_event.
             total_profile_items = (
+                report.profile_items_queryset()
+                .values("no_item")
+                .distinct()
+                .count()
+            )
+
+            # Jumlah risiko utama yang benar-benar dilaporkan pada MRR.
+            reported_items = (
                 report.items
-                .values("risk_event_id")
+                .filter(risk_event__summary_id=summary.id)
+                .values("risk_event__no_item")
                 .distinct()
                 .count()
             )
         else:
-            total_profile_items = summary.item.filter(
-                is_active=True
-            ).count()
-
-        reported_items = report.items.count() if report else 0
+            total_profile_items = (
+                summary.item
+                .filter(is_active=True)
+                .values("no_item")
+                .distinct()
+                .count()
+            )
+            reported_items = 0
         high_items = report.total_high if report else 0
         rows.append(
             {
