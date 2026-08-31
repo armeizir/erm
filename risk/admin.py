@@ -3838,7 +3838,15 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
 
     @admin.display(description="Total Risiko")
     def total_risiko_display(self, obj):
-        return obj.item.filter(is_active=True).count()
+        # Jumlah risiko utama berdasarkan No. Item unik.
+        # Satu risiko dapat memiliki beberapa baris penyebab/ReAssessmentItem.
+        return (
+            obj.item
+            .filter(is_active=True)
+            .values("no_item")
+            .distinct()
+            .count()
+        )
 
     @admin.display(description="Progress")
     def progress_display(self, obj):
