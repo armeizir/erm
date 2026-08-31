@@ -65,6 +65,99 @@ def _qname(local_name: str) -> str:
     return f"{{{MAIN_NS}}}{local_name}"
 
 
+def _root_namespace_map(xml_content: bytes):
+    """Return namespace declarations present on the original XML root element."""
+    text = xml_content.decode("utf-8", errors="strict")
+
+    declaration_end = text.find("?>")
+    search_from = declaration_end + 2 if declaration_end >= 0 else 0
+
+    root_start = text.find("<", search_from)
+    root_end = text.find(">", root_start)
+
+    if root_start < 0 or root_end < 0:
+        return OrderedDict()
+
+    root_tag = text[root_start : root_end + 1]
+    namespaces = OrderedDict()
+
+    pattern = re.compile(
+        r"""\sxmlns(?::([A-Za-z_][\w.-]*))?=(["'])(.*?)\2"""
+    )
+
+    for match in pattern.finditer(root_tag):
+        prefix = match.group(1) or ""
+        namespaces[prefix] = match.group(3)
+
+    return namespaces
+
+
+def _serialize_xml_preserving_namespaces(root, namespaces) -> bytes:
+    """Serialize XML without losing Excel's original namespace prefixes.
+
+    ElementTree normally replaces Office namespace prefixes with ns0/ns1/etc.
+    Some Excel files reference the original prefixes textually through
+    mc:Ignorable.  Those declarations therefore must remain available.
+    """
+    for prefix, uri in namespaces.items():
+        if prefix == "xml":
+            continue
+
+        # ElementTree reserves automatically generated nsN prefixes.
+        if prefix and re.fullmatch(r"ns\d+", prefix):
+            continue
+
+        ET.register_namespace(prefix, uri)
+
+    content = ET.tostring(
+        root,
+        encoding="utf-8",
+        xml_declaration=True,
+    ).decode("utf-8")
+
+    declaration_end = content.find("?>")
+    search_from = declaration_end + 2 if declaration_end >= 0 else 0
+
+    root_start = content.find("<", search_from)
+    root_end = content.find(">", root_start)
+
+    if root_start < 0 or root_end < 0:
+        return content.encode("utf-8")
+
+    root_tag = content[root_start:root_end]
+
+    additions = []
+
+    # ElementTree only emits namespaces used structurally. Excel may also
+    # require prefixes which are referenced only inside mc:Ignorable.
+    for prefix, uri in namespaces.items():
+        if not prefix or prefix == "xml":
+            continue
+        if re.fullmatch(r"ns\d+", prefix):
+            continue
+
+        declaration = f"xmlns:{prefix}"
+        if re.search(rf"\s{re.escape(declaration)}\s*=", root_tag):
+            continue
+
+        escaped_uri = (
+            uri.replace("&", "&amp;")
+            .replace('"', "&quot;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        additions.append(f' {declaration}="{escaped_uri}"')
+
+    if additions:
+        content = (
+            content[:root_end]
+            + "".join(additions)
+            + content[root_end:]
+        )
+
+    return content.encode("utf-8")
+
+
 def _column_number(column_name: str) -> int:
     result = 0
     for char in column_name:
@@ -248,6 +341,15 @@ class _WorkbookPackage:
         with ZipFile(template_path, "r") as archive:
             self.infos = archive.infolist()
             self.files = {info.filename: archive.read(info.filename) for info in self.infos}
+
+        # Preserve the namespace declarations of the approved Excel template.
+        # They are required when modified XML files are serialized again.
+        self.root_namespaces = {
+            filename: _root_namespace_map(content)
+            for filename, content in self.files.items()
+            if filename.lower().endswith(".xml")
+        }
+
         self.sheet_paths = self._resolve_sheet_paths()
         self.sheet_roots = {}
 
@@ -447,14 +549,17 @@ class _WorkbookPackage:
                 "calcId": "0",
             }
         )
-        self.files["xl/workbook.xml"] = ET.tostring(
-            root, encoding="utf-8", xml_declaration=True
+        self.files["xl/workbook.xml"] = _serialize_xml_preserving_namespaces(
+            root,
+            self.root_namespaces.get("xl/workbook.xml", OrderedDict()),
         )
 
     def to_bytes(self) -> bytes:
         for sheet_name, root in self.sheet_roots.items():
-            self.files[self.sheet_paths[sheet_name]] = ET.tostring(
-                root, encoding="utf-8", xml_declaration=True
+            sheet_path = self.sheet_paths[sheet_name]
+            self.files[sheet_path] = _serialize_xml_preserving_namespaces(
+                root,
+                self.root_namespaces.get(sheet_path, OrderedDict()),
             )
         self.enable_full_calculation()
         output = BytesIO()
