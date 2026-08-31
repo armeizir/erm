@@ -3369,10 +3369,203 @@ REASSESSMENT_ITEM_FIELDS = (
 )
 
 
+# REASSESSMENT_RENUMBER_FORMSET_V1
+from django.db import transaction
+from django.forms.models import BaseInlineFormSet
+
+
+class ReAssessmentItemInlineFormSet(BaseInlineFormSet):
+    """
+    Validasi dan penyimpanan aman untuk perubahan No. Item / No. Risiko.
+
+    Constraint database tetap:
+        (summary, no_item, no_risiko)
+        WHERE is_active = TRUE
+
+    Existing rows yang sedang direnumber dinonaktifkan sementara dalam
+    transaction agar swap/mass-renumber tidak gagal akibat benturan sementara.
+    """
+
+    duplicate_message = (
+        "Kombinasi Item {no_item} · Risiko {no_risiko} sudah digunakan "
+        "pada Profil Risiko ini. Gunakan kombinasi nomor yang berbeda."
+    )
+
+    def _final_identity(self, form):
+        cleaned = getattr(form, "cleaned_data", {}) or {}
+        obj = form.instance
+
+        no_item = cleaned.get(
+            "no_item",
+            getattr(obj, "no_item", None),
+        )
+        no_risiko = cleaned.get(
+            "no_risiko",
+            getattr(obj, "no_risiko", None),
+        )
+        is_active = cleaned.get(
+            "is_active",
+            getattr(obj, "is_active", True),
+        )
+
+        return no_item, no_risiko, bool(is_active)
+
+    def _add_identity_error(self, form, no_item, no_risiko):
+        message = self.duplicate_message.format(
+            no_item=no_item,
+            no_risiko=no_risiko,
+        )
+
+        # Tempelkan ke dua field agar pengguna langsung tahu kombinasi
+        # mana yang harus diperbaiki.
+        if "no_item" in form.fields:
+            form.add_error("no_item", message)
+        else:
+            form.add_error(None, message)
+
+        if "no_risiko" in form.fields:
+            form.add_error("no_risiko", message)
+
+    def clean(self):
+        super().clean()
+
+        # Jangan menambah error lanjutan jika individual form sudah invalid.
+        if any(self.errors):
+            return
+
+        seen = {}
+        represented_pks = set()
+        active_forms = []
+
+        for form in self.forms:
+            cleaned = getattr(form, "cleaned_data", None)
+            if not cleaned:
+                continue
+
+            if self.can_delete and self._should_delete_form(form):
+                if form.instance.pk:
+                    represented_pks.add(form.instance.pk)
+                continue
+
+            if form.instance.pk:
+                represented_pks.add(form.instance.pk)
+
+            no_item, no_risiko, is_active = self._final_identity(form)
+
+            if (
+                not is_active
+                or no_item in (None, "")
+                or no_risiko in (None, "")
+            ):
+                continue
+
+            key = (no_item, no_risiko)
+            active_forms.append((key, form))
+
+            first_form = seen.get(key)
+            if first_form is not None:
+                self._add_identity_error(
+                    first_form,
+                    no_item,
+                    no_risiko,
+                )
+                self._add_identity_error(
+                    form,
+                    no_item,
+                    no_risiko,
+                )
+            else:
+                seen[key] = form
+
+        if not getattr(self.instance, "pk", None):
+            return
+
+        # Lindungi juga terhadap row aktif yang mungkin tidak tampil di
+        # formset karena filter/queryset custom.
+        external_keys = set(
+            ReAssessmentItem.objects.filter(
+                summary_id=self.instance.pk,
+                is_active=True,
+            )
+            .exclude(pk__in=represented_pks)
+            .values_list("no_item", "no_risiko")
+        )
+
+        for (no_item, no_risiko), form in active_forms:
+            if (no_item, no_risiko) in external_keys:
+                self._add_identity_error(
+                    form,
+                    no_item,
+                    no_risiko,
+                )
+
+    def _rows_to_release(self):
+        """
+        Existing active rows yang dapat menghalangi renumbering final.
+
+        Termasuk:
+        - no_item berubah
+        - no_risiko berubah
+        - row akan dihapus
+        - row akan dibuat inactive
+        """
+        pks = []
+
+        for form in self.forms:
+            cleaned = getattr(form, "cleaned_data", None)
+            if not cleaned or not form.instance.pk:
+                continue
+
+            deleting = (
+                self.can_delete
+                and self._should_delete_form(form)
+            )
+
+            final_active = cleaned.get(
+                "is_active",
+                getattr(form.instance, "is_active", True),
+            )
+
+            identity_changed = bool(
+                {"no_item", "no_risiko"} & set(form.changed_data)
+            )
+
+            active_changed_to_false = (
+                getattr(form.instance, "is_active", True)
+                and not final_active
+            )
+
+            if deleting or identity_changed or active_changed_to_false:
+                pks.append(form.instance.pk)
+
+        return pks
+
+    def save(self, commit=True):
+        if not commit:
+            return super().save(commit=False)
+
+        release_pks = self._rows_to_release()
+
+        with transaction.atomic():
+            if release_pks:
+                # UPDATE langsung sengaja dipakai agar tidak memanggil
+                # ReAssessmentItem.save()/full_clean() pada fase temporary.
+                ReAssessmentItem.objects.filter(
+                    pk__in=release_pks,
+                    is_active=True,
+                ).update(is_active=False)
+
+            # instance pada masing-masing ModelForm masih membawa nilai final
+            # is_active/no_item/no_risiko sehingga super().save() akan
+            # menyimpan kembali status dan nomor final secara normal.
+            return super().save(commit=True)
+
+
 class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline):
     template = "admin/risk/reassessmentitem/tabular_with_exposure_help.html"
     model = ReAssessmentItem
     form = ReAssessmentItemTimelineForm
+    formset = ReAssessmentItemInlineFormSet
     extra = 0
     ordering = ("no_item",)
     fields = REASSESSMENT_ITEM_FIELDS
