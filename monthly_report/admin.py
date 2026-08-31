@@ -807,13 +807,16 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
 
     @property
     def risk_heading(self):
-        risk_number = self.risk.no_item if self.risk else self._value("risk_event") or "Baru"
-        period = (
-            self.instance.report.periode.nama_periode
-            if self.instance and self.instance.report_id and self.instance.report.periode_id
-            else "periode laporan"
-        )
-        return f"Risiko {risk_number} – Pemantauan {period}"
+        if not self.risk:
+            return "Risiko Baru"
+
+        risk_number = self.risk.no_item
+        risk_name = (
+            self.risk.peristiwa_risiko
+            or "Nama risiko belum tersedia"
+        ).strip()
+
+        return f"Risiko {risk_number} – {risk_name}"
 
     @property
     def active_period_context(self):

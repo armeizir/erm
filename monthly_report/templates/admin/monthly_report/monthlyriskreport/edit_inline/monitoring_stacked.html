@@ -24,7 +24,6 @@
         <details class="monitoring-risk-details" id="risk-monitoring-{% if forloop.last and inline_admin_formset.has_add_permission %}__prefix__{% else %}{{ forloop.counter0 }}{% endif %}"{% if forloop.first or inline_admin_form.form.should_open %} open{% endif %}>
           <summary>
             <span class="risk-summary-title">{{ inline_admin_form.form.risk_heading }}</span>
-            <span class="risk-summary-event">{% if inline_admin_form.form.risk %}{{ inline_admin_form.form.risk.peristiwa_risiko|truncatechars:150 }}{% else %}Pilih risiko untuk mulai mengisi pemantauan.{% endif %}</span>
             <span class="risk-summary-meta">
               {% if inline_admin_form.form.risk %}No. Item: {{ inline_admin_form.form.risk.no_item }} · No. Risiko: {{ inline_admin_form.form.risk.no_risiko }} · {% endif %}
               Kode: {{ inline_admin_form.form.system_code }} · Skor residual: {{ inline_admin_form.form.instance.realisasi_skor_risiko|default:"-" }} ·
