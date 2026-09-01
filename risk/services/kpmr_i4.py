@@ -106,7 +106,19 @@ def calculate_i4(
         )
 
     comparison_complete = len(comparable) == item_count and item_count > 0
+
+    # I4.3 menilai ketepatan perubahan rencana perlakuan risiko.
+    # Jika pada periode berjalan belum terdapat Perubahan Rencana Perlakuan
+    # Risiko di III.D, maka rencana existing tetap berlaku dan jawaban = a (90).
+    plan_change_count = MonthlyRiskReportChange.objects.filter(
+        report_id__in=report_ids,
+        jenis_perubahan=MonthlyRiskReportChange.CHANGE_TYPE_STRATEGY,
+    ).count()
+    has_plan_change = plan_change_count > 0
+
     if force_i4_all_a:
+        plan_raw = Decimal("90")
+    elif not has_plan_change:
         plan_raw = Decimal("90")
     elif not comparison_complete:
         plan_raw = None
@@ -114,29 +126,52 @@ def calculate_i4(
         plan_raw = Decimal("50")
     else:
         plan_raw = Decimal("90")
-    plan_note = (
-        "Data target/aktual belum lengkap; I4.3 perlu verifikasi data."
-        if plan_raw is None
-        else (
-            "Rencana perlakuan menurunkan risiko sampai target residual pada item yang bisa dihitung."
-            if plan_raw == Decimal("90")
-            else "Masih ada risiko di atas target residual."
+
+    if not has_plan_change:
+        plan_note = (
+            "Belum terdapat Perubahan Rencana Perlakuan Risiko pada periode "
+            "pelaporan; rencana perlakuan existing tetap berlaku."
         )
-    )
+    elif plan_raw is None:
+        plan_note = (
+            "Terdapat perubahan rencana perlakuan, tetapi data target/aktual "
+            "belum lengkap sehingga I4.3 perlu verifikasi data."
+        )
+    elif plan_raw == Decimal("90"):
+        plan_note = (
+            "Perubahan rencana perlakuan telah mendukung pencapaian target residual."
+        )
+    else:
+        plan_note = (
+            "Perubahan rencana perlakuan belum mendukung pencapaian target residual."
+        )
+
     plan_detail = (
-        "Sumber: III.A realisasi residual dibanding target residual dan III.B "
-        "rencana perlakuan.\n"
+        "Sumber utama: III.D Perubahan Rencana Perlakuan Risiko. "
+        "III.A realisasi residual dan III.B rencana perlakuan digunakan untuk "
+        "evaluasi apabila terdapat perubahan.\n"
+        f"Perubahan Rencana Perlakuan Risiko tercatat: {plan_change_count}.\n"
         f"Item yang bisa dibandingkan: {len(comparable)}; item di atas target "
         f"residual: {above_target}; item tidak lengkap: {item_count - len(comparable)}.\n"
-        "Aturan jawaban: a jika rencana perlakuan menurunkan risiko sampai target; "
-        "b jika masih ada risiko di atas target atau data target/aktual belum lengkap.\n"
+        "Aturan jawaban: a jika belum terdapat Perubahan Rencana Perlakuan "
+        "Risiko pada periode berjalan, atau perubahan yang ada telah mendukung "
+        "pencapaian target residual; b jika terdapat perubahan rencana "
+        "perlakuan tetapi residual masih di atas target.\n"
         f"Jawaban: {'perlu verifikasi data' if plan_raw is None else ('a' if plan_raw >= Decimal('90') else 'b')}.\n"
         f"Hasil Penilaian: {plan_raw if plan_raw is not None else '-'}."
     )
-    if plan_raw == Decimal("50") and comparison_complete and above_target:
+
+    if not has_plan_change:
         plan_detail += (
-            "\nParameter 4.3 memperoleh nilai b karena masih terdapat risiko yang "
-            "berada di atas target residual. Jumlah risiko di atas target: "
+            "\nParameter 4.3 memperoleh nilai a = 90 karena belum terdapat "
+            "Perubahan Rencana Perlakuan Risiko pada periode pelaporan. "
+            "Rencana perlakuan existing tetap berlaku."
+        )
+    elif plan_raw == Decimal("50") and comparison_complete and above_target:
+        plan_detail += (
+            "\nParameter 4.3 memperoleh nilai b karena terdapat perubahan "
+            "rencana perlakuan dan masih terdapat risiko yang berada di atas "
+            "target residual. Jumlah risiko di atas target: "
             f"{above_target} dari {item_count}."
         )
 
