@@ -1,0 +1,89 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+
+<style>
+.treat-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.treat-table th,
+.treat-table td {
+  padding: 9px;
+  border-bottom: 1px solid #ddd;
+  vertical-align: top;
+}
+.treat-current {
+  max-width: 650px;
+  white-space: pre-wrap;
+}
+</style>
+
+<h1>Pilih Rencana Perlakuan Risiko</h1>
+
+<form method="get" style="margin:16px 0;">
+  <input
+    type="text"
+    name="q"
+    value="{{ q }}"
+    placeholder="Cari profil atau rencana perlakuan..."
+    style="min-width:380px;"
+  >
+  <button type="submit">Cari</button>
+</form>
+
+<table class="treat-table">
+  <thead>
+    <tr>
+      <th>Profil</th>
+      <th>Item / Risiko</th>
+      <th>Rencana Perlakuan Saat Ini</th>
+      <th>Status Usulan</th>
+      <th>Aksi</th>
+    </tr>
+  </thead>
+
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>
+        {{ row.item.summary }}
+      </td>
+
+      <td>
+        Item {{ row.item.no_item }}<br>
+        Risiko {{ row.item.no_risiko }}
+      </td>
+
+      <td class="treat-current">
+        {{ row.item.rencana_perlakuan_risiko|default:"-" }}
+      </td>
+
+      <td>
+        {% if row.open_change %}
+          {{ row.open_change.get_status_display }}
+          · Versi {{ row.open_change.version }}
+        {% else %}
+          Tidak ada perubahan aktif
+        {% endif %}
+      </td>
+
+      <td>
+        <a class="button" href="{{ row.url }}">
+          {{ row.label }}
+        </a>
+      </td>
+    </tr>
+
+    {% empty %}
+    <tr>
+      <td colspan="5">
+        Tidak ada Rencana Perlakuan Risiko
+        sesuai scope user.
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% endblock %}

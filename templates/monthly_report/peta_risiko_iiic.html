@@ -391,9 +391,33 @@
     </tfoot>
   </table>
 
-  {% if show_kpmr and kpmr_calculation %}
+  {% if show_kpmr %}
     <section class="kpmr-panel">
-      <h2>KPMR Otomatis Bulanan</h2>
+      {% if not kpmr_is_quarter_snapshot %}
+        <h2>KPMR TW{{ kpmr_quarter }} Belum Dinilai</h2>
+
+        <p class="kpmr-meta">
+          Penilaian KPMR resmi dilakukan pada posisi akhir
+          <strong>{{ kpmr_closing_month_name }} {{ report.reassessment.tahun }}</strong>.
+          Data <strong>{{ report.periode.nama_periode }}</strong>
+          tetap digunakan sebagai monitoring risiko dan bahan evaluasi
+          sampai penutupan TW{{ kpmr_quarter }}.
+        </p>
+
+        <div class="kpmr-summary">
+          <div class="kpmr-card">
+            <span>Status KPMR</span>
+            <strong>Belum Dinilai</strong>
+          </div>
+
+          <div class="kpmr-card">
+            <span>Periode Penilaian</span>
+            <strong>{{ kpmr_closing_month_name }} {{ report.reassessment.tahun }}</strong>
+          </div>
+        </div>
+
+      {% elif kpmr_calculation %}
+        <h2>KPMR Otomatis Triwulanan</h2>
       {% if kpmr_is_preview %}
         <p class="kpmr-preview">Pratinjau KPMR — hasil masih dapat berubah selama laporan belum diajukan.</p>
       {% endif %}
@@ -557,6 +581,7 @@
           </table>
         </div>
       </details>
+      {% endif %}
       {% endif %}
     </section>
   {% endif %}

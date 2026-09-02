@@ -1,0 +1,172 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+
+<style>
+.treat-card {
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  background: #fff;
+}
+.treat-grid {
+  display: grid;
+  grid-template-columns: 240px minmax(300px, 1fr);
+  gap: 10px 18px;
+  align-items: start;
+}
+.treat-grid label {
+  font-weight: 600;
+}
+.timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(80px,1fr));
+  gap: 8px;
+}
+.errorlist {
+  color: #ba2121;
+}
+</style>
+
+<h1>Ajukan Perubahan Rencana Perlakuan Risiko</h1>
+
+<div class="treat-card">
+  <strong>{{ item.summary }}</strong><br>
+  Item {{ item.no_item }} · Risiko {{ item.no_risiko }}
+</div>
+
+{% if form.non_field_errors %}
+<div class="errornote">
+  {{ form.non_field_errors }}
+</div>
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="treat-card">
+    <h2>Usulan Rencana Perlakuan</h2>
+
+    <div class="treat-grid">
+
+      <label>{{ form.opsi_perlakuan_risiko.label }}</label>
+      <div>
+        {{ form.opsi_perlakuan_risiko }}
+        {{ form.opsi_perlakuan_risiko.errors }}
+      </div>
+
+      <label>{{ form.jenis_rencana_perlakuan_risiko.label }}</label>
+      <div>
+        {{ form.jenis_rencana_perlakuan_risiko }}
+        {{ form.jenis_rencana_perlakuan_risiko.errors }}
+      </div>
+
+      <label>{{ form.rencana_perlakuan_risiko.label }}</label>
+      <div>
+        {{ form.rencana_perlakuan_risiko }}
+        {{ form.rencana_perlakuan_risiko.errors }}
+      </div>
+
+      <label>{{ form.output_perlakuan_risiko.label }}</label>
+      <div>
+        {{ form.output_perlakuan_risiko }}
+        {{ form.output_perlakuan_risiko.errors }}
+      </div>
+
+      <label>{{ form.biaya_perlakuan_risiko.label }}</label>
+      <div>
+        {{ form.biaya_perlakuan_risiko }}
+        {{ form.biaya_perlakuan_risiko.errors }}
+      </div>
+
+      <label>{{ form.pos_anggaran.label }}</label>
+      <div>
+        {{ form.pos_anggaran }}
+        {{ form.pos_anggaran.errors }}
+      </div>
+
+      <label>{{ form.prk.label }}</label>
+      <div>
+        {{ form.prk }}
+        {{ form.prk.errors }}
+      </div>
+
+      <label>{{ form.jenis_program_dalam_rkap.label }}</label>
+      <div>
+        {{ form.jenis_program_dalam_rkap }}
+        {{ form.jenis_program_dalam_rkap.errors }}
+      </div>
+
+      <label>{{ form.pic_organization_unit.label }}</label>
+      <div>
+        {{ form.pic_organization_unit }}
+        {{ form.pic_organization_unit.errors }}
+      </div>
+
+      <label>{{ form.pic_user_assignment.label }}</label>
+      <div>
+        {{ form.pic_user_assignment }}
+        {{ form.pic_user_assignment.errors }}
+      </div>
+
+      <label>{{ form.pic.label }}</label>
+      <div>
+        {{ form.pic }}
+        {{ form.pic.errors }}
+      </div>
+
+    </div>
+  </div>
+
+  <div class="treat-card">
+    <h2>Timeline Pelaksanaan</h2>
+
+    <div class="timeline-grid">
+      {% for field in form %}
+        {% if field.name|slice:":9" == "timeline_" %}
+        <label>
+          {{ field }}
+          {{ field.label }}
+        </label>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="treat-card">
+    <h2>Justifikasi Perubahan</h2>
+
+    <p>
+      <strong>{{ form.alasan_perubahan.label }}</strong><br>
+      {{ form.alasan_perubahan }}
+      {{ form.alasan_perubahan.errors }}
+    </p>
+
+    <p>
+      <strong>{{ form.dampak_perubahan.label }}</strong><br>
+      {{ form.dampak_perubahan }}
+      {{ form.dampak_perubahan.errors }}
+    </p>
+  </div>
+
+  <div class="submit-row">
+    <button
+      type="submit"
+      name="_save_draft"
+      class="default"
+    >
+      Simpan Draft
+    </button>
+
+    <button
+      type="submit"
+      name="_submit"
+    >
+      Simpan & Ajukan
+    </button>
+  </div>
+
+</form>
+
+{% endblock %}

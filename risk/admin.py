@@ -3569,6 +3569,13 @@ class ReAssessmentItemInline(QuarterlyRiskLevelDisplayMixin, admin.TabularInline
     extra = 0
     ordering = ("no_item",)
     fields = REASSESSMENT_ITEM_FIELDS
+
+    def get_queryset(self, request):
+        # Halaman Profil Risiko hanya mengedit versi aktif/current.
+        # Baris inactive merupakan histori revisi dan tetap dipertahankan
+        # di database, tetapi tidak boleh ikut menjadi form editable karena
+        # dapat memakai KM dari revisi kontrak sebelumnya.
+        return super().get_queryset(request).filter(is_active=True)
     readonly_fields = (
         "kode_penyebab_risiko",
         "legacy_pic_display",
@@ -6596,3 +6603,9 @@ try:
     )
 except admin.sites.AlreadyRegistered:
     pass
+
+# RISK_TREATMENT_CHANGE_ADMIN_V1
+# Registrasi UI workflow perubahan Rencana Perlakuan Risiko.
+# Diletakkan paling akhir agar seluruh admin existing selesai diregistrasikan.
+import risk.treatment_change_admin  # noqa: F401,E402
+

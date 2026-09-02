@@ -1070,8 +1070,20 @@ def _export_workbook(context, params):
 
 
 @login_required
-@permission_required("risk.view_profilrisikokorporatitem", raise_exception=True)
 def dashboard(request):
+    # Root dashboard:
+    # - user dengan akses korporat tetap melihat dashboard korporat;
+    # - user BID/UB tanpa akses korporat diarahkan ke dashboard
+    #   operasional yang sudah menerapkan scope organisasi.
+    if not request.user.has_perm("risk.view_profilrisikokorporatitem"):
+        from django.shortcuts import redirect
+        from risk.access_policy import user_has_organizational_scope
+
+        if user_has_organizational_scope(request.user):
+            return redirect("risk_admin:index")
+
+        raise PermissionDenied
+
     items, selected_summary, mode = _get_filtered_items(request)
     context = _risk_matrix_context(items, mode=mode, selected_summary=selected_summary)
     selected_year = _selected_year(request)

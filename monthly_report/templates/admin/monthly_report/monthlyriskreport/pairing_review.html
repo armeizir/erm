@@ -1,0 +1,228 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div id="content-main">
+
+  <fieldset class="module aligned">
+    <h2>Review Pairing Setelah Approval</h2>
+
+    <div class="form-row">
+      <p>
+        <strong>Profil Risiko:</strong>
+        {{ report.reassessment }}
+      </p>
+
+      <p>
+        <strong>Periode:</strong>
+        {{ report.periode.nama_periode }}
+      </p>
+
+      <p>
+        <strong>Status Laporan:</strong>
+        {{ report.get_status_display }}
+      </p>
+
+      <p>
+        <strong>Pairing Officer:</strong>
+        {% for pairing in pairing_users %}
+          {% if pairing.get_full_name %}
+            {{ pairing.get_full_name }}
+          {% else %}
+            {{ pairing.username }}
+          {% endif %}
+          {% if not forloop.last %}, {% endif %}
+        {% empty %}
+          <span style="color:#b91c1c">
+            Belum ada Pairing Officer aktif pada unit ini.
+          </span>
+        {% endfor %}
+      </p>
+
+      <p>
+        <strong>Status Review Pairing:</strong>
+
+        {% if pairing_review_state == "reviewed" %}
+          <span style="
+            display:inline-block;
+            padding:4px 10px;
+            border-radius:14px;
+            background:#ecfdf5;
+            color:#166534;
+            font-weight:600;
+          ">
+            Reviewed
+          </span>
+
+        {% elif pairing_review_state == "revision_required" %}
+          <span style="
+            display:inline-block;
+            padding:4px 10px;
+            border-radius:14px;
+            background:#fef2f2;
+            color:#991b1b;
+            font-weight:600;
+          ">
+            Perlu Perbaikan
+          </span>
+
+        {% elif pairing_review_state == "pending" %}
+          <span style="
+            display:inline-block;
+            padding:4px 10px;
+            border-radius:14px;
+            background:#fff7ed;
+            color:#9a3412;
+            font-weight:600;
+          ">
+            Menunggu Review
+          </span>
+
+        {% else %}
+          -
+        {% endif %}
+      </p>
+    </div>
+  </fieldset>
+
+
+  {% if can_submit_review %}
+  <form method="post">
+    {% csrf_token %}
+
+    <fieldset class="module aligned">
+      <h2>Hasil Review</h2>
+
+      <div class="form-row">
+        <p>
+          Review Pairing hanya dapat dilakukan setelah laporan
+          <strong>Approved</strong>.
+        </p>
+
+        <label style="display:block;margin-bottom:10px">
+          <input
+            type="radio"
+            name="decision"
+            value="sesuai"
+            required
+          >
+          <strong>Sesuai / Review Selesai</strong>
+          — laporan tetap berstatus Approved.
+        </label>
+
+        <label style="display:block;margin-bottom:18px">
+          <input
+            type="radio"
+            name="decision"
+            value="perlu_perbaikan"
+            required
+          >
+          <strong>Perlu Perbaikan</strong>
+          — laporan dikembalikan kepada Drafter dengan status Revision.
+        </label>
+      </div>
+
+      <div class="form-row">
+        <label for="id_comment">
+          <strong>Komentar Pairing:</strong>
+        </label>
+
+        <textarea
+          id="id_comment"
+          name="comment"
+          rows="7"
+          style="width:100%;max-width:900px"
+          placeholder="Tuliskan hasil review atau bagian laporan yang perlu diperbaiki."
+        ></textarea>
+
+        <div class="help">
+          Komentar wajib diisi apabila memilih
+          <strong>Perlu Perbaikan</strong>.
+          Seluruh komentar disimpan dalam riwayat workflow.
+        </div>
+      </div>
+    </fieldset>
+
+    <div class="submit-row">
+      <input
+        type="submit"
+        value="Simpan Hasil Review"
+        class="default"
+      >
+      <a href="{{ cancel_url }}" class="closelink">Kembali</a>
+    </div>
+  </form>
+
+  {% elif pairing_review_state == "reviewed" %}
+    <div class="messagelist">
+      <div class="success">
+        Review Pairing untuk siklus approval ini telah selesai.
+      </div>
+    </div>
+
+  {% elif report.status != "approved" %}
+    <div class="messagelist">
+      <div class="warning">
+        Review Pairing hanya dapat dilakukan ketika laporan berstatus Approved.
+      </div>
+    </div>
+
+  {% elif not can_review %}
+    <div class="messagelist">
+      <div class="warning">
+        Hanya Pairing Officer unit terkait yang dapat menyimpan hasil review.
+      </div>
+    </div>
+  {% endif %}
+
+
+  <fieldset class="module">
+    <h2>Riwayat Review Pairing</h2>
+
+    <table style="width:100%">
+      <thead>
+        <tr>
+          <th style="width:170px">Tanggal</th>
+          <th style="width:220px">Pairing</th>
+          <th style="width:160px">Keputusan</th>
+          <th>Komentar</th>
+        </tr>
+      </thead>
+
+      <tbody>
+      {% for log in pairing_history %}
+        <tr>
+          <td>{{ log.action_at|date:"d-m-Y H:i" }}</td>
+
+          <td>
+            {% if log.action_by.get_full_name %}
+              {{ log.action_by.get_full_name }}
+            {% else %}
+              {{ log.action_by.username }}
+            {% endif %}
+          </td>
+
+          <td>
+            {% if "PERLU PERBAIKAN" in log.note %}
+              <strong style="color:#991b1b">Perlu Perbaikan</strong>
+            {% else %}
+              <strong style="color:#166534">Sesuai</strong>
+            {% endif %}
+          </td>
+
+          <td style="white-space:pre-line">{{ log.note }}</td>
+        </tr>
+
+      {% empty %}
+        <tr>
+          <td colspan="4">
+            Belum ada review Pairing untuk laporan ini.
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </fieldset>
+
+</div>
+{% endblock %}

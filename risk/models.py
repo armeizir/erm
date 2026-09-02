@@ -4006,3 +4006,224 @@ class ItemKontrakManajemenKorporat(ItemKontrakManajemen):
         proxy = True
         verbose_name = "Item KM Korporat"
         verbose_name_plural = "Item KM Korporat"
+
+
+class RiskTreatmentChangeRequest(models.Model):
+    """
+    Usulan perubahan terhadap Rencana Perlakuan Risiko pada ReAssessmentItem.
+
+    Data pada ReAssessmentItem tetap menjadi data current.
+    Perubahan baru diterapkan setelah Change Request disetujui.
+    """
+
+    STATUS_DRAFT = "draft"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_UNDER_REVIEW = "under_review"
+    STATUS_REVISION = "revision"
+    STATUS_REJECTED = "rejected"
+    STATUS_APPROVED = "approved"
+
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_SUBMITTED, "Diajukan"),
+        (STATUS_UNDER_REVIEW, "Dalam Review"),
+        (STATUS_REVISION, "Perlu Revisi"),
+        (STATUS_REJECTED, "Ditolak"),
+        (STATUS_APPROVED, "Disetujui"),
+    ]
+
+    OPEN_STATUSES = (
+        STATUS_DRAFT,
+        STATUS_SUBMITTED,
+        STATUS_UNDER_REVIEW,
+        STATUS_REVISION,
+    )
+
+    ALLOWED_CHANGE_KEYS = frozenset(
+        {
+            "opsi_perlakuan_risiko_id",
+            "jenis_rencana_perlakuan_risiko_ids",
+            "rencana_perlakuan_risiko",
+            "output_perlakuan_risiko",
+            "biaya_perlakuan_risiko",
+            "pos_anggaran_id",
+            "prk",
+            "jenis_program_dalam_rkap_id",
+            "pic",
+            "pic_organization_unit_id",
+            "pic_user_assignment_id",
+            *{f"timeline_{month}" for month in range(1, 13)},
+        }
+    )
+
+    reassessment_item = models.ForeignKey(
+        "ReAssessmentItem",
+        on_delete=models.PROTECT,
+        related_name="treatment_change_requests",
+        verbose_name="Item Risiko",
+    )
+
+    version = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Versi Perubahan",
+    )
+
+    before_snapshot = models.JSONField(
+        default=dict,
+        verbose_name="Data Sebelum Perubahan",
+    )
+
+    proposed_changes = models.JSONField(
+        default=dict,
+        verbose_name="Usulan Perubahan",
+    )
+
+    alasan_perubahan = models.TextField(
+        verbose_name="Alasan Perubahan",
+    )
+
+    dampak_perubahan = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="Dampak Perubahan",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_DRAFT,
+        db_index=True,
+        verbose_name="Status",
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="risk_treatment_changes_created",
+        verbose_name="Dibuat Oleh",
+    )
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="risk_treatment_changes_requested",
+        verbose_name="Diajukan Oleh",
+    )
+
+    requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Tanggal Pengajuan",
+    )
+
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="risk_treatment_changes_reviewed",
+        verbose_name="Direview Oleh",
+    )
+
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Tanggal Review",
+    )
+
+    reviewer_note = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="Catatan Reviewer",
+    )
+
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="risk_treatment_changes_approved",
+        verbose_name="Disetujui Oleh",
+    )
+
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Tanggal Persetujuan",
+    )
+
+    applied_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Tanggal Diterapkan",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        verbose_name = "Usulan Perubahan Rencana Perlakuan Risiko"
+        verbose_name_plural = "Usulan Perubahan Rencana Perlakuan Risiko"
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reassessment_item", "version"],
+                name="uniq_treat_change_item_ver",
+            ),
+            models.UniqueConstraint(
+                fields=["reassessment_item"],
+                condition=models.Q(
+                    status__in=[
+                        "draft",
+                        "submitted",
+                        "under_review",
+                        "revision",
+                    ]
+                ),
+                name="uniq_open_treat_change_item",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if not isinstance(self.before_snapshot, dict):
+            errors["before_snapshot"] = (
+                "Snapshot sebelum perubahan harus berupa object/dictionary."
+            )
+
+        if not isinstance(self.proposed_changes, dict):
+            errors["proposed_changes"] = (
+                "Usulan perubahan harus berupa object/dictionary."
+            )
+        else:
+            invalid = (
+                set(self.proposed_changes)
+                - self.ALLOWED_CHANGE_KEYS
+            )
+
+            if invalid:
+                errors["proposed_changes"] = (
+                    "Field tidak boleh diubah melalui fasilitas "
+                    "Rencana Perlakuan Risiko: "
+                    + ", ".join(sorted(invalid))
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return (
+            f"Perubahan Treatment #{self.pk or '-'} "
+            f"- Item {self.reassessment_item_id} "
+            f"- v{self.version}"
+        )

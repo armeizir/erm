@@ -656,6 +656,38 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             legacy_kri_text = (
                 self.instance.realisasi_threshold_kri_skor or ""
             ).strip()
+
+            # KRI_TEXT_MODE_INIT_V2
+            #
+            # Field realisasi_threshold_kri_skor juga digunakan oleh KRI
+            # numerik untuk menyimpan rentang threshold, misalnya:
+            # >=100, 70%-92%, <70.
+            #
+            # Rentang tersebut bukan Realisasi KRI Teks/Komposit dan tidak
+            # boleh mengaktifkan Status Threshold manual.
+            #
+            # Jika field realisasi_kri_text yang baru sudah terisi, field
+            # tersebut menjadi sumber utama untuk mode Teks/Komposit.
+            explicit_kri_text = (
+                getattr(self.instance, "realisasi_kri_text", None) or ""
+            ).strip()
+
+            if explicit_kri_text:
+                legacy_kri_text = explicit_kri_text
+            elif legacy_kri_text:
+                compact = legacy_kri_text.replace(" ", "")
+
+                # Rentang numerik hanya terdiri dari angka dan simbol
+                # pembanding/pemisah. Contoh: >=100, 70%-92%, <70.
+                looks_like_threshold_range = all(
+                    char.isdigit()
+                    or char in ".,%<>=-+"
+                    for char in compact
+                )
+
+                if looks_like_threshold_range:
+                    legacy_kri_text = ""
+
             if legacy_kri_text:
                 self.initial["realisasi_kri_text"] = legacy_kri_text
 
@@ -757,7 +789,10 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                 "Status Threshold wajib dipilih untuk KRI Teks/Komposit.",
             )
 
-        if manual_status and not text_value:
+        # KRI numeric dan KRI Teks/Komposit adalah dua mode yang berbeda.
+        # Status manual hanya mewajibkan teks jika mode numeric tidak digunakan.
+        # Untuk KRI numeric, status threshold dihitung otomatis oleh model.
+        if numeric_value is None and manual_status and not text_value:
             self.add_error(
                 "realisasi_kri_text",
                 "Isi realisasi KRI Teks/Komposit jika menggunakan status manual.",
@@ -1502,6 +1537,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "status",
         "copy_source_display",
         "flow_action_button",
+        "pairing_review_column",
         "latest_revision_comment",
         "notification_button",
         "import_profile_button",
@@ -1514,6 +1550,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "petunjuk_lampiran",
         "peta_risiko_iiic_link",
         "flow_action_button",
+        "pairing_review_column",
         "latest_revision_comment",
         "notification_button",
         "import_profile_button",
@@ -1532,6 +1569,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         "total_high",
         "total_mitigasi_terlambat",
         "flow_action_button",
+        "pairing_review_column",
         "notification_button",
         "web_button",
         "excel_button",
@@ -1611,6 +1649,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "<path:object_id>/flow/<str:flow_action>/",
                 self.admin_site.admin_view(self.flow_action_view),
                 name="monthly_report_monthlyriskreport_flow_action",
+            ),
+            path(
+                "<path:object_id>/pairing-review/",
+                self.admin_site.admin_view(self.pairing_review_view),
+                name="monthly_report_monthlyriskreport_pairing_review",
             ),
             path(
                 "<path:object_id>/duplicate-next-month/",
@@ -2111,6 +2154,89 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             revise_url,
         )
 
+    def _current_pairing_review_log(self, obj):
+        """Review pairing untuk siklus approval yang sedang aktif."""
+        if not obj or not obj.pk:
+            return None
+
+        pairing_logs = obj.submission_logs.filter(
+            note__startswith="PAIRING REVIEW - "
+        )
+
+        # Setelah laporan di-approve ulang, pairing review dari siklus
+        # sebelumnya tidak boleh dianggap sebagai review aktif.
+        latest_approve = (
+            obj.submission_logs.filter(action="approve")
+            .order_by("-pk")
+            .first()
+        )
+        if latest_approve is not None:
+            pairing_logs = pairing_logs.filter(pk__gt=latest_approve.pk)
+
+        return pairing_logs.select_related("action_by").order_by("-pk").first()
+
+    def _pairing_review_state(self, obj):
+        log = self._current_pairing_review_log(obj)
+
+        if log is not None:
+            note = (log.note or "").strip()
+            if note.startswith("PAIRING REVIEW - SESUAI"):
+                return "reviewed", log
+            if note.startswith("PAIRING REVIEW - PERLU PERBAIKAN"):
+                return "revision_required", log
+
+        if obj and obj.status == "approved":
+            return "pending", None
+
+        return "not_applicable", log
+
+    @admin.display(description="Review Pairing")
+    def pairing_review_column(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        state, log = self._pairing_review_state(obj)
+
+        if state == "not_applicable":
+            return "-"
+
+        url = reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_pairing_review",
+            args=[obj.pk],
+        )
+
+        if state == "pending":
+            return format_html(
+                '<div style="white-space:nowrap">'
+                '<span style="display:inline-block;padding:4px 8px;'
+                'border-radius:12px;background:#fff7ed;color:#9a3412;'
+                'font-weight:600;margin-right:6px">Menunggu Review</span>'
+                '<a class="button" href="{}">Review &amp; Komentar</a>'
+                '</div>',
+                url,
+            )
+
+        if state == "reviewed":
+            return format_html(
+                '<div style="white-space:nowrap">'
+                '<span style="display:inline-block;padding:4px 8px;'
+                'border-radius:12px;background:#ecfdf5;color:#166534;'
+                'font-weight:600;margin-right:6px">Reviewed</span>'
+                '<a class="button" href="{}">Lihat Review</a>'
+                '</div>',
+                url,
+            )
+
+        return format_html(
+            '<div style="white-space:nowrap">'
+            '<span style="display:inline-block;padding:4px 8px;'
+            'border-radius:12px;background:#fef2f2;color:#991b1b;'
+            'font-weight:600;margin-right:6px">Perlu Perbaikan</span>'
+            '<a class="button" href="{}">Lihat Komentar</a>'
+            '</div>',
+            url,
+        )
+
     @admin.display(description="Komentar Koreksi Terakhir")
     def latest_revision_comment(self, obj):
         if not obj or not obj.pk:
@@ -2287,13 +2413,28 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         kpmr_calculation = None
         kpmr_month = report.periode.tanggal_mulai.month if report.periode_id else None
         kpmr_quarter = month_to_quarter(kpmr_month) if kpmr_month else None
+        kpmr_is_quarter_snapshot = (
+            kpmr_month in {3, 6, 9, 12} if kpmr_month else False
+        )
+        kpmr_closing_month_name = {
+            1: "Maret",
+            2: "Juni",
+            3: "September",
+            4: "Desember",
+        }.get(kpmr_quarter)
+
         normalized_status = (report.status or "").strip().lower()
         show_kpmr = bool(
             report.reassessment_id
             and report.reassessment.unit_bisnis_id
             and kpmr_quarter
         )
-        if show_kpmr:
+
+        # KPMR resmi hanya dihitung pada snapshot akhir triwulan:
+        # Maret, Juni, September, dan Desember.
+        # Bulan lain tetap ditampilkan sebagai periode monitoring,
+        # tanpa menghitung skor KPMR sementara.
+        if show_kpmr and kpmr_is_quarter_snapshot:
             kpmr_calculation = calculate_kpmr_for_report(report)
 
         context = {
@@ -2312,7 +2453,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "kpmr_detail_groups": _kpmr_detail_groups(kpmr_calculation),
             "kpmr_month": kpmr_month,
             "kpmr_quarter": kpmr_quarter,
-            "kpmr_is_quarter_snapshot": kpmr_month in {3, 6, 9, 12} if kpmr_month else False,
+            "kpmr_is_quarter_snapshot": kpmr_is_quarter_snapshot,
+            "kpmr_closing_month_name": kpmr_closing_month_name,
             "previous_report": previous_report,
             "next_report": next_report,
             "title": "III.C - Peta Risiko Residual",
@@ -2614,6 +2756,223 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
                 args=[report.pk],
             )
+        )
+
+    def pairing_review_view(self, request, object_id):
+        from django.db import transaction
+        from monthly_report.recipient_services import resolve_pairing_officers
+
+        report = self.get_object(request, object_id)
+        if report is None:
+            raise Http404("Monthly risk report tidak ditemukan.")
+
+        if not self.has_view_permission(request, report):
+            raise PermissionDenied(
+                "Anda tidak memiliki akses untuk melihat laporan ini."
+            )
+
+        pairing_users = resolve_pairing_officers(report)
+        pairing_user_ids = {user.pk for user in pairing_users}
+
+        can_review = bool(
+            request.user.is_superuser
+            or request.user.pk in pairing_user_ids
+        )
+
+        state, current_log = self._pairing_review_state(report)
+
+        if request.method == "POST":
+            if not can_review:
+                raise PermissionDenied(
+                    "Hanya Pairing Officer unit terkait yang dapat melakukan "
+                    "review setelah laporan Approved."
+                )
+
+            decision = (request.POST.get("decision") or "").strip()
+            comment = (request.POST.get("comment") or "").strip()
+
+            if decision not in {"sesuai", "perlu_perbaikan"}:
+                self.message_user(
+                    request,
+                    "Pilih hasil review Pairing.",
+                    level=messages.ERROR,
+                )
+                return redirect(request.path)
+
+            if decision == "perlu_perbaikan" and not comment:
+                self.message_user(
+                    request,
+                    "Komentar wajib diisi jika laporan perlu diperbaiki.",
+                    level=messages.ERROR,
+                )
+                return redirect(request.path)
+
+            if report.status != "approved":
+                self.message_user(
+                    request,
+                    "Review Pairing hanya dapat dilakukan setelah laporan "
+                    "berstatus Approved.",
+                    level=messages.ERROR,
+                )
+                return redirect(request.path)
+
+            if state == "reviewed":
+                self.message_user(
+                    request,
+                    "Laporan pada siklus approval ini sudah selesai direview "
+                    "oleh Pairing.",
+                    level=messages.WARNING,
+                )
+                return redirect(request.path)
+
+            try:
+                with transaction.atomic():
+                    locked_report = (
+                        self.model.objects.select_for_update()
+                        .select_related(
+                            "reassessment",
+                            "reassessment__unit_bisnis",
+                            "periode",
+                        )
+                        .get(pk=report.pk)
+                    )
+
+                    if locked_report.status != "approved":
+                        raise ValidationError(
+                            "Status laporan telah berubah. Review Pairing "
+                            "hanya dapat dilakukan setelah Approved."
+                        )
+
+                    active_pairings = resolve_pairing_officers(locked_report)
+                    active_pairing_ids = {
+                        user.pk for user in active_pairings
+                    }
+
+                    if (
+                        not request.user.is_superuser
+                        and request.user.pk not in active_pairing_ids
+                    ):
+                        raise ValidationError(
+                            "User bukan Pairing Officer aktif untuk unit laporan."
+                        )
+
+                    if decision == "sesuai":
+                        review_comment = (
+                            comment
+                            or "Laporan telah direview dan dinyatakan sesuai."
+                        )
+                        MonthlyRiskReportSubmissionLog.objects.create(
+                            report=locked_report,
+                            action="review",
+                            action_by=request.user,
+                            note=(
+                                "PAIRING REVIEW - SESUAI\n"
+                                f"Komentar: {review_comment}"
+                            ),
+                        )
+                    else:
+                        locked_report.status = "revision"
+                        locked_report.approved_at = None
+                        locked_report.is_locked = False
+                        locked_report.save(
+                            update_fields=[
+                                "status",
+                                "approved_at",
+                                "is_locked",
+                                "updated_at",
+                            ]
+                        )
+
+                        MonthlyRiskReportSubmissionLog.objects.create(
+                            report=locked_report,
+                            action="revise",
+                            action_by=request.user,
+                            note=(
+                                "PAIRING REVIEW - PERLU PERBAIKAN\n"
+                                f"Komentar: {comment}"
+                            ),
+                        )
+
+                    report = locked_report
+
+            except ValidationError as exc:
+                message = (
+                    "; ".join(exc.messages)
+                    if hasattr(exc, "messages")
+                    else str(exc)
+                )
+                self.message_user(
+                    request,
+                    message,
+                    level=messages.ERROR,
+                )
+                return redirect(request.path)
+
+            if decision == "perlu_perbaikan":
+                # Gunakan routing notifikasi revision existing agar drafter
+                # menerima komentar Pairing yang harus diperbaiki.
+                self._send_next_notification(
+                    request,
+                    report,
+                    correction_note=comment,
+                    approved_transition=False,
+                )
+
+                self.message_user(
+                    request,
+                    "Review Pairing disimpan. Laporan dikembalikan ke "
+                    "Drafter dengan status Revision.",
+                    level=messages.WARNING,
+                )
+            else:
+                self.message_user(
+                    request,
+                    "Review Pairing selesai. Laporan dinyatakan sesuai dan "
+                    "tetap berstatus Approved.",
+                    level=messages.SUCCESS,
+                )
+
+            return HttpResponseRedirect(
+                reverse(
+                    f"{self.admin_site.name}:"
+                    "monthly_report_monthlyriskreport_pairing_review",
+                    args=[report.pk],
+                )
+            )
+
+        pairing_history = (
+            report.submission_logs.filter(
+                note__startswith="PAIRING REVIEW - "
+            )
+            .select_related("action_by")
+            .order_by("-pk")
+        )
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Review Pairing Laporan Risiko",
+            "opts": self.model._meta,
+            "report": report,
+            "pairing_users": pairing_users,
+            "pairing_history": pairing_history,
+            "pairing_review_state": state,
+            "current_review": current_log,
+            "can_review": can_review,
+            "can_submit_review": (
+                can_review
+                and report.status == "approved"
+                and state != "reviewed"
+            ),
+            "cancel_url": reverse(
+                f"{self.admin_site.name}:"
+                "monthly_report_monthlyriskreport_changelist"
+            ),
+        }
+
+        return TemplateResponse(
+            request,
+            "admin/monthly_report/monthlyriskreport/pairing_review.html",
+            context,
         )
 
     def send_notification_view(self, request, object_id):

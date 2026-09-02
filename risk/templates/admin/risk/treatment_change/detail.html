@@ -1,0 +1,213 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+
+<style>
+.change-card {
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  background: #fff;
+}
+.compare-table {
+  width:100%;
+  border-collapse:collapse;
+}
+.compare-table th,
+.compare-table td {
+  padding:10px;
+  border-bottom:1px solid #ddd;
+  vertical-align:top;
+}
+.compare-value {
+  white-space:pre-wrap;
+}
+.workflow-actions {
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+}
+.workflow-actions form {
+  margin:0;
+}
+.review-note {
+  width:100%;
+  min-height:75px;
+}
+</style>
+
+<h1>Detail Usulan Perubahan Rencana Perlakuan Risiko</h1>
+
+<div class="change-card">
+  <strong>{{ item.summary }}</strong><br>
+  Item {{ item.no_item }} · Risiko {{ item.no_risiko }}<br><br>
+
+  Versi:
+  <strong>{{ change.version }}</strong><br>
+
+  Status:
+  <strong>{{ change.get_status_display }}</strong><br>
+
+  Dibuat oleh:
+  {{ change.created_by }}<br>
+
+  Dibuat:
+  {{ change.created_at }}
+</div>
+
+<div class="change-card">
+  <h2>Perbandingan Before — After</h2>
+
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>Field</th>
+        <th>Sebelum</th>
+        <th>Usulan</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      {% for row in comparison %}
+      <tr>
+        <td><strong>{{ row.field }}</strong></td>
+        <td class="compare-value">
+          {{ row.before }}
+        </td>
+        <td class="compare-value">
+          {{ row.after }}
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="3">
+          Tidak ada perubahan.
+        </td>
+      </tr>
+      {% endfor %}
+
+    </tbody>
+  </table>
+</div>
+
+<div class="change-card">
+  <h2>Justifikasi</h2>
+
+  <p>
+    <strong>Alasan Perubahan</strong><br>
+    {{ change.alasan_perubahan|linebreaksbr }}
+  </p>
+
+  <p>
+    <strong>Dampak Perubahan</strong><br>
+    {{ change.dampak_perubahan|default:"-"|linebreaksbr }}
+  </p>
+</div>
+
+<div class="change-card">
+  <h2>Workflow</h2>
+
+  <div class="workflow-actions">
+
+    {% if can_submit %}
+    <form
+      method="post"
+      action="../submit/"
+    >
+      {% csrf_token %}
+      <button type="submit" class="default">
+        Ajukan
+      </button>
+    </form>
+    {% endif %}
+
+    {% if can_review %}
+    <form
+      method="post"
+      action="../review/"
+    >
+      {% csrf_token %}
+      <button type="submit" class="default">
+        Mulai Review
+      </button>
+    </form>
+    {% endif %}
+
+  </div>
+
+  {% if can_decide_review or can_approve %}
+  <hr>
+
+  <textarea
+    id="reviewer_note"
+    class="review-note"
+    placeholder="Catatan reviewer / approver"
+  ></textarea>
+
+  <div class="workflow-actions">
+
+    {% if can_decide_review %}
+    <form
+      method="post"
+      action="../revision/"
+      onsubmit="
+        this.reviewer_note.value =
+        document.getElementById('reviewer_note').value;
+      "
+    >
+      {% csrf_token %}
+      <input
+        type="hidden"
+        name="reviewer_note"
+      >
+      <button type="submit">
+        Kembalikan untuk Revisi
+      </button>
+    </form>
+
+    <form
+      method="post"
+      action="../reject/"
+      onsubmit="
+        this.reviewer_note.value =
+        document.getElementById('reviewer_note').value;
+      "
+    >
+      {% csrf_token %}
+      <input
+        type="hidden"
+        name="reviewer_note"
+      >
+      <button type="submit">
+        Tolak
+      </button>
+    </form>
+    {% endif %}
+
+    {% if can_approve %}
+    <form
+      method="post"
+      action="../approve/"
+      onsubmit="
+        this.reviewer_note.value =
+        document.getElementById('reviewer_note').value;
+      "
+    >
+      {% csrf_token %}
+      <input
+        type="hidden"
+        name="reviewer_note"
+      >
+      <button type="submit" class="default">
+        Setujui & Terapkan
+      </button>
+    </form>
+    {% endif %}
+
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

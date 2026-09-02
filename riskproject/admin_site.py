@@ -107,6 +107,7 @@ class RiskAdminSite(AdminSite):
             # 3. Profil Risiko Bidang / Unit Bisnis
             "/admin/risk/reassessmentsummary/",
             "/admin/risk/reassessmentitem/",
+            "/admin/risk/risktreatmentchangerequest/",
             "/admin/risk/profilecompletenessmonitor/",
             "/admin/risk/profilecompletenessassessment/",
             "/admin/risk/profilecompletenessnotificationlog/",
@@ -338,6 +339,7 @@ class RiskAdminSite(AdminSite):
                             item("Profil Risiko Unit/Bidang", "/admin/risk/reassessmentsummary/"),
                             item("Monitoring Kelengkapan", "/admin/risk/profilecompletenessmonitor/"),
                             item("Item Risiko Unit/Bidang", "/admin/risk/reassessmentitem/"),
+                            item("Perubahan Rencana Perlakuan", "/admin/risk/risktreatmentchangerequest/"),
                         ],
                     },
                     {
@@ -636,6 +638,7 @@ class RiskAdminSite(AdminSite):
                     {"label": "Profil Risiko Unit/Bidang", "url": "/admin/risk/reassessmentsummary/"},
                     {"label": "Monitoring Kelengkapan", "url": "/admin/risk/profilecompletenessmonitor/"},
                     {"label": "Item Risiko Unit/Bidang", "url": "/admin/risk/reassessmentitem/"},
+                    {"label": "Perubahan Rencana Perlakuan", "url": "/admin/risk/risktreatmentchangerequest/"},
                 ],
             }, 
             {
