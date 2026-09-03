@@ -958,10 +958,10 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
                 judul__iregex=self._REVISION_SUFFIX_REGEX
             )
 
-            # KM historical SETPER tetap berada di database karena masih
-            # menjadi audit trail MRR, tetapi tidak tersedia pada admin normal,
-            # termasuk jika URL change dibuka secara langsung.
-            qs = qs.exclude(pk=15)
+            # KM historis tetap berada di database untuk menjaga audit trail
+            # MRR, tetapi tidak tersedia pada admin operasional normal.
+            # PK4 = VPKEU historis, PK15 = SETPER historis.
+            qs = qs.exclude(pk__in=(4, 15))
 
         return qs
 
