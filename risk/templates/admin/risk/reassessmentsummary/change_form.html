@@ -1,0 +1,113 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block after_field_sets %}
+{{ block.super }}
+
+{% if original and has_change_permission %}
+<div
+  style="
+    margin: 12px 0 18px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 6px;
+    background: var(--darkened-bg, #f8f8f8);
+  "
+>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <button
+      type="button"
+      class="button"
+      id="save-rkm-only-button"
+      data-url="{% url 'admin:risk_reassessmentsummary_save_rkm_only' original.pk %}"
+    >
+      Simpan RKM Saja
+    </button>
+
+    <span>
+      Menyimpan pilihan <strong>RKM</strong> tanpa menyimpan ulang seluruh
+      Item Risiko.
+    </span>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const button = document.getElementById("save-rkm-only-button");
+
+  if (!button) {
+    return;
+  }
+
+  button.addEventListener("click", function () {
+    const rkmField = document.getElementById("id_rkm");
+    const csrfField = document.querySelector(
+      '#reassessmentsummary_form input[name="csrfmiddlewaretoken"]'
+    );
+
+    if (!rkmField || !rkmField.value) {
+      window.alert("Pilih RKM terlebih dahulu.");
+      return;
+    }
+
+    if (!csrfField || !csrfField.value) {
+      window.alert("Token keamanan tidak ditemukan. Muat ulang halaman.");
+      return;
+    }
+
+    const selectedText =
+      rkmField.options &&
+      rkmField.selectedIndex >= 0
+        ? rkmField.options[rkmField.selectedIndex].text
+        : rkmField.value;
+
+    if (
+      !window.confirm(
+        "Simpan RKM ini saja?\n\n" +
+        selectedText +
+        "\n\nItem Risiko tidak akan disimpan ulang."
+      )
+    ) {
+      return;
+    }
+
+    /*
+     * Buat form POST baru di luar reassessmentsummary_form.
+     * Hanya dua parameter yang dikirim:
+     *   - csrfmiddlewaretoken
+     *   - rkm_id
+     *
+     * Dengan demikian ribuan field inline Profil Risiko tidak ikut POST.
+     */
+    const quickForm = document.createElement("form");
+
+    quickForm.method = "post";
+    quickForm.action = button.dataset.url;
+    quickForm.style.display = "none";
+
+    const csrfInput = document.createElement("input");
+    csrfInput.type = "hidden";
+    csrfInput.name = "csrfmiddlewaretoken";
+    csrfInput.value = csrfField.value;
+
+    const rkmInput = document.createElement("input");
+    rkmInput.type = "hidden";
+    rkmInput.name = "rkm_id";
+    rkmInput.value = rkmField.value;
+
+    quickForm.appendChild(csrfInput);
+    quickForm.appendChild(rkmInput);
+
+    document.body.appendChild(quickForm);
+
+    button.disabled = true;
+    button.textContent = "Menyimpan RKM...";
+
+    quickForm.submit();
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}
