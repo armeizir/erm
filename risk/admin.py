@@ -829,6 +829,24 @@ class BagianKontrakInline(admin.TabularInline):
         return formset
 
 
+def _filter_operational_km_queryset(qs, request):
+    """
+    Pada pembuatan record baru hanya KM berstatus Final yang dapat dipilih.
+
+    Change-view tetap mempertahankan seluruh pilihan yang sebelumnya valid
+    agar data historis tidak kehilangan referensi.
+    """
+    resolver = getattr(request, "resolver_match", None)
+    url_name = getattr(resolver, "url_name", "") if resolver else ""
+
+    is_change_view = bool(url_name and url_name.endswith("_change"))
+
+    if not is_change_view:
+        qs = qs.filter(status="Final")
+
+    return qs
+
+
 @admin.register(KontrakManajemen)
 class KontrakManajemenAdmin(admin.ModelAdmin):
     list_display = (
@@ -923,13 +941,28 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if not request.user.is_superuser:
-            qs = qs.filter(unit_bisnis__in=assigned_unit_businesses_for_user(request.user))
 
-        # Default: sembunyikan snapshot/revision periode dari list utama.
-        # ?all=1 adalah mode audit/riwayat dan tetap menampilkan seluruh revision.
-        if request.GET.get("all") != "1":
-            qs = qs.exclude(judul__iregex=self._REVISION_SUFFIX_REGEX)
+        if not request.user.is_superuser:
+            qs = qs.filter(
+                unit_bisnis__in=assigned_unit_businesses_for_user(
+                    request.user
+                )
+            )
+
+        # Mode audit eksplisit tetap dapat menampilkan seluruh data.
+        audit_mode = request.GET.get("all") == "1"
+
+        if not audit_mode:
+            # Sembunyikan snapshot/revision periode.
+            qs = qs.exclude(
+                judul__iregex=self._REVISION_SUFFIX_REGEX
+            )
+
+            # KM historical SETPER tetap berada di database karena masih
+            # menjadi audit trail MRR, tetapi tidak tersedia pada admin normal,
+            # termasuk jika URL change dibuka secara langsung.
+            qs = qs.exclude(pk=15)
+
         return qs
 
     def has_module_permission(self, request):
@@ -2290,22 +2323,11 @@ class RKMSummaryAdmin(admin.ModelAdmin):
                     )
                 )
 
-            # Berlaku hanya untuk pembuatan RKM baru.
-            # Jangan mengubah pilihan pada RKM historical yang sedang diedit.
+            # RKM baru hanya boleh memakai KM yang sudah Final.
+            # Saat mengedit RKM historical, pilihan lama tetap dipertahankan
+            # agar audit trail tidak rusak.
             if not is_change_view:
-                official_setper_exists = KontrakManajemen.objects.filter(
-                    unit_bisnis_id=11,
-                    tahun=2026,
-                    judul="SETPER RESMI 2026",
-                    status="Final",
-                ).exists()
-
-                if official_setper_exists:
-                    qs = qs.exclude(
-                        unit_bisnis_id=11,
-                        tahun=2026,
-                        judul="SETPER",
-                    )
+                qs = qs.filter(status="Final")
 
             kwargs["queryset"] = qs
 
@@ -3909,8 +3931,14 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
             if db_field.name == "unit_bisnis":
                 kwargs["queryset"] = assigned_unit_businesses_for_user(request.user)
             elif db_field.name == "kontrak_manajemen":
-                kwargs["queryset"] = KontrakManajemen.objects.filter(
-                    unit_bisnis__in=assigned_unit_businesses_for_user(request.user)
+                qs = KontrakManajemen.objects.filter(
+                    unit_bisnis__in=assigned_unit_businesses_for_user(
+                        request.user
+                    )
+                )
+                kwargs["queryset"] = _filter_operational_km_queryset(
+                    qs,
+                    request,
                 )
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -4729,7 +4757,13 @@ class RiskManagementReviewAdmin(admin.ModelAdmin):
             if db_field.name == "unit_bisnis":
                 kwargs["queryset"] = units
             elif db_field.name == "kontrak_manajemen":
-                kwargs["queryset"] = KontrakManajemen.objects.filter(unit_bisnis__in=units)
+                qs = KontrakManajemen.objects.filter(
+                    unit_bisnis__in=units
+                )
+                kwargs["queryset"] = _filter_operational_km_queryset(
+                    qs,
+                    request,
+                )
             elif db_field.name == "rkm":
                 kwargs["queryset"] = RKMSummary.objects.filter(unit_bisnis__in=units)
             elif db_field.name == "profil_risiko":
