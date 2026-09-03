@@ -30,6 +30,7 @@ class Finding:
     message: str
     item_id: int | None = None
     item_label: str = ""
+    field_name: str = ""
 
 
 @dataclass
@@ -162,19 +163,34 @@ def check_profile_completeness(profile):
     findings = []
     required_count = completed_count = 0
 
-    def add(section, severity, message, item=None):
+    def add(section, severity, message, item=None, field_name=""):
         label = ""
         if item:
             label = f"Item {item.no_item or '-'} – {(item.peristiwa_risiko or 'Tanpa peristiwa').strip()}"
-        findings.append(Finding(section, severity, message, getattr(item, "pk", None), label))
+        findings.append(
+            Finding(
+                section=section,
+                severity=severity,
+                message=message,
+                item_id=getattr(item, "pk", None),
+                item_label=label,
+                field_name=field_name,
+            )
+        )
 
-    def require(value, section, message, item=None):
+    def require(value, section, message, item=None, field_name=""):
         nonlocal required_count, completed_count
         required_count += 1
         if _is_filled(value):
             completed_count += 1
             return True
-        add(section, "error", message, item)
+        add(
+            section,
+            "error",
+            message,
+            item,
+            field_name=field_name,
+        )
         return False
 
     require(profile.judul, "Data Profil", "Judul Profil Risiko belum diisi.")
@@ -243,7 +259,13 @@ def check_profile_completeness(profile):
             for attribute, label in required:
                 if qualitative and attribute.startswith(("nilai_dampak_", "nilai_probabilitas_")):
                     continue
-                require(getattr(item, attribute, None), "Risiko Residual", f"{label} Q{quarter} belum tersedia.", item)
+                require(
+                    getattr(item, attribute, None),
+                    "Risiko Residual",
+                    f"{label} Q{quarter} belum tersedia.",
+                    item,
+                    field_name=attribute,
+                )
         signature = (event.casefold(), item.taksonomi_t3_id, item.sasaran_kbumn_id, item.kategori_risiko_id)
         likely_duplicates.setdefault(signature, []).append(item)
 
