@@ -114,7 +114,19 @@ def _is_filled(value):
 
 
 def is_qualitative_risk(item):
-    value = str(getattr(item, "kategori_dampak", "") or "").casefold()
+    """
+    Tentukan risiko kualitatif dari field jenis_risiko.
+
+    kategori_dampak hanya digunakan sebagai fallback untuk
+    data legacy yang belum memiliki jenis_risiko.
+    """
+    value = str(getattr(item, "jenis_risiko", "") or "").strip().casefold()
+    normalized = re.sub(r"[^a-z]", "", value)
+
+    if normalized:
+        return normalized in {"kualitatif", "kualilatif"}
+
+    value = str(getattr(item, "kategori_dampak", "") or "").strip().casefold()
     normalized = re.sub(r"[^a-z]", "", value)
     return "kualitatif" in normalized or "kualilatif" in normalized
 
