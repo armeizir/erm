@@ -3686,6 +3686,10 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
 
     inlines = [ReAssessmentItemInline]
 
+    # Tombol khusus untuk menyimpan relasi RKM tanpa men-submit ulang
+    # seluruh inline ReAssessmentItem pada Profil Risiko.
+    change_form_template = "admin/risk/reassessmentsummary/change_form.html"
+
     @admin.action(description="Periksa Kelengkapan Profil")
     def check_profile_completeness_action(self, request, queryset):
         incomplete = errors = warnings = 0
@@ -3823,6 +3827,11 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
+                "<int:summary_id>/save-rkm-only/",
+                self.admin_site.admin_view(self.save_rkm_only_view),
+                name="risk_reassessmentsummary_save_rkm_only",
+            ),
+            path(
                 "<int:summary_id>/completeness/",
                 self.admin_site.admin_view(self.completeness_detail_view),
                 name="risk_reassessmentsummary_completeness",
@@ -3839,6 +3848,103 @@ class ReAssessmentSummaryAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    def save_rkm_only_view(self, request, summary_id):
+        """Simpan hanya FK RKM pada Profil Risiko.
+
+        Endpoint ini sengaja tidak memproses inline ReAssessmentItem sehingga
+        penggantian RKM tidak perlu men-submit ulang ribuan field Profil Risiko.
+        """
+        from django.http import HttpResponseRedirect
+
+        profile = get_object_or_404(
+            self.get_queryset(request).select_related(
+                "unit_bisnis",
+                "kontrak_manajemen",
+            ),
+            pk=summary_id,
+        )
+
+        change_url = reverse(
+            f"{self.admin_site.name}:risk_reassessmentsummary_change",
+            args=[profile.pk],
+        )
+
+        if not self.has_change_permission(request, profile):
+            raise PermissionDenied
+
+        if request.method != "POST":
+            self.message_user(
+                request,
+                "Gunakan tombol 'Simpan RKM Saja' pada halaman Profil Risiko.",
+                messages.WARNING,
+            )
+            return HttpResponseRedirect(change_url)
+
+        raw_rkm_id = (request.POST.get("rkm_id") or "").strip()
+
+        if not raw_rkm_id.isdigit():
+            self.message_user(
+                request,
+                "RKM belum dipilih. Pilih RKM terlebih dahulu.",
+                messages.ERROR,
+            )
+            return HttpResponseRedirect(change_url)
+
+        rkm = get_object_or_404(
+            RKMSummary.objects.select_related(
+                "unit_bisnis",
+                "kontrak_manajemen",
+            ),
+            pk=int(raw_rkm_id),
+        )
+
+        # RKM boleh menggunakan KM teknis yang berbeda dari KM Profil.
+        # Guardrail relasi yang wajib adalah Unit Bisnis dan Tahun.
+        if rkm.unit_bisnis_id != profile.unit_bisnis_id:
+            self.message_user(
+                request,
+                (
+                    "RKM tidak dapat dipasang karena Unit/Bidang RKM "
+                    f"({rkm.unit_bisnis}) berbeda dengan Profil Risiko "
+                    f"({profile.unit_bisnis})."
+                ),
+                messages.ERROR,
+            )
+            return HttpResponseRedirect(change_url)
+
+        if rkm.tahun != profile.tahun:
+            self.message_user(
+                request,
+                (
+                    "RKM tidak dapat dipasang karena Tahun RKM "
+                    f"({rkm.tahun}) berbeda dengan Tahun Profil Risiko "
+                    f"({profile.tahun})."
+                ),
+                messages.ERROR,
+            )
+            return HttpResponseRedirect(change_url)
+
+        old_rkm_id = profile.rkm_id
+
+        profile.rkm = rkm
+
+        # Django save() tidak menjalankan full_clean() otomatis.
+        # Hanya kolom rkm_id yang ditulis;  ReAssessmentItem tidak disentuh.
+        profile.save(update_fields=["rkm"])
+
+        self.message_user(
+            request,
+            (
+                f"RKM berhasil disimpan: {rkm}. "
+                f"Profil Risiko #{profile.pk}; "
+                f"RKM sebelumnya={old_rkm_id or '-'}, RKM sekarang={rkm.pk}. "
+                "Item Risiko tidak diubah."
+            ),
+            messages.SUCCESS,
+        )
+
+        return HttpResponseRedirect(change_url)
 
     def _completeness(self, obj):
         return check_profile_completeness(obj)
