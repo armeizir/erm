@@ -851,7 +851,6 @@ def _filter_operational_km_queryset(qs, request):
 class KontrakManajemenAdmin(admin.ModelAdmin):
     list_display = (
         "judul",
-        "riwayat_versi",
         "tahun",
         "tanggal_kontrak",
         "template",
