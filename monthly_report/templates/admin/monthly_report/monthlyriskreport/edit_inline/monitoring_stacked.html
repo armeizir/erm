@@ -32,7 +32,30 @@
               Status KRI: {{ inline_admin_form.form.kri_status_display }}
             </span>
             <span class="completion-badge {% if inline_admin_form.form.completion_status == 'Lengkap' %}is-complete{% elif inline_admin_form.form.completion_status == 'Perlu Diperiksa' %}needs-check{% else %}is-incomplete{% endif %}">{{ inline_admin_form.form.completion_status }}</span>
-            {% if inline_admin_form.form.missing_fields_display %}<span class="risk-summary-missing">Belum diisi: {{ inline_admin_form.form.missing_fields_display }}</span>{% endif %}
+            {% with missing_items=inline_admin_form.form.missing_fields_guidance %}
+              {% if missing_items %}
+                <span class="risk-summary-missing">
+                  <strong>Data belum lengkap:</strong>
+                  {% for missing in missing_items %}
+                    {% if missing.action %}
+                      <a class="monitoring-fill-link"
+                         href="#"
+                         data-field="{{ missing.name }}"
+                         title="Buka field {{ missing.label }}">
+                        {{ missing.label }} — {{ missing.action }} →
+                      </a>
+                    {% elif missing.derived %}
+                      <span class="monitoring-derived-field">
+                        {{ missing.label }} <em>(otomatis)</em>
+                      </span>
+                    {% else %}
+                      <span>{{ missing.label }}</span>
+                    {% endif %}
+                    {% if not forloop.last %} · {% endif %}
+                  {% endfor %}
+                </span>
+              {% endif %}
+            {% endwith %}
           </summary>
 
           <div class="monitoring-risk-body">
@@ -40,7 +63,13 @@
             {% if inline_admin_form.form.non_field_errors %}{{ inline_admin_form.form.non_field_errors }}{% endif %}
             {% with parent_counter=forloop.counter0 %}
               {% for fieldset in inline_admin_form %}
-                {% include "admin/includes/fieldset.html" with heading_level=4 prefix=fieldset.formset.prefix id_prefix=parent_counter id_suffix=forloop.counter0 %}
+                {% if not inline_admin_form.form.kri_is_owner and fieldset.name == "REFERENSI KONFIGURASI KRI (klik untuk membuka)" %}
+                  {# KRI ditampilkan satu kali per Risiko / No. Item. #}
+                {% elif not inline_admin_form.form.kri_is_owner and fieldset.name == "REALISASI KEY RISK INDICATOR BULAN INI" %}
+                  {# Realisasi KRI diisi pada KRI utama risiko ini. #}
+                {% else %}
+                  {% include "admin/includes/fieldset.html" with heading_level=4 prefix=fieldset.formset.prefix id_prefix=parent_counter id_suffix=forloop.counter0 %}
+                {% endif %}
               {% endfor %}
             {% endwith %}
 
@@ -59,3 +88,160 @@
     {% endfor %}
   </fieldset>
 </div>
+
+<script>
+(function () {
+  function findMonitoringTarget(details, fieldName) {
+    if (!details || !fieldName) {
+      return null;
+    }
+
+    /*
+     * 1. Cari input berdasarkan atribut name.
+     *    Ini paling stabil untuk Django formset:
+     *    items-0-realisasi_skala_dampak, dst.
+     */
+    let target = details.querySelector(
+      '[name$="-' + fieldName + '"]'
+    );
+
+    if (target) {
+      return target;
+    }
+
+    /*
+     * 2. Fallback ke pola id Django.
+     */
+    target = details.querySelector(
+      '[id$="-' + fieldName + '"]'
+    );
+
+    if (target) {
+      return target;
+    }
+
+    /*
+     * 3. Django admin biasanya memberi class:
+     *    .field-realisasi_skala_dampak
+     */
+    target = details.querySelector(
+      '.field-' + fieldName
+    );
+
+    if (target) {
+      return target;
+    }
+
+    /*
+     * 4. Fallback jika field berada di form-row.
+     */
+    return details.querySelector(
+      '.form-row.field-' + fieldName
+    );
+  }
+
+  document.addEventListener("click", function (event) {
+    const link = event.target.closest(
+      "a.monitoring-fill-link"
+    );
+
+    if (!link) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const fieldName = link.dataset.field;
+    const details = link.closest(
+      "details.monitoring-risk-details"
+    );
+
+    if (!details || !fieldName) {
+      return;
+    }
+
+    /*
+     * Pastikan kartu Risiko terbuka.
+     */
+    details.open = true;
+
+    requestAnimationFrame(function () {
+      const target = findMonitoringTarget(
+        details,
+        fieldName
+      );
+
+      if (!target) {
+        console.warn(
+          "Field monitoring tidak ditemukan:",
+          fieldName,
+          details
+        );
+        return;
+      }
+
+      /*
+       * Scroll ke container field agar label + input terlihat.
+       */
+      const row =
+        target.closest(".form-row") ||
+        target.closest(".fieldBox") ||
+        target.closest("fieldset") ||
+        target;
+
+      row.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+
+      /*
+       * Beri tanda visual sementara.
+       */
+      row.classList.add(
+        "monitoring-field-highlight"
+      );
+
+      window.setTimeout(function () {
+        row.classList.remove(
+          "monitoring-field-highlight"
+        );
+      }, 2200);
+
+      /*
+       * Fokus hanya bila target memang elemen input.
+       */
+      if (
+        target.matches(
+          "input, select, textarea, button"
+        )
+      ) {
+        window.setTimeout(function () {
+          try {
+            target.focus({
+              preventScroll: true
+            });
+          } catch (e) {
+            target.focus();
+          }
+        }, 350);
+      }
+    });
+  });
+})();
+</script>
+
+<style>
+.monitoring-field-highlight {
+  outline: 3px solid rgba(30, 96, 145, .45);
+  outline-offset: 5px;
+  border-radius: 6px;
+  transition: outline .25s ease;
+}
+
+.monitoring-fill-link {
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+</style>
