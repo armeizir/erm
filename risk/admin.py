@@ -918,22 +918,28 @@ class KontrakManajemenAdmin(admin.ModelAdmin):
             tahun=obj.tahun,
             judul__iregex=self._revision_regex_for_base(obj.judul),
         )
-        revision_count = revision_qs.count()
-        if not revision_count:
+
+        # Pada layar operasional cukup tampilkan satu versi sebelumnya
+        # yang paling mutakhir. Revision lebih lama tetap disimpan di DB
+        # sebagai audit trail dan tetap tersedia melalui mode ?all=1.
+        latest_revision = revision_qs.order_by(
+            "-dibuat_pada",
+            "-pk",
+        ).first()
+
+        if not latest_revision:
             return "-"
 
         url = reverse("admin:risk_kontrakmanajemen_changelist")
         query = urlencode({
-            "all": "1",  # parameter admin bawaan; juga dipakai sebagai mode riwayat
-            "tahun__exact": obj.tahun,
-            "unit_bisnis__id__exact": obj.unit_bisnis_id,
-            "q": obj.judul,
+            "all": "1",
+            "id__exact": latest_revision.pk,
         })
+
         return format_html(
-            '<a class="button" href="{}?{}">Riwayat Versi ({})</a>',
+            '<a class="button" href="{}?{}">Riwayat Versi (1)</a>',
             url,
             query,
-            revision_count,
         )
 
     def _has_km_permission(self, request, action):
