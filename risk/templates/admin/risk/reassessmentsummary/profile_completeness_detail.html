@@ -17,7 +17,25 @@
   <h2>{{ section }}</h2>
   <ul>
     {% for finding in findings %}
-      <li>{% if finding.item_label %}<strong>{{ finding.item_label }}</strong> — {% endif %}{{ finding.message }}</li>
+      <li style="margin-bottom:8px;">
+        {% if finding.item_label %}
+          <strong>{{ finding.item_label }}</strong> —
+        {% endif %}
+        {{ finding.message }}
+
+        {% if finding.item_id %}
+          {% url 'risk_admin:risk_reassessmentitem_change' finding.item_id as item_change_url %}
+          {% if item_change_url %}
+            <a
+              class="button"
+              style="margin-left:8px; padding:3px 9px;"
+              href="{{ item_change_url }}{% if finding.field_name %}#id_{{ finding.field_name }}{% endif %}"
+            >
+              Update Data
+            </a>
+          {% endif %}
+        {% endif %}
+      </li>
     {% endfor %}
   </ul>
 </div>
