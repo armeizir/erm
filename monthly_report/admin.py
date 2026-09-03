@@ -911,7 +911,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             ("realisasi_skala_probabilitas", "skala probabilitas"),
             ("realisasi_eksposur", "nilai eksposur"),
             ("realisasi_skor_risiko", "skala nilai risiko"),
-            ("realisasi_level_risiko_bumn", "level risiko BUMN belum tersedia pada Kertas Kerja III.A"),
+            ("realisasi_level_risiko_bumn", "level risiko BUMN"),
             ("status_rencana_perlakuan", "status mitigasi"),
             ("progress_pelaksanaan_percent", "progres mitigasi"),
         ]
@@ -932,6 +932,63 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             missing.append("realisasi KRI")
 
         return ", ".join(missing)
+
+    @property
+    def missing_fields_guidance(self):
+        """
+        Petunjuk langsung untuk data monitoring yang belum lengkap.
+
+        Field input user mendapat anchor menuju field terkait pada inline
+        yang sama. Field hasil kalkulasi ditandai sebagai otomatis.
+        """
+        input_fields = {
+            "realisasi_skala_dampak": "Isi Data",
+            "realisasi_skala_probabilitas": "Isi Data",
+            "status_rencana_perlakuan": "Isi Data",
+            "progress_pelaksanaan_percent": "Isi Data",
+        }
+
+        derived_fields = {
+            "realisasi_eksposur",
+            "realisasi_skor_risiko",
+            "realisasi_level_risiko_bumn",
+        }
+
+        result = []
+
+        for name, label in self.required_monitoring_fields:
+            if self._value(name) not in (None, ""):
+                continue
+
+            action = input_fields.get(name, "")
+            result.append({
+                "name": name,
+                "label": label,
+                "href": (
+                    f"#id_{self.add_prefix(name)}"
+                    if action
+                    else ""
+                ),
+                "action": action,
+                "derived": name in derived_fields,
+            })
+
+        if (
+            self.risk
+            and (self.risk.key_risk_indicators or "").strip()
+            and not self._has_kri_realisasi()
+        ):
+            result.append({
+                "name": "realisasi_kri",
+                "label": "realisasi KRI",
+                "href": (
+                    f"#id_{self.add_prefix('realisasi_threshold_kri')}"
+                ),
+                "action": "Isi Data",
+                "derived": False,
+            })
+
+        return result
 
     @property
     def kri_status_display(self):
