@@ -918,6 +918,47 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         return fields
 
     @property
+    def kri_missing_label(self):
+        """
+        Nama field realisasi KRI yang belum diisi pada periode laporan aktif.
+        """
+        period_label = ""
+
+        if (
+            self.instance
+            and self.instance.report_id
+            and self.instance.report.periode_id
+        ):
+            period = self.instance.report.periode
+
+            # Gunakan nama periode yang sudah digunakan aplikasi,
+            # misalnya "Aug 2026".
+            period_name = (
+                getattr(period, "nama_periode", None)
+                or str(period)
+            )
+            if period_name:
+                period_label = f" {period_name}"
+
+        direction = ""
+        if self.risk:
+            direction = (
+                getattr(
+                    self.risk,
+                    "kri_threshold_direction",
+                    "",
+                )
+                or ""
+            ).strip()
+
+        # KRI dengan direction memakai evaluator threshold numerik.
+        if direction in {"higher_better", "lower_better"}:
+            return f"Nilai Realisasi KRI{period_label}"
+
+        # KRI legacy / teks / komposit menggunakan label netral.
+        return f"Realisasi KRI{period_label}"
+
+    @property
     def missing_fields_display(self):
         missing = [
             label for name, label in self.required_monitoring_fields
@@ -929,7 +970,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             and (self.risk.key_risk_indicators or "").strip()
             and not self._has_kri_realisasi()
         ):
-            missing.append("realisasi KRI")
+            missing.append(self.kri_missing_label)
 
         return ", ".join(missing)
 
