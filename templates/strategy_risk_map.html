@@ -292,7 +292,169 @@
       .cards { grid-template-columns:1fr; }
       .table-row { grid-template-columns:1fr; }
     }
-  </style>
+
+  /* OFFICIAL_RISK_RELATIONSHIP_MATRIX_V1 */
+  .official-matrix-wrap {
+    overflow-x: auto;
+    margin-top: 18px;
+    border: 1px solid #d9e2ec;
+    border-radius: 14px;
+    background: #fff;
+  }
+
+  .official-risk-table {
+    width: 100%;
+    min-width: 920px;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .official-risk-table th {
+    padding: 14px 16px;
+    background: #0f2740;
+    color: #fff;
+    border-right: 1px solid rgba(255,255,255,.12);
+    text-align: left;
+    font-size: 12px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+
+  .official-risk-table th:first-child {
+    width: 62px;
+    text-align: center;
+  }
+
+  .official-risk-table th:nth-child(2) {
+    width: 40%;
+  }
+
+  .official-risk-table th:nth-child(3) {
+    width: 18%;
+  }
+
+  .official-risk-table th:nth-child(4) {
+    width: 34%;
+  }
+
+  .official-risk-table td {
+    padding: 16px;
+    border-right: 1px solid #e6edf3;
+    border-bottom: 1px solid #e6edf3;
+    vertical-align: top;
+  }
+
+  .official-risk-table tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .official-risk-table td:last-child,
+  .official-risk-table th:last-child {
+    border-right: 0;
+  }
+
+  .official-risk-no {
+    text-align: center;
+    font-size: 17px;
+    font-weight: 800;
+    color: #17324d;
+  }
+
+  .official-risk-event {
+    font-weight: 700;
+    line-height: 1.45;
+    color: #162b3e;
+  }
+
+  .official-risk-meta {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #728197;
+  }
+
+  .official-leader {
+    display: inline-block;
+    padding: 6px 9px;
+    border-radius: 8px;
+    background: #eef4f9;
+    font-weight: 800;
+    color: #17324d;
+  }
+
+  .official-support-line {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px dashed #dce4eb;
+  }
+
+  .official-support-line:first-child {
+    padding-top: 0;
+  }
+
+  .official-support-line:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .official-support-unit {
+    font-weight: 700;
+    color: #17324d;
+  }
+
+  .official-not-configured {
+    font-size: 12px;
+    color: #8492a6;
+    font-style: italic;
+  }
+
+  @media (max-width: 900px) {
+    .official-matrix-wrap {
+      border-radius: 10px;
+    }
+  }
+
+
+  /* OFFICIAL_LINKED_UNIT_RISK_V1 */
+  .official-support-main {
+    min-width: 0;
+  }
+
+  .official-linked-risk-block {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid #e3ebf2;
+  }
+
+  .official-linked-risk-title {
+    margin-bottom: 6px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #7b8da3;
+  }
+
+  .official-linked-risk-item {
+    margin-top: 5px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #304b66;
+  }
+
+  .official-linked-risk-item strong {
+    color: #173a59;
+  }
+
+  .official-linked-risk-empty {
+    font-size: 11px;
+    font-style: italic;
+    color: #8a98aa;
+  }
+
+</style>
 </head>
 <body>
 <main class="shell">
@@ -349,162 +511,190 @@
 
   <section class="map-panel">
     <div class="map-head">
-      <div>Profil Risiko Korporat</div>
-      <div class="right">Bidang / Unit Bisnis Pendukung · {{ selected_period_label|default:"Periode belum tersedia" }}</div>
+      <div>
+        Official Risk Relationship
+      </div>
+      <div class="right">
+        {{ selected_period_label|default:"Periode belum tersedia" }}
+      </div>
     </div>
 
-    {% for relation in relationships %}
-      <article class="relationship">
-        <div class="corporate-wrap">
-          <div class="corporate-card {{ relation.corporate_status.key }}">
-            <span class="risk-no">R{{ relation.risk_no }}</span>
-            <div class="risk-event">{{ relation.event }}</div>
-            <span class="badge {{ relation.corporate_status.key }}">{{ relation.corporate_status.label }}</span>
-            <div class="risk-meta" style="margin-top:9px;">
-              Residual Korporat: <strong>{{ relation.corporate_level }}</strong><br>
-              {{ relation.summary }} · {{ relation.category }}
-            </div>
+    <div class="official-matrix-wrap">
+      <table class="official-risk-table">
+        <thead>
+          <tr>
+            <th>NO</th>
+            <th>PERISTIWA RISIKO</th>
+            <th>RISK LEADER</th>
+            <th>RISK SUPPORTING</th>
+          </tr>
+        </thead>
 
-            <div class="ikk-impact">
-              <div class="ikk-impact-title">
-                Indikator Kinerja Terkait
-              </div>
+        <tbody>
+          {% for relation in relationships %}
+            <tr>
+              <td class="official-risk-no">
+                {{ relation.risk_no }}
+              </td>
 
-              {% for ikk in relation.kpis %}
-                <div class="ikk-performance-card">
-                  <div class="ikk-performance-name">
-                    <strong>IKK {{ ikk.no|stringformat:"02d" }}</strong>
-                    · {{ ikk.name }}
-                  </div>
-
-                  {% if ikk.performance.available %}
-                    <div class="ikk-performance-grid">
-                      <span>
-                        Target {{ ikk.performance.month_label }}
-                      </span>
-                      <span class="ikk-performance-value">
-                        {{ ikk.performance.target_display }}
-                        {% if ikk.performance.unit %}
-                          {{ ikk.performance.unit }}
-                        {% endif %}
-                      </span>
-
-                      <span>
-                        Realisasi {{ ikk.performance.month_label }}
-                      </span>
-                      <span class="ikk-performance-value">
-                        {{ ikk.performance.realisasi_display }}
-                        {% if ikk.performance.unit %}
-                          {{ ikk.performance.unit }}
-                        {% endif %}
-                      </span>
-
-                      <span>
-                        {{ ikk.performance.achievement_label }}
-                      </span>
-                      <span class="ikk-performance-value ikk-performance-status {{ ikk.performance.status.key }}">
-                        {{ ikk.performance.achievement_display }}
-                        · {{ ikk.performance.status.label }}
-                      </span>
-
-                      <span>
-                        Prediksi {{ ikk.performance.forecast_month_label }}
-                      </span>
-                      <span class="ikk-performance-value ikk-forecast-value">
-                        {{ ikk.performance.forecast_display }}
-                      </span>
-                    </div>
-                  {% else %}
-                    <div class="ikk-performance-grid">
-                      <span>RKM {{ ikk.performance.month_label }}</span>
-                      <span class="ikk-performance-value">
-                        Belum tersedia
-                      </span>
-
-                      <span>
-                        Prediksi {{ ikk.performance.forecast_month_label }}
-                      </span>
-                      <span class="ikk-performance-value ikk-forecast-value">
-                        Belum tersedia
-                      </span>
-                    </div>
-                  {% endif %}
+              <td>
+                <div class="official-risk-event">
+                  {{ relation.event }}
                 </div>
-              {% empty %}
-                <div class="ikk-impact-item">
-                  Belum dipetakan.
+
+                <div class="official-risk-meta">
+                  Residual Korporat:
+                  <strong>
+                    {{ relation.corporate_level }}
+                  </strong>
+                  ·
+                  <span class="badge {{ relation.corporate_status.key }}">
+                    {{ relation.corporate_status.label }}
+                  </span>
                 </div>
-              {% endfor %}
-            </div>
-          </div>
-        </div>
 
-        <div class="connector" aria-hidden="true"></div>
-
-        <div class="support-wrap">
-          {% if relation.supports %}
-            <div class="support-table">
-              <div class="table-row header">
-                <div class="cell">Bidang / Unit Bisnis</div>
-                <div class="cell">Profil Risiko Unit</div>
-                <div class="cell">Risiko Unit Terhubung</div>
-                <div class="cell">Status Risiko</div>
-              </div>
-
-              {% for row in relation.supports %}
-                <div class="table-row">
-                  <div class="cell">
-                    <strong>{{ row.unit }}</strong>
+                {# OFFICIAL_KPI_INSIDE_MATRIX_V1 #}
+                <div class="ikk-impact">
+                  <div class="ikk-impact-title">
+                    Indikator Kinerja Terkait
                   </div>
 
-                  <div class="cell">
-                    <strong>{{ row.profile }}</strong>
-                    <span class="minor">
-                      {% if row.report %}
-                        {{ row.report_code }}
-                      {% else %}
-                        Laporan bulan terpilih belum tersedia
-                      {% endif %}
-                    </span>
-                  </div>
-
-                  <div class="cell">
-                    {% for linked in row.linked_risks %}
-                      <div class="linked-risk">
-                        <strong>R{{ linked.risk_no }}</strong>
-                        — {{ linked.event }}
+                  {% for ikk in relation.kpis %}
+                    <div class="ikk-performance-card">
+                      <div class="ikk-performance-name">
+                        <strong>
+                          IKK {{ ikk.no|stringformat:"02d" }}
+                        </strong>
+                        · {{ ikk.name }}
                       </div>
-                    {% empty %}
-                      <span class="minor">
-                        Risiko unit terhubung belum tersedia.
-                      </span>
-                    {% endfor %}
-                  </div>
 
-                  <div class="cell">
+                      {% if ikk.performance.available %}
+                        <div class="ikk-performance-grid">
+                          <span>
+                            Target {{ ikk.performance.month_label }}
+                          </span>
+                          <span class="ikk-performance-value">
+                            {{ ikk.performance.target_display }}
+                            {% if ikk.performance.unit %}
+                              {{ ikk.performance.unit }}
+                            {% endif %}
+                          </span>
+
+                          <span>
+                            Realisasi {{ ikk.performance.month_label }}
+                          </span>
+                          <span class="ikk-performance-value">
+                            {{ ikk.performance.realisasi_display }}
+                            {% if ikk.performance.unit %}
+                              {{ ikk.performance.unit }}
+                            {% endif %}
+                          </span>
+
+                          <span>
+                            {{ ikk.performance.achievement_label }}
+                          </span>
+                          <span class="ikk-performance-value ikk-performance-status {{ ikk.performance.status.key }}">
+                            {{ ikk.performance.achievement_display }}
+                            · {{ ikk.performance.status.label }}
+                          </span>
+
+                          <span>
+                            Prediksi {{ ikk.performance.forecast_month_label }}
+                          </span>
+                          <span class="ikk-performance-value ikk-forecast-value">
+                            {{ ikk.performance.forecast_display }}
+                          </span>
+                        </div>
+                      {% else %}
+                        <div class="ikk-performance-grid">
+                          <span>
+                            RKM {{ ikk.performance.month_label }}
+                          </span>
+                          <span class="ikk-performance-value">
+                            Belum tersedia
+                          </span>
+
+                          <span>
+                            Prediksi {{ ikk.performance.forecast_month_label }}
+                          </span>
+                          <span class="ikk-performance-value ikk-forecast-value">
+                            Belum tersedia
+                          </span>
+                        </div>
+                      {% endif %}
+                    </div>
+                  {% empty %}
+                    <div class="ikk-impact-item">
+                      Belum dipetakan.
+                    </div>
+                  {% endfor %}
+                </div>
+              </td>
+
+              <td>
+                {% for leader in relation.risk_leaders %}
+                  <span class="official-leader">
+                    {{ leader.unit }}
+                  </span>
+                {% empty %}
+                  <span class="official-not-configured">
+                    Belum ditetapkan
+                  </span>
+                {% endfor %}
+              </td>
+
+              <td>
+                {% for row in relation.official_supports %}
+                  <div class="official-support-line">
+                    <div class="official-support-main">
+                      <div class="official-support-unit">
+                        {{ row.unit }}
+                      </div>
+
+                      <div class="official-linked-risk-block">
+                        <div class="official-linked-risk-title">
+                          Risiko Unit Terhubung
+                        </div>
+
+                        {% for linked in row.linked_risks %}
+                          <div class="official-linked-risk-item">
+                            <strong>
+                              R{{ linked.risk_no }}
+                            </strong>
+                            — {{ linked.event }}
+                          </div>
+                        {% empty %}
+                          <div class="official-linked-risk-empty">
+                            Belum ada risiko unit yang dipetakan.
+                          </div>
+                        {% endfor %}
+                      </div>
+                    </div>
+
                     <span class="badge {{ row.risk_status.key }}">
                       {{ row.risk_status.label }}
                     </span>
-                    <span class="minor">
-                      Level aktual: {{ row.actual_level }}
-                    </span>
                   </div>
+                {% empty %}
+                  <span class="official-not-configured">
+                    Belum ada Risk Supporting
+                  </span>
+                {% endfor %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4">
+                <div class="page-empty">
+                  Belum ada Profil Risiko Korporat
+                  untuk filter yang dipilih.
                 </div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="empty-support">
-              Belum ada Profil Risiko Bidang/Unit Bisnis yang dipetakan sebagai sumber/pendukung risiko korporat ini.
-            </div>
-          {% endif %}
-        </div>
-      </article>
-    {% empty %}
-      <div class="page-empty">
-        Belum ada relasi Profil Risiko Korporat dan Profil Risiko Bidang/Unit Bisnis untuk filter yang dipilih.
-      </div>
-    {% endfor %}
-
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
 
     {% if unit_performance_rows %}
       <section class="unit-performance-section">
@@ -599,4 +789,4 @@
   </div>
 </main>
 </body>
-</html>
+</html>\n
