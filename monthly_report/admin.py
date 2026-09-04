@@ -1021,7 +1021,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         ):
             result.append({
                 "name": "realisasi_kri",
-                "label": "realisasi KRI",
+                "label": self.kri_missing_label,
                 "href": (
                     f"#id_{self.add_prefix('realisasi_threshold_kri')}"
                 ),
