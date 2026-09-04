@@ -112,6 +112,60 @@ def _matches(expression, value, unit=""):
     #   100%
     number_pattern = r"[+-]?\d+(?:[.,]\d+)*"
 
+    # BEGIN KRI TEXTUAL RANGE SUPPORT V1
+    # Range bisnis dapat ditulis ascending maupun descending.
+    #
+    # Contoh source resmi:
+    #   0 s.d. -10       -> -10 <= x <= 0
+    #   < -10 s.d. -15   -> -15 <= x < -10
+    #   <100 s.d 90      -> 90 <= x < 100
+    #   30 s.d <60       -> 30 <= x < 60
+    #
+    # Urutan angka pada source TIDAK diubah. Operator tetap melekat pada
+    # endpoint yang ditulis pada source; hanya interval numeriknya yang
+    # dinormalisasi untuk proses evaluasi.
+    textual_range = re.search(
+        rf"(?P<op1>>=|<=|>|<|≥|≤)?\s*"
+        rf"(?P<first>{number_pattern})\s*%?\s*"
+        rf"(?:s\s*[.,/]\s*d\s*\.?|sd|to)\s*"
+        rf"(?P<op2>>=|<=|>|<|≥|≤)?\s*"
+        rf"(?P<second>{number_pattern})\s*%?",
+        text,
+    )
+
+    if textual_range:
+        first = _parse_threshold_number(
+            textual_range.group("first"), unit
+        )
+        second = _parse_threshold_number(
+            textual_range.group("second"), unit
+        )
+
+        lower = min(first, second)
+        upper = max(first, second)
+
+        if value < lower or value > upper:
+            return False
+
+        def endpoint_ok(op, boundary):
+            if not op:
+                return True
+            if op in (">=", "≥"):
+                return value >= boundary
+            if op in ("<=", "≤"):
+                return value <= boundary
+            if op == ">":
+                return value > boundary
+            if op == "<":
+                return value < boundary
+            return True
+
+        return (
+            endpoint_ok(textual_range.group("op1"), first)
+            and endpoint_ok(textual_range.group("op2"), second)
+        )
+    # END KRI TEXTUAL RANGE SUPPORT V1
+
     signed_range = re.fullmatch(
         rf"\s*(?P<lower>{number_pattern})\s*%?\s*"
         rf"(?:-|s/d|sd|to)\s*"
