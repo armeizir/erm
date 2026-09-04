@@ -10,6 +10,7 @@ from django.utils.text import get_valid_filename
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as ExcelImage
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from risk.services.kpmr_automation import calculate_kpmr_for_report
 
@@ -379,6 +380,145 @@ def _fill_iiib(workbook, report, items, items_by_month, items_by_quarter):
             ws.cell(row, score_col, _number(actual_kri))
 
 
+IIIC_HEATMAP_IMPACT_COLUMNS = {1: 5, 2: 10, 3: 15, 4: 20, 5: 25}  # E, J, O, T, Y
+IIIC_HEATMAP_LIKELIHOOD_ROWS = {1: 25, 2: 20, 3: 15, 4: 10, 5: 5}  # A, B, C, D, E
+IIIC_HEATMAP_MARKER_PREFIXES = ("●I:", "○R:")
+IIIC_LEGEND_INHERENT = "Risiko Inheren"
+IIIC_LEGEND_RESIDUAL = "Risiko Residual Triwulan/Tahun Berjalan"
+IIIC_LEGEND_BLUE = "4E73C4"
+IIIC_LEGEND_BORDER = "6E6E6E"
+
+
+def _iiic_ensure_merge(ws, cell_range):
+    if not any(str(merged) == cell_range for merged in ws.merged_cells.ranges):
+        ws.merge_cells(cell_range)
+
+
+def _write_iiic_legend(ws):
+    """Tampilkan legenda III.C di atas heatmap seperti pada tampilan ERM."""
+    for cell_range in ("C4:E4", "G4:M4"):
+        _iiic_ensure_merge(ws, cell_range)
+
+    ws.row_dimensions[4].height = max(ws.row_dimensions[4].height or 0, 24)
+
+    thin = Side(style="thin", color=IIIC_LEGEND_BORDER)
+    badge_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    inherent_badge = ws["B4"]
+    inherent_badge.value = "1"
+    inherent_badge.fill = PatternFill("solid", fgColor=IIIC_LEGEND_BLUE)
+    inherent_badge.font = Font(color="FFFFFF", bold=True, italic=True, size=11)
+    inherent_badge.alignment = Alignment(horizontal="center", vertical="center")
+    inherent_badge.border = badge_border
+
+    inherent_label = ws["C4"]
+    inherent_label.value = IIIC_LEGEND_INHERENT
+    inherent_label.font = Font(color="222222", size=11)
+    inherent_label.alignment = Alignment(horizontal="left", vertical="center")
+
+    residual_badge = ws["F4"]
+    residual_badge.value = "1"
+    residual_badge.fill = PatternFill("solid", fgColor="FFFFFF")
+    residual_badge.font = Font(color="111111", bold=True, italic=True, size=11)
+    residual_badge.alignment = Alignment(horizontal="center", vertical="center")
+    residual_badge.border = badge_border
+
+    residual_label = ws["G4"]
+    residual_label.value = IIIC_LEGEND_RESIDUAL
+    residual_label.font = Font(color="222222", size=11)
+    residual_label.alignment = Alignment(horizontal="left", vertical="center")
+
+
+def _iiic_scale_number(value):
+    """Kembalikan skala matriks 1..5 atau None bila nilai tidak valid."""
+    scaled = _scale_value(value)
+    if scaled in (None, ""):
+        return None
+    try:
+        number = Decimal(str(scaled))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if number != number.to_integral_value():
+        return None
+    number = int(number)
+    return number if 1 <= number <= 5 else None
+
+
+def _iiic_heatmap_anchor(impact, likelihood):
+    impact_number = _iiic_scale_number(impact)
+    likelihood_number = _iiic_scale_number(likelihood)
+    if impact_number is None or likelihood_number is None:
+        return None
+    return (
+        IIIC_HEATMAP_LIKELIHOOD_ROWS[likelihood_number],
+        IIIC_HEATMAP_IMPACT_COLUMNS[impact_number],
+    )
+
+
+def _iiic_base_cell_text(value):
+    """Hilangkan marker hasil export lama tanpa mengubah label dasar matriks."""
+    if value in (None, ""):
+        return ""
+    lines = []
+    for line in str(value).splitlines():
+        if line.strip().startswith(IIIC_HEATMAP_MARKER_PREFIXES):
+            continue
+        lines.append(line)
+    return "\n".join(lines).rstrip()
+
+
+def _plot_iiic_heatmap(ws, representatives, quarter):
+    """Plot nomor risiko Inheren/Residual langsung pada matriks 5x5 III.C."""
+    markers = defaultdict(lambda: {"inherent": [], "residual": []})
+
+    for risk_number, item in representatives.items():
+        risk = item.risk_event
+        display_number = _integer(risk_number)
+        if display_number in (None, ""):
+            continue
+        display_number = str(display_number)
+
+        inherent_anchor = _iiic_heatmap_anchor(
+            getattr(risk, f"skala_dampak_q{quarter}", None),
+            getattr(risk, f"skala_probabilitas_q{quarter}", None),
+        )
+        if inherent_anchor is not None:
+            markers[inherent_anchor]["inherent"].append(display_number)
+
+        residual_anchor = _iiic_heatmap_anchor(
+            item.realisasi_skala_dampak,
+            item.realisasi_skala_probabilitas,
+        )
+        if residual_anchor is not None:
+            markers[residual_anchor]["residual"].append(display_number)
+
+    # Selalu mulai dari label dasar template agar fungsi idempotent bila dipanggil ulang.
+    for row in IIIC_HEATMAP_LIKELIHOOD_ROWS.values():
+        for column in IIIC_HEATMAP_IMPACT_COLUMNS.values():
+            cell = ws.cell(row, column)
+            cell.value = _iiic_base_cell_text(cell.value)
+
+    for (row, column), grouped in markers.items():
+        cell = ws.cell(row, column)
+        base_text = _iiic_base_cell_text(cell.value)
+        marker_parts = []
+        if grouped["inherent"]:
+            marker_parts.append(f"●I: {', '.join(grouped['inherent'])}")
+        if grouped["residual"]:
+            marker_parts.append(f"○R: {', '.join(grouped['residual'])}")
+        marker_line = "   ".join(marker_parts)
+        cell.value = f"{base_text}\n{marker_line}" if base_text else marker_line
+
+    # Legenda utama diletakkan tepat di atas heatmap agar selalu terlihat
+    # saat pengguna membuka sheet III.C, konsisten dengan tampilan ERM.
+    _write_iiic_legend(ws)
+
+    # Pertahankan area keterangan bawaan template di sisi kanan sebagai
+    # referensi tambahan, dengan terminologi yang sama seperti ERM.
+    ws["AT6"] = f"●I = {IIIC_LEGEND_INHERENT}"
+    ws["AT8"] = f"○R = {IIIC_LEGEND_RESIDUAL}"
+
+
 def _fill_iiic(workbook, report, items):
     ws = workbook["III.C"]
     # AE:AR adalah area tabel data heatmap. AS:AT adalah legenda template
@@ -400,6 +540,8 @@ def _fill_iiic(workbook, report, items):
         ws.cell(row, 39, _scale_value(item.realisasi_skala_dampak))
         ws.cell(row, 40, _scale_value(item.realisasi_skala_probabilitas))
         ws.cell(row, 41, _integer(item.realisasi_skor_risiko))
+
+    _plot_iiic_heatmap(ws, representatives, quarter)
 
 
 def _fill_iiid(workbook, report):
