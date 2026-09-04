@@ -236,6 +236,7 @@ def _corporate_items(year):
             "kategori_risiko",
         )
         .prefetch_related(
+            "relasi_unit__unit_bisnis",
             "sumber_risiko__reassessment_item__summary__unit_bisnis",
             "sumber_risiko__reassessment_item__summary__kontrak_manajemen",
             "kinerja_terkait__item_kinerja__kontrak__unit_bisnis",
@@ -558,20 +559,35 @@ def _linked_kpis(corporate):
 
 
 
+
 def _base_relationships(corporate_items):
     relationships = []
     summary_ids = set()
     unit_map = {}
 
     for corporate in corporate_items:
+        # ----------------------------------------------------
+        # EXISTING SOURCE / LINKED RISK RELATIONSHIP
+        # Tetap dipertahankan untuk MRR/status aktual.
+        # ----------------------------------------------------
         supports = {}
+
         for source in corporate.sumber_risiko.all():
-            reassessment_item = getattr(source, "reassessment_item", None)
-            if not reassessment_item or not reassessment_item.summary_id:
+            reassessment_item = getattr(
+                source,
+                "reassessment_item",
+                None,
+            )
+
+            if (
+                not reassessment_item
+                or not reassessment_item.summary_id
+            ):
                 continue
 
             summary = reassessment_item.summary
             unit = getattr(summary, "unit_bisnis", None)
+
             if unit is None:
                 continue
 
@@ -588,8 +604,14 @@ def _base_relationships(corporate_items):
                 },
             )
 
-            if reassessment_item.pk not in support["risk_event_ids"]:
-                support["risk_event_ids"].add(reassessment_item.pk)
+            if (
+                reassessment_item.pk
+                not in support["risk_event_ids"]
+            ):
+                support["risk_event_ids"].add(
+                    reassessment_item.pk
+                )
+
                 support["linked_risks"].append(
                     {
                         "id": reassessment_item.pk,
@@ -606,6 +628,7 @@ def _base_relationships(corporate_items):
                 )
 
             support["source_count"] += 1
+
             summary_ids.add(summary.pk)
             unit_map[unit.pk] = str(unit)
 
@@ -618,27 +641,118 @@ def _base_relationships(corporate_items):
                 ),
             )
 
-        corporate_level = corporate.get_level_name("residual")
+        # ----------------------------------------------------
+        # OFFICIAL GOVERNANCE RELATIONSHIP
+        # Ditentukan Admin.
+        # ----------------------------------------------------
+        risk_leaders = []
+        official_supports = []
+
+        official_manager = getattr(
+            corporate,
+            "relasi_unit",
+            None,
+        )
+
+        official_rows = (
+            list(official_manager.all())
+            if official_manager is not None
+            else []
+        )
+
+        for official in official_rows:
+            unit = getattr(
+                official,
+                "unit_bisnis",
+                None,
+            )
+
+            if unit is None:
+                continue
+
+            row = {
+                "relationship_id": official.pk,
+                "unit_id": unit.pk,
+                "unit": str(unit),
+                "order": official.urutan or 0,
+            }
+
+            # Unit resmi masuk pilihan filter.
+            unit_map[unit.pk] = str(unit)
+
+            if official.role == "leader":
+                risk_leaders.append(row)
+
+            elif official.role == "supporting":
+                official_supports.append(row)
+
+        risk_leaders = sorted(
+            risk_leaders,
+            key=lambda row: (
+                row["order"],
+                row["unit"].casefold(),
+            ),
+        )
+
+        official_supports = sorted(
+            official_supports,
+            key=lambda row: (
+                row["order"],
+                row["unit"].casefold(),
+            ),
+        )
+
+        corporate_level = corporate.get_level_name(
+            "residual"
+        )
+
         relationships.append(
             {
                 "corporate": corporate,
-                "risk_no": corporate.no_risiko or corporate.no_item or corporate.pk,
-                "event": corporate.peristiwa_risiko or "Peristiwa risiko belum diisi",
+                "risk_no": (
+                    corporate.no_risiko
+                    or corporate.no_item
+                    or corporate.pk
+                ),
+                "event": (
+                    corporate.peristiwa_risiko
+                    or "Peristiwa risiko belum diisi"
+                ),
                 "summary": str(corporate.summary),
-                "category": str(corporate.kategori_risiko) if corporate.kategori_risiko_id else "-",
+                "category": (
+                    str(corporate.kategori_risiko)
+                    if corporate.kategori_risiko_id
+                    else "-"
+                ),
                 "corporate_level": corporate_level or "-",
-                "corporate_status": _risk_status_from_level(corporate_level),
+                "corporate_status": (
+                    _risk_status_from_level(
+                        corporate_level
+                    )
+                ),
                 "kpis": _linked_kpis(corporate),
+
+                # Existing linked source/MRR.
                 "supports": list(supports.values()),
+
+                # Official admin configuration.
+                "risk_leaders": risk_leaders,
+                "official_supports": official_supports,
             }
         )
 
     units = [
-        {"id": pk, "name": name}
-        for pk, name in sorted(unit_map.items(), key=lambda item: item[1].casefold())
+        {
+            "id": pk,
+            "name": name,
+        }
+        for pk, name in sorted(
+            unit_map.items(),
+            key=lambda item: item[1].casefold(),
+        )
     ]
-    return relationships, summary_ids, units
 
+    return relationships, summary_ids, units
 
 def _latest_reports(summary_ids, year, month):
     if not summary_ids or not year or not month:
@@ -769,11 +883,21 @@ def _nko_for_summary(summary, year, month, cache):
     return result
 
 
-def _enrich_relationships(relationships, reports, kpmr_map, year, month):
+
+def _enrich_relationships(
+    relationships,
+    reports,
+    kpmr_map,
+    year,
+    month,
+):
     nko_cache = {}
-    kpi_performance_map = _corporate_kpi_performance_map(
-        year,
-        month,
+
+    kpi_performance_map = (
+        _corporate_kpi_performance_map(
+            year,
+            month,
+        )
     )
 
     for relation in relationships:
@@ -784,21 +908,43 @@ def _enrich_relationships(relationships, reports, kpmr_map, year, month):
             month,
         )
 
+        # ----------------------------------------------------
+        # Existing linked risk/MRR enrichment.
+        # ----------------------------------------------------
         enriched = []
+
         for support in relation["supports"]:
             summary = support["summary"]
+
             report = reports.get(summary.pk)
-            actual_level = _worst_actual_for_support(report, support["risk_event_ids"])
-            risk_status = _support_risk_status(report, actual_level)
+
+            actual_level = _worst_actual_for_support(
+                report,
+                support["risk_event_ids"],
+            )
+
+            risk_status = _support_risk_status(
+                report,
+                actual_level,
+            )
 
             enriched.append(
                 {
                     **support,
                     "report": report,
-                    "report_code": report.kode if report else "-",
+                    "report_code": (
+                        report.kode
+                        if report
+                        else "-"
+                    ),
                     "has_report": report is not None,
-                    "has_actual_level": bool(actual_level),
-                    "actual_level": actual_level or "-",
+                    "has_actual_level": bool(
+                        actual_level
+                    ),
+                    "actual_level": (
+                        actual_level
+                        or "-"
+                    ),
                     "risk_status": risk_status,
                     "kpmr": kpmr_map.get(
                         support["unit_id"],
@@ -808,35 +954,152 @@ def _enrich_relationships(relationships, reports, kpmr_map, year, month):
                             "rating": "-",
                             "record_status": "-",
                             "is_provisional": False,
-                            "quarter": ((month - 1) // 3 + 1) if month else None,
+                            "quarter": (
+                                ((month - 1) // 3 + 1)
+                                if month
+                                else None
+                            ),
                         },
                     ),
-                    "nko": _nko_for_summary(summary, year, month, nko_cache),
+                    "nko": _nko_for_summary(
+                        summary,
+                        year,
+                        month,
+                        nko_cache,
+                    ),
                 }
             )
 
         relation["supports"] = sorted(
             enriched,
-            key=lambda row: (row["unit"].casefold(), row["profile"].casefold()),
+            key=lambda row: (
+                row["unit"].casefold(),
+                row["profile"].casefold(),
+            ),
         )
+
+        # ----------------------------------------------------
+        # Map Official Supporting -> existing linked source.
+        #
+        # Jika belum ada linked ReAssessmentItem/MRR:
+        # tetap tampil sebagai official supporting,
+        # status = Belum Dipetakan.
+        # ----------------------------------------------------
+        source_by_unit = {}
+
+        for source_row in relation["supports"]:
+            source_by_unit.setdefault(
+                source_row["unit_id"],
+                source_row,
+            )
+
+        official_enriched = []
+
+        for official in relation.get(
+            "official_supports",
+            [],
+        ):
+            mapped = source_by_unit.get(
+                official["unit_id"]
+            )
+
+            if mapped:
+                official_enriched.append(
+                    {
+                        **official,
+                        "is_mapped": True,
+                        "profile": mapped["profile"],
+                        "report": mapped["report"],
+                        "report_code": mapped["report_code"],
+                        "linked_risks": mapped["linked_risks"],
+                        "actual_level": mapped["actual_level"],
+                        "risk_status": mapped["risk_status"],
+                    }
+                )
+
+            else:
+                official_enriched.append(
+                    {
+                        **official,
+                        "is_mapped": False,
+                        "profile": "-",
+                        "report": None,
+                        "report_code": "-",
+                        "linked_risks": [],
+                        "actual_level": "-",
+                        "risk_status": {
+                            "key": "nodata",
+                            "label": "Belum Dipetakan",
+                        },
+                    }
+                )
+
+        relation["official_supports"] = sorted(
+            official_enriched,
+            key=lambda row: (
+                row["order"],
+                row["unit"].casefold(),
+            ),
+        )
+
     return relationships
 
 
-def _filter_relationships(relationships, selected_unit_id):
+def _filter_relationships(
+    relationships,
+    selected_unit_id,
+):
     if not selected_unit_id:
         return relationships
 
     filtered = []
+
     for relation in relationships:
-        supports = [
-            row for row in relation["supports"]
-            if str(row["unit_id"]) == str(selected_unit_id)
+        leader_match = any(
+            str(row["unit_id"])
+            == str(selected_unit_id)
+            for row in relation.get(
+                "risk_leaders",
+                [],
+            )
+        )
+
+        official_supports = [
+            row
+            for row in relation.get(
+                "official_supports",
+                [],
+            )
+            if str(row["unit_id"])
+            == str(selected_unit_id)
         ]
-        if supports:
-            filtered.append({**relation, "supports": supports})
+
+        source_supports = [
+            row
+            for row in relation["supports"]
+            if str(row["unit_id"])
+            == str(selected_unit_id)
+        ]
+
+        # Jika unit adalah Risk Leader,
+        # tampilkan seluruh relationship agar konteks
+        # supporting-nya tetap terlihat.
+        if leader_match:
+            filtered.append(relation)
+            continue
+
+        if official_supports or source_supports:
+            filtered.append(
+                {
+                    **relation,
+                    "official_supports": (
+                        official_supports
+                    ),
+                    "supports": source_supports,
+                }
+            )
+
     return filtered
-
-
 
 def _unit_performance_summary(relationships):
     """
@@ -949,24 +1212,42 @@ def _unit_performance_summary(relationships):
     )
 
 
+
 def _summary_cards(relationships):
     support_rows = [
         support
         for relation in relationships
-        for support in relation["supports"]
+        for support in relation.get(
+            "official_supports",
+            [],
+        )
     ]
-    unique_units = {row["unit_id"] for row in support_rows}
+
+    unique_units = {
+        row["unit_id"]
+        for row in support_rows
+    }
+
     return {
         "corporate": len(relationships),
         "units": len(unique_units),
-        "green": sum(1 for row in support_rows if row["risk_status"]["key"] == "green"),
-        "attention": sum(
-            1 for row in support_rows
-            if row["risk_status"]["key"] in {"amber", "red"}
+        "green": sum(
+            1
+            for row in support_rows
+            if row["risk_status"]["key"] == "green"
         ),
-        "nodata": sum(1 for row in support_rows if row["risk_status"]["key"] == "nodata"),
+        "attention": sum(
+            1
+            for row in support_rows
+            if row["risk_status"]["key"]
+            in {"amber", "red"}
+        ),
+        "nodata": sum(
+            1
+            for row in support_rows
+            if row["risk_status"]["key"] == "nodata"
+        ),
     }
-
 
 @login_required
 def strategy_risk_map(request):

@@ -63,6 +63,7 @@ from .models import (
     KPMRItem,
     ProfilRisikoKorporatSummary,
     ProfilRisikoKorporatItem,
+    ProfilRisikoKorporatRelasiUnit,
     ProfilRisikoKorporatPenyebab,  # 🔥 WAJIB TAMBAH
     ProfilRisikoKorporatSumber,
     ProfilRisikoKorporatKinerja,
@@ -6200,11 +6201,88 @@ class ProfilRisikoKorporatKinerjaInline(admin.TabularInline):
         )
 
 
+
+# =========================================================
+# OFFICIAL RISK LEADER / RISK SUPPORTING INLINE
+# =========================================================
+# OFFICIAL_RISK_RELATIONSHIP_INLINE_V1
+
+class ProfilRisikoKorporatRelasiUnitInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+
+        if any(self.errors):
+            return
+
+        leader_count = 0
+        seen_units = {}
+
+        for form in self.forms:
+            cleaned = getattr(form, "cleaned_data", None) or {}
+
+            if cleaned.get("DELETE"):
+                continue
+
+            unit = cleaned.get("unit_bisnis")
+            role = cleaned.get("role")
+
+            if not unit or not role:
+                continue
+
+            if role == ProfilRisikoKorporatRelasiUnit.ROLE_LEADER:
+                leader_count += 1
+
+            previous_role = seen_units.get(unit.pk)
+
+            if previous_role:
+                raise forms.ValidationError(
+                    f"{unit.name} sudah digunakan sebagai "
+                    f"{dict(ProfilRisikoKorporatRelasiUnit.ROLE_CHOICES).get(previous_role, previous_role)}. "
+                    "Bidang / Unit yang sama tidak boleh menjadi Risk Leader "
+                    "dan Risk Supporting pada risiko yang sama."
+                )
+
+            seen_units[unit.pk] = role
+
+        if leader_count > 1:
+            raise forms.ValidationError(
+                "Satu risiko korporat hanya boleh mempunyai satu Risk Leader."
+            )
+
+
+class ProfilRisikoKorporatRelasiUnitInline(admin.TabularInline):
+    model = ProfilRisikoKorporatRelasiUnit
+    fk_name = "risiko_korporat"
+    formset = ProfilRisikoKorporatRelasiUnitInlineFormSet
+
+    extra = 1
+    fields = (
+        "role",
+        "unit_bisnis",
+        "urutan",
+    )
+    autocomplete_fields = (
+        "unit_bisnis",
+    )
+    ordering = (
+        "role",
+        "urutan",
+        "unit_bisnis__name",
+    )
+
+    verbose_name = "Official Risk Relationship"
+    verbose_name_plural = (
+        "OFFICIAL RISK RELATIONSHIP — "
+        "Risk Leader & Risk Supporting"
+    )
+
+
 @admin.register(ProfilRisikoKorporatItem)
 class ProfilRisikoKorporatItemAdmin(admin.ModelAdmin):
     inlines = [
         ProfilRisikoKorporatPenyebabInline,
         ProfilRisikoKorporatKinerjaInline,
+        ProfilRisikoKorporatRelasiUnitInline,
     ]
 
     list_display = (
@@ -6715,3 +6793,111 @@ except admin.sites.AlreadyRegistered:
 # Diletakkan paling akhir agar seluruh admin existing selesai diregistrasikan.
 import risk.treatment_change_admin  # noqa: F401,E402
 
+# =========================================================
+# OFFICIAL RISK LEADER / RISK SUPPORTING
+# =========================================================
+# OFFICIAL_RISK_RELATIONSHIP_ADMIN_V1
+
+@admin.register(
+    ProfilRisikoKorporatRelasiUnit,
+    site=risk_admin_site,
+)
+class ProfilRisikoKorporatRelasiUnitAdmin(admin.ModelAdmin):
+    list_display = (
+        "tahun_display",
+        "nomor_risiko_display",
+        "peristiwa_risiko_display",
+        "role",
+        "unit_bisnis",
+        "urutan",
+    )
+
+    list_filter = (
+        "role",
+        "risiko_korporat__summary__tahun",
+        "unit_bisnis",
+    )
+
+    search_fields = (
+        "risiko_korporat__peristiwa_risiko",
+        "risiko_korporat__summary__judul",
+        "unit_bisnis__name",
+    )
+
+    ordering = (
+        "-risiko_korporat__summary__tahun",
+        "risiko_korporat__no_risiko",
+        "role",
+        "urutan",
+        "unit_bisnis__name",
+    )
+
+    autocomplete_fields = (
+        "unit_bisnis",
+    )
+
+    fields = (
+        "risiko_korporat",
+        "role",
+        "unit_bisnis",
+        "urutan",
+    )
+
+    list_select_related = (
+        "risiko_korporat",
+        "risiko_korporat__summary",
+        "unit_bisnis",
+    )
+
+    @admin.display(
+        description="Tahun",
+        ordering="risiko_korporat__summary__tahun",
+    )
+    def tahun_display(self, obj):
+        return obj.risiko_korporat.summary.tahun
+
+    @admin.display(
+        description="No",
+        ordering="risiko_korporat__no_risiko",
+    )
+    def nomor_risiko_display(self, obj):
+        return (
+            obj.risiko_korporat.no_risiko
+            or obj.risiko_korporat.no_item
+            or obj.risiko_korporat.pk
+        )
+
+    @admin.display(description="Peristiwa Risiko")
+    def peristiwa_risiko_display(self, obj):
+        value = str(
+            obj.risiko_korporat.peristiwa_risiko
+            or "Peristiwa risiko belum diisi"
+        )
+
+        if len(value) <= 110:
+            return value
+
+        return value[:107] + "..."
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "risiko_korporat":
+            kwargs["queryset"] = (
+                ProfilRisikoKorporatItem.objects
+                .select_related("summary")
+                .order_by(
+                    "-summary__tahun",
+                    "no_risiko",
+                    "no_item",
+                    "pk",
+                )
+            )
+
+        return super().formfield_for_foreignkey(
+            db_field,
+            request,
+            **kwargs,
+        )
+
+    def save_model(self, request, obj, form, change):
+        obj.full_clean()
+        super().save_model(request, obj, form, change)

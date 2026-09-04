@@ -3422,6 +3422,117 @@ class RencanaPerlakuanRisikoKorporat(models.Model):
         return f"Rencana Perlakuan - {self.risiko_korporat} - {self.urutan}"
 
 
+
+class ProfilRisikoKorporatRelasiUnit(models.Model):
+    """
+    Relasi governance resmi antara risiko korporat dengan Bidang/Unit.
+
+    Model ini BERBEDA fungsi dengan ProfilRisikoKorporatSumber:
+    - RelasiUnit     : Risk Leader / Risk Supporting resmi.
+    - Sumber        : mapping risiko korporat ke ReAssessmentItem untuk
+                      monitoring profil risiko dan MRR aktual.
+    """
+
+    ROLE_LEADER = "leader"
+    ROLE_SUPPORTING = "supporting"
+
+    ROLE_CHOICES = (
+        (ROLE_LEADER, "Risk Leader"),
+        (ROLE_SUPPORTING, "Risk Supporting"),
+    )
+
+    risiko_korporat = models.ForeignKey(
+        "ProfilRisikoKorporatItem",
+        on_delete=models.CASCADE,
+        related_name="relasi_unit",
+        verbose_name="Risiko Korporat",
+    )
+
+    unit_bisnis = models.ForeignKey(
+        Group,
+        on_delete=models.PROTECT,
+        related_name="relasi_risiko_korporat",
+        verbose_name="Bidang / Unit Bisnis",
+    )
+
+    role = models.CharField(
+        max_length=20,
+        choices=ROLE_CHOICES,
+        verbose_name="Peran",
+    )
+
+    urutan = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Urutan",
+    )
+
+    class Meta:
+        verbose_name = "Relasi Unit Risiko Korporat"
+        verbose_name_plural = "KORPORAT — Risk Leader & Supporting"
+        ordering = [
+            "risiko_korporat",
+            "role",
+            "urutan",
+            "unit_bisnis__name",
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "risiko_korporat",
+                    "unit_bisnis",
+                    "role",
+                ],
+                name="unik_relasi_unit_risiko_korporat",
+            ),
+            models.UniqueConstraint(
+                fields=["risiko_korporat"],
+                condition=models.Q(role="leader"),
+                name="unik_risk_leader_risiko_korporat",
+            ),
+        ]
+
+    # OFFICIAL_RISK_RELATIONSHIP_VALIDATION_V1
+    def clean(self):
+        super().clean()
+
+        if not self.risiko_korporat_id or not self.unit_bisnis_id:
+            return
+
+        opposite_role = (
+            self.ROLE_SUPPORTING
+            if self.role == self.ROLE_LEADER
+            else self.ROLE_LEADER
+        )
+
+        conflict = (
+            type(self).objects
+            .filter(
+                risiko_korporat_id=self.risiko_korporat_id,
+                unit_bisnis_id=self.unit_bisnis_id,
+                role=opposite_role,
+            )
+            .exclude(pk=self.pk)
+            .exists()
+        )
+
+        if conflict:
+            raise ValidationError({
+                "unit_bisnis": (
+                    "Bidang / Unit yang sama tidak boleh menjadi "
+                    "Risk Leader sekaligus Risk Supporting "
+                    "pada risiko korporat yang sama."
+                )
+            })
+
+    def __str__(self):
+        return (
+            f"{self.risiko_korporat.short_label} - "
+            f"{self.get_role_display()} - "
+            f"{self.unit_bisnis.name}"
+        )
+
+
+
 class ProfilRisikoKorporatSumber(models.Model):
     risiko_korporat = models.ForeignKey(
         ProfilRisikoKorporatItem,
