@@ -75,7 +75,7 @@
             color:#9a3412;
             font-weight:600;
           ">
-            Menunggu Review
+            {{ review_progress.reviewed }}/{{ review_progress.total }} Risiko Direview
           </span>
 
         {% else %}
@@ -86,77 +86,10 @@
   </fieldset>
 
 
-  {% if can_submit_review %}
-  <form method="post">
-    {% csrf_token %}
-
-    <fieldset class="module aligned">
-      <h2>Hasil Review</h2>
-
-      <div class="form-row">
-        <p>
-          Review Pairing hanya dapat dilakukan setelah laporan
-          <strong>Approved</strong>.
-        </p>
-
-        <label style="display:block;margin-bottom:10px">
-          <input
-            type="radio"
-            name="decision"
-            value="sesuai"
-            required
-          >
-          <strong>Sesuai / Review Selesai</strong>
-          — laporan tetap berstatus Approved.
-        </label>
-
-        <label style="display:block;margin-bottom:18px">
-          <input
-            type="radio"
-            name="decision"
-            value="perlu_perbaikan"
-            required
-          >
-          <strong>Perlu Perbaikan</strong>
-          — laporan dikembalikan kepada Drafter dengan status Revision.
-        </label>
-      </div>
-
-      <div class="form-row">
-        <label for="id_comment">
-          <strong>Komentar Pairing:</strong>
-        </label>
-
-        <textarea
-          id="id_comment"
-          name="comment"
-          rows="7"
-          style="width:100%;max-width:900px"
-          placeholder="Tuliskan hasil review atau bagian laporan yang perlu diperbaiki."
-        ></textarea>
-
-        <div class="help">
-          Komentar wajib diisi apabila memilih
-          <strong>Perlu Perbaikan</strong>.
-          Seluruh komentar disimpan dalam riwayat workflow.
-        </div>
-      </div>
-    </fieldset>
-
-    <div class="submit-row">
-      <input
-        type="submit"
-        value="Simpan Hasil Review"
-        class="default"
-      >
-      <a href="{{ cancel_url }}" class="closelink">Kembali</a>
-    </div>
-  </form>
-
-  {% elif pairing_review_state == "reviewed" %}
+  {% if pairing_review_state == "reviewed" %}
     <div class="messagelist">
       <div class="success">
-        Review Pairing untuk siklus approval ini telah selesai.
+        Seluruh risiko pada siklus approval ini telah selesai direview.
       </div>
     </div>
 
@@ -175,54 +108,46 @@
     </div>
   {% endif %}
 
-
   <fieldset class="module">
-    <h2>Riwayat Review Pairing</h2>
-
-    <table style="width:100%">
-      <thead>
-        <tr>
-          <th style="width:170px">Tanggal</th>
-          <th style="width:220px">Pairing</th>
-          <th style="width:160px">Keputusan</th>
-          <th>Komentar</th>
-        </tr>
-      </thead>
-
-      <tbody>
-      {% for log in pairing_history %}
-        <tr>
-          <td>{{ log.action_at|date:"d-m-Y H:i" }}</td>
-
-          <td>
-            {% if log.action_by.get_full_name %}
-              {{ log.action_by.get_full_name }}
-            {% else %}
-              {{ log.action_by.username }}
-            {% endif %}
-          </td>
-
-          <td>
-            {% if "PERLU PERBAIKAN" in log.note %}
+    <h2>Review Berdasarkan Risiko</h2>
+    {% for row in review_rows %}
+      <div style="padding:16px 18px;border-bottom:1px solid #ddd">
+        <h3 style="margin:0 0 6px">
+          Risiko {{ row.item.risk_event.no_risiko|default:row.item.risk_event.no_item }} —
+          {{ row.item.risk_event.peristiwa_risiko }}
+        </h3>
+        {% if row.review %}
+          <p>
+            {% if row.review.decision == "perlu_perbaikan" %}
               <strong style="color:#991b1b">Perlu Perbaikan</strong>
             {% else %}
               <strong style="color:#166534">Sesuai</strong>
             {% endif %}
-          </td>
-
-          <td style="white-space:pre-line">{{ log.note }}</td>
-        </tr>
-
-      {% empty %}
-        <tr>
-          <td colspan="4">
-            Belum ada review Pairing untuk laporan ini.
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+            · {{ row.review.reviewed_by.get_full_name|default:row.review.reviewed_by.username }}
+            · {{ row.review.reviewed_at|date:"d-m-Y H:i" }}
+          </p>
+          {% if row.review.comment %}<p style="white-space:pre-line"><strong>Komentar:</strong> {{ row.review.comment }}</p>{% endif %}
+        {% elif can_submit_review %}
+          <form method="post" style="margin-top:12px">
+            {% csrf_token %}
+            <input type="hidden" name="item_id" value="{{ row.item.pk }}">
+            <label style="margin-right:18px"><input type="radio" name="decision" value="sesuai" required> <strong>Sesuai</strong></label>
+            <label><input type="radio" name="decision" value="perlu_perbaikan" required> <strong>Perlu Perbaikan</strong></label>
+            <div style="margin-top:10px">
+              <textarea name="comment" rows="3" style="width:100%;max-width:900px" placeholder="Komentar Pairing; wajib bila perlu perbaikan."></textarea>
+            </div>
+            <input type="submit" value="Simpan Review Risiko Ini" class="default">
+          </form>
+        {% else %}
+          <strong style="color:#9a3412">Menunggu Review</strong>
+        {% endif %}
+      </div>
+    {% empty %}
+      <p style="padding:16px">Belum ada risiko pada laporan ini.</p>
+    {% endfor %}
   </fieldset>
+
+  <div class="submit-row"><a href="{{ cancel_url }}" class="closelink">Kembali</a></div>
 
 </div>
 {% endblock %}
