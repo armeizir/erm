@@ -10,6 +10,7 @@ from corporate_risk.models import (
     MultiMetricMonteCarloResult,
     RiskMetric,
 )
+from risk.models import RKAPItem
 from risk.services.permissions import get_accessible_corporate_risk_items
 from monthly_report.models import MonthlyRiskReportItem
 
@@ -79,6 +80,44 @@ def _format_value(value, unit=""):
     if unit_text == "%" or "persen" in normalized:
         return f"{_plain_number(value)}%"
     return f"{_plain_number(value)}{(' ' + unit_text) if unit_text else ''}"
+
+
+def _accounting_number(value):
+    value = _decimal(value)
+    if value is None:
+        return "–"
+    text = _plain_number(abs(value))
+    return f"({text})" if value < 0 else text
+
+
+def _financial_posture(year):
+    items = list(
+        RKAPItem.objects.filter(
+            tahun=year,
+            jenis_rkap="LABA_RUGI",
+            aktif=True,
+        ).order_by("urutan", "kode", "id")
+    )
+    depth_by_id = {}
+    rows = []
+    for item in items:
+        depth = depth_by_id.get(item.parent_id, -1) + 1
+        depth_by_id[item.pk] = depth
+        rows.append({
+            "kode": item.kode or "",
+            "name": item.sasaran,
+            "depth": depth,
+            "row_type": (item.tipe_baris or "DATA").lower(),
+            "audited": _accounting_number(item.nilai_audited_2024),
+            "unaudited": _accounting_number(item.nilai_unaudited_2025),
+            "target": _accounting_number(item.target),
+            "unit": item.satuan or "",
+        })
+    return {
+        "year": year,
+        "rows": rows,
+        "source": next((item.sumber_dokumen for item in items if item.sumber_dokumen), ""),
+    }
 
 
 def _risk_status(risk, metric=None, actual=None, target=None):
@@ -363,7 +402,14 @@ def executive_risk_dashboard(request):
             "sumber_risiko", "sumber_risiko__reassessment_item"
         )
     )
-    years = list(base.values_list("summary__tahun", flat=True).distinct().order_by("-summary__tahun"))
+    risk_years = list(base.values_list("summary__tahun", flat=True).distinct().order_by("-summary__tahun"))
+    financial_years = list(
+        RKAPItem.objects.filter(jenis_rkap="LABA_RUGI", aktif=True)
+        .order_by()
+        .values_list("tahun", flat=True)
+        .distinct()
+    )
+    years = sorted(set(risk_years) | set(financial_years), reverse=True)
     try:
         selected_year = int(request.GET.get("year") or (years[0] if years else 0))
     except (TypeError, ValueError):
@@ -383,6 +429,7 @@ def executive_risk_dashboard(request):
 
     risk_card = _build_risk_card(selected, selected_year) if selected else None
     rotation = [{"id": item.pk, "number": item.no_risiko or item.no_item or item.pk, "title": item.peristiwa_risiko} for item in risks]
+    financial_mode = request.GET.get("finance") in {"1", "true", "yes"}
 
     context = {
         "page_title": "Executive Risk Dashboard",
@@ -392,5 +439,7 @@ def executive_risk_dashboard(request):
         "risk_card": risk_card,
         "rotation": rotation,
         "tv_mode": request.GET.get("tv") in {"1", "true", "yes"},
+        "financial_mode": financial_mode,
+        "financial_posture": _financial_posture(selected_year) if financial_mode else None,
     }
     return render(request, "executive_risk_dashboard.html", context)
