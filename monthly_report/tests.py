@@ -3185,3 +3185,94 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertContains(response, "Kirim Notifikasi Final")
         self.assertContains(response, officer.email)
         self.assertEqual(len(mail.outbox), 0)
+
+
+    def test_concurrent_edit_untouched_stale_row_is_not_marked_changed(self):
+        """Untouched stale Risk 1 tidak boleh menimpa save User A."""
+        report = self._report("BID CONCURRENT DIFFERENT RISK")
+        risk_event = self._risk_item(
+            report,
+            no_item=1,
+            no_risiko=1,
+            peristiwa_risiko="Risiko concurrent 1",
+        )
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+        )
+
+        # Browser B membuka halaman ketika value masih kosong.
+        browser_b_get = MonthlyRiskReportItemForm(
+            instance=item,
+            prefix="items-0",
+        )
+        stale_version = browser_b_get.concurrency_token
+
+        # User A menyimpan Risk 1.
+        item.realisasi_rencana_perlakuan = "Diisi User A"
+        item.save()
+
+        # Browser B masih membawa Risk 1 kosong, tetapi Risk 1 tidak disentuh.
+        bound = MonthlyRiskReportItemForm(
+            data={
+                "items-0-realisasi_rencana_perlakuan": "",
+                "items-0-_row_version": stale_version,
+                "items-0-_row_touched": "0",
+            },
+            instance=MonthlyRiskReportItem.objects.get(pk=item.pk),
+            prefix="items-0",
+        )
+
+        self.assertTrue(bound.is_valid())
+        self.assertFalse(bound.has_changed())
+        self.assertFalse(bound.non_field_errors())
+
+        # Database tetap menyimpan hasil User A.
+        item.refresh_from_db()
+        self.assertEqual(
+            item.realisasi_rencana_perlakuan,
+            "Diisi User A",
+        )
+
+
+    def test_concurrent_edit_same_row_is_rejected_with_refresh_message(self):
+        """Two users editing the same risk must produce a conflict, not lost data."""
+        report = self._report("BID CONCURRENT SAME RISK")
+        risk_event = self._risk_item(
+            report,
+            no_item=1,
+            no_risiko=1,
+            peristiwa_risiko="Risiko concurrent same row",
+        )
+        item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=risk_event,
+        )
+
+        browser_b_get = MonthlyRiskReportItemForm(
+            instance=item,
+            prefix="items-0",
+        )
+        stale_version = browser_b_get.concurrency_token
+
+        # User A changes the same DB row first.
+        item.realisasi_rencana_perlakuan = "Perubahan User A"
+        item.save()
+
+        # User B changes the same field using the stale page/version.
+        bound = MonthlyRiskReportItemForm(
+            data={
+                "items-0-realisasi_rencana_perlakuan": "Perubahan User B",
+                "initial-items-0-realisasi_rencana_perlakuan": "",
+                "items-0-_row_version": stale_version,
+                "items-0-_row_touched": "1",
+            },
+            instance=MonthlyRiskReportItem.objects.get(pk=item.pk),
+            prefix="items-0",
+        )
+        bound.is_valid()
+
+        self.assertIn(
+            "telah diperbarui oleh pengguna lain",
+            str(bound.non_field_errors()),
+        )
