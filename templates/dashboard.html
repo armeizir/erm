@@ -909,6 +909,7 @@
           <span class="bodx-chip" id="bodMode">Mode: –</span>
           <button class="bodx-btn" type="button" id="bodResidual">Gunakan Residual</button>
           <button class="bodx-btn primary" type="button" id="bodExecutiveOpen">Dashboard Direksi</button>
+          <button class="bodx-btn" type="button" id="bodFinancialOpen">Postur Keuangan RKAP</button>
           <button class="bodx-btn" type="button" id="bodExecutiveTv">Mode TV</button>
           <button class="bodx-btn" type="button" id="bodDetail">Detail RCC</button>
 <a id="strategy-risk-map-nav" class="bodx-btn" href="{% url 'strategy_risk_map:home' %}">Strategy–Risk Map</a>
@@ -2608,7 +2609,7 @@
  let att=[];high.slice(0,3).forEach(r=>att.push(["red",r.event,"Level "+(r.level||"tinggi")+(r.score?" · skor "+r.score:"")+". Perlu prioritas mitigasi dan eskalasi."]));if(unmapped>0)att.push(["amber",Math.round(unmapped)+" risiko belum dipetakan","Lengkapi penilaian agar keputusan BoD tidak menggunakan heatmap yang masih kosong."]);if(katt>0)att.push(["amber",Math.round(katt)+" unit KPMR perlu atensi","Rata-rata KPMR saat ini "+(kpmr||"belum tersedia")+"."]);if(reported!=null&&units&&reported<units)att.push(["amber","Reporting belum lengkap ("+Math.round(reported)+"/"+units+" unit)","Perlu percepatan pelaporan agar posisi risiko korporat mencerminkan seluruh unit."]);if(!att.length)att.push(["green","Tidak ada exception utama yang terdeteksi","Tetap review Top Corporate Risks dan detail RCC."]);
  let al=document.getElementById("bodAtt");al.innerHTML="";att.slice(0,6).forEach(a=>{let d=document.createElement("div");d.className="bodx-att-item";d.innerHTML='<span class="bodx-sig '+a[0]+'"></span><div><div class="bodx-atitle">'+a[1]+'</div><div class="bodx-atext">'+a[2]+"</div></div>";al.appendChild(d)});set("bodAttCount",att.length);
  /* BOD_EXECUTIVE_DASHBOARD_STANDALONE_LINK_V1 */
- const bodExecutiveUrl=(tvMode)=>{
+ const bodExecutiveUrl=(tvMode,financeMode=false)=>{
    const current=new URLSearchParams(window.location.search);
    const params=new URLSearchParams();
 
@@ -2621,6 +2622,7 @@
    if(year) params.set("year",year);
    if(riskId) params.set("risk",riskId);
    if(tvMode) params.set("tv","1");
+   if(financeMode) params.set("finance","1");
 
    const query=params.toString();
    return "{% url 'executive_risk_dashboard' %}" + (query ? "?" + query : "");
@@ -2630,6 +2632,13 @@
  if(bodExecutiveOpen){
    bodExecutiveOpen.onclick=()=>{
      window.location.href=bodExecutiveUrl(false);
+   };
+ }
+
+ const bodFinancialOpen=document.getElementById("bodFinancialOpen");
+ if(bodFinancialOpen){
+   bodFinancialOpen.onclick=()=>{
+     window.location.href=bodExecutiveUrl(false,true);
    };
  }
 

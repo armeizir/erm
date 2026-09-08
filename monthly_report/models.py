@@ -978,6 +978,54 @@ class MonthlyRiskReportSubmissionLog(models.Model):
         ordering = ["-action_at"]
 
 
+class MonthlyRiskReportItemPairingReview(models.Model):
+    DECISION_CHOICES = [
+        ("sesuai", "Sesuai"),
+        ("perlu_perbaikan", "Perlu Perbaikan"),
+    ]
+
+    item = models.ForeignKey(
+        MonthlyRiskReportItem,
+        on_delete=models.CASCADE,
+        related_name="pairing_reviews",
+        verbose_name="Risiko Laporan Bulanan",
+    )
+    approval_log = models.ForeignKey(
+        MonthlyRiskReportSubmissionLog,
+        on_delete=models.CASCADE,
+        related_name="pairing_item_reviews",
+        null=True,
+        blank=True,
+        verbose_name="Siklus Approval",
+    )
+    decision = models.CharField(
+        max_length=30,
+        choices=DECISION_CHOICES,
+        verbose_name="Keputusan",
+    )
+    comment = models.TextField(blank=True, default="", verbose_name="Komentar Pairing")
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="monthly_report_item_pairing_reviews",
+        verbose_name="Direview oleh",
+    )
+    reviewed_at = models.DateTimeField(auto_now=True, verbose_name="Waktu Review")
+
+    class Meta:
+        db_table = "mr_item_pairing_review"
+        ordering = ["item__risk_event__no_item", "item_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["item", "approval_log"],
+                name="uniq_pairing_review_item_approval_cycle",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.item} - {self.get_decision_display()}"
+
+
 class MonthlyRiskReportEvidence(TimeStampedModel):
     report = models.ForeignKey(
         MonthlyRiskReport,

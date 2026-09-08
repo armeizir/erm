@@ -46,7 +46,9 @@ from .models import (
     MonthlyRiskReport,
     MonthlyRiskReportChange,
     MonthlyRiskReportItem,
+    MonthlyRiskReportItemPairingReview,
     MonthlyRiskReportLossEvent,
+    MonthlyRiskReportSubmissionLog,
     MonthlyRiskReportImportBatch,
     MonthlyRiskReportImportRow,
 )
@@ -127,6 +129,62 @@ class MonthlyRiskReportAdminTests(TestCase):
             risk_event=risk_event,
         )
         self.assertEqual(report_item.km_item_id, risk_event.km_item_id)
+
+    def test_pairing_review_is_recorded_per_risk_and_tracks_progress(self):
+        report = self._report("BID PAIRING PER RISK")
+        first_item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=self._risk_item(report, no_item=1, no_risiko=1),
+        )
+        second_item = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=self._risk_item(report, no_item=2, no_risiko=2),
+        )
+        report.status = "approved"
+        report.approved_at = timezone.now()
+        report.is_locked = True
+        report.save(update_fields=["status", "approved_at", "is_locked"])
+        approval_log = MonthlyRiskReportSubmissionLog.objects.create(
+            report=report,
+            action="approve",
+            action_by=self.admin_user,
+        )
+        url = reverse(
+            "risk_admin:monthly_report_monthlyriskreport_pairing_review",
+            args=[report.pk],
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.post(
+            url,
+            {"item_id": first_item.pk, "decision": "sesuai", "comment": "Sesuai."},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        report.refresh_from_db()
+        self.assertEqual(report.status, "approved")
+        first_review = MonthlyRiskReportItemPairingReview.objects.get(
+            item=first_item,
+            approval_log=approval_log,
+        )
+        self.assertEqual(first_review.decision, "sesuai")
+        report_admin = MonthlyRiskReportAdmin(MonthlyRiskReport, AdminSite())
+        self.assertIn("1/2 Risiko Direview", str(report_admin.pairing_review_column(report)))
+
+        response = self.client.post(
+            url,
+            {"item_id": second_item.pk, "decision": "sesuai", "comment": "Sesuai."},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            MonthlyRiskReportItemPairingReview.objects.filter(
+                item__report=report,
+                approval_log=approval_log,
+            ).count(),
+            2,
+        )
+        self.assertIn("2/2 Risiko Reviewed", str(report_admin.pairing_review_column(report)))
 
     def test_report_delete_cascades_import_batches_and_matched_rows(self):
         report = self._report("BID DELETE IMPORT")
