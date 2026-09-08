@@ -59,6 +59,13 @@
           </summary>
 
           <div class="monitoring-risk-body">
+            <input type="hidden"
+                   name="{{ inline_admin_form.form.prefix }}-_row_version"
+                   value="{{ inline_admin_form.form.concurrency_token }}">
+            <input type="hidden"
+                   class="mrr-row-touched"
+                   name="{{ inline_admin_form.form.prefix }}-_row_touched"
+                   value="{{ inline_admin_form.form.concurrency_touched_token }}">
             <p class="active-period-context">{{ inline_admin_form.form.active_period_context }}</p>
             {% if inline_admin_form.form.non_field_errors %}{{ inline_admin_form.form.non_field_errors }}{% endif %}
             {% with parent_counter=forloop.counter0 %}
@@ -91,6 +98,88 @@
 
 <script>
 (function () {
+  /*
+   * MRR_CONCURRENT_EDIT_GUARD_V2
+   *
+   * Tandai hanya kartu risiko yang benar-benar disentuh pengguna.
+   * Save pada Risk 2 tidak boleh membuat Risk 1 dianggap ikut berubah.
+   */
+  function markMonitoringRiskTouched(target) {
+    if (!target) {
+      return;
+    }
+
+    const row = target.closest(".monitoring-risk");
+    if (!row || row.classList.contains("empty-form")) {
+      return;
+    }
+
+    const marker = row.querySelector(
+      'input.mrr-row-touched[name$="-_row_touched"]'
+    );
+
+    if (marker) {
+      marker.value = "1";
+    }
+  }
+
+  function isMonitoringEditableField(target) {
+    if (!target || !target.matches("input, select, textarea")) {
+      return false;
+    }
+
+    if (!target.closest(".monitoring-inline-group")) {
+      return false;
+    }
+
+    /*
+     * Hidden management/version fields bukan input user.
+     */
+    if (target.matches('input[type="hidden"]')) {
+      return false;
+    }
+
+    return true;
+  }
+
+  document.addEventListener(
+    "input",
+    function (event) {
+      if (isMonitoringEditableField(event.target)) {
+        markMonitoringRiskTouched(event.target);
+      }
+    },
+    true
+  );
+
+  document.addEventListener(
+    "change",
+    function (event) {
+      if (isMonitoringEditableField(event.target)) {
+        markMonitoringRiskTouched(event.target);
+      }
+    },
+    true
+  );
+
+  /*
+   * Beberapa widget seperti "Pilih Semua/Kosongkan Semua" mengubah
+   * checkbox melalui JavaScript. Klik tombolnya juga menandai row dirty.
+   */
+  document.addEventListener(
+    "click",
+    function (event) {
+      const button = event.target.closest(
+        ".monitoring-inline-group .monitoring-risk button"
+      );
+
+      if (button) {
+        markMonitoringRiskTouched(button);
+      }
+    },
+    true
+  );
+
   function findMonitoringTarget(details, fieldName) {
     if (!details || !fieldName) {
       return null;
