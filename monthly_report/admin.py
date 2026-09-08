@@ -17,6 +17,7 @@ from django.template.response import TemplateResponse
 from django.urls import path
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
@@ -750,6 +751,13 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                 "data-kri-red": risk.threshold_bahaya or "",
                 "data-kri-unit": risk.unit_satuan_kri or "",
             })
+
+        # MRR_CONCURRENT_EDIT_GUARD_V2
+        #
+        # V2 menggunakan penanda row yang benar-benar disentuh browser.
+        # Row monitoring lain yang tidak disentuh tidak ikut divalidasi
+        # maupun disimpan saat pengguna menyimpan risiko yang berbeda.
+
         widgets = {
             "realisasi_asumsi_dampak": forms.Textarea(attrs={"rows": 3}),
             "realisasi_rencana_perlakuan": forms.Textarea(attrs={"rows": 3}),
@@ -758,6 +766,155 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             "next_action": forms.Textarea(attrs={"rows": 3}),
             "escalation_note": forms.Textarea(attrs={"rows": 3}),
         }
+
+    @property
+    def concurrency_guard_enabled(self):
+        """
+        Guard hanya aktif untuk POST dari template monitoring V2.
+
+        POST lama, test lama, import, atau caller programatik yang tidak
+        mengirim marker V2 tetap memakai perilaku lama sehingga perubahan
+        ini tidak merusak jalur penyimpanan lain.
+        """
+        if not self.is_bound:
+            return False
+
+        touch_key = self.add_prefix("_row_touched")
+        version_key = self.add_prefix("_row_version")
+
+        return (
+            touch_key in self.data
+            and version_key in self.data
+        )
+
+    @property
+    def row_was_touched(self):
+        """
+        True hanya bila row risiko ini benar-benar disentuh pada browser.
+
+        Jika marker V2 tidak tersedia, kembalikan True agar jalur lama
+        tidak diam-diam diabaikan.
+        """
+        if not self.concurrency_guard_enabled:
+            return True
+
+        value = (
+            self.data.get(self.add_prefix("_row_touched"))
+            or ""
+        ).strip()
+
+        return value == "1"
+
+    @property
+    def concurrency_touched_token(self):
+        """Nilai marker dirty yang dipertahankan saat form dirender ulang."""
+        if self.is_bound and self.concurrency_guard_enabled:
+            return "1" if self.row_was_touched else "0"
+        return "0"
+
+    def has_changed(self):
+        """
+        Row existing yang tidak disentuh browser tidak boleh dianggap berubah.
+
+        Ini mencegah stale value User B menimpa hasil save User A pada
+        risiko lain.
+        """
+        if (
+            self.concurrency_guard_enabled
+            and self.instance
+            and self.instance.pk
+            and not self.row_was_touched
+        ):
+            return False
+
+        return super().has_changed()
+
+    def full_clean(self):
+        """
+        Jangan validasi row existing yang tidak disentuh browser.
+
+        Tanpa guard ini, satu row lama/invalid pada risiko lain dapat membuat
+        seluruh laporan menampilkan 'Please correct the errors below' walaupun
+        user hanya mengubah satu risiko yang berbeda.
+        """
+        if (
+            self.concurrency_guard_enabled
+            and self.instance
+            and self.instance.pk
+            and not self.row_was_touched
+        ):
+            self._errors = ErrorDict()
+            self.cleaned_data = {}
+            return
+
+        return super().full_clean()
+
+    @property
+    def concurrency_token(self):
+        """Version token rendered with each existing monitoring row."""
+        if self.is_bound:
+            return (
+                self.data.get(self.add_prefix("_row_version"))
+                or ""
+            ).strip()
+        if self.instance and self.instance.pk and self.instance.updated_at:
+            return self.instance.updated_at.isoformat()
+        return ""
+
+    def _validate_concurrent_edit(self):
+        """
+        Tolak stale update hanya untuk row yang benar-benar disentuh user.
+        """
+        if not self.is_bound or not self.instance or not self.instance.pk:
+            return
+
+        # Backward compatible: hanya template V2 yang menggunakan guard.
+        if not self.concurrency_guard_enabled:
+            return
+
+        # Risiko lain pada halaman yang tidak disentuh tidak ikut diperiksa.
+        if not self.row_was_touched:
+            return
+
+        raw_version = (
+            self.data.get(self.add_prefix("_row_version"))
+            or ""
+        ).strip()
+        loaded_version = parse_datetime(raw_version) if raw_version else None
+        current_version = (
+            MonthlyRiskReportItem.objects
+            .filter(pk=self.instance.pk)
+            .values_list("updated_at", flat=True)
+            .first()
+        )
+
+        if loaded_version is None or current_version is None:
+            self.add_error(
+                None,
+                "Form risiko ini sudah kedaluwarsa atau data tidak lagi tersedia. "
+                "Muat ulang halaman sebelum menyimpan perubahan.",
+            )
+            return
+
+        if timezone.is_naive(loaded_version) and timezone.is_aware(current_version):
+            loaded_version = timezone.make_aware(
+                loaded_version,
+                timezone.get_current_timezone(),
+            )
+        elif timezone.is_aware(loaded_version) and timezone.is_naive(current_version):
+            current_version = timezone.make_aware(
+                current_version,
+                timezone.get_current_timezone(),
+            )
+
+        if loaded_version != current_version:
+            self.add_error(
+                None,
+                "Risiko ini telah diperbarui oleh pengguna lain setelah halaman "
+                "Anda dibuka. Perubahan pada risiko ini belum disimpan untuk "
+                "mencegah data pengguna lain tertimpa. Muat ulang halaman, "
+                "periksa data terbaru, lalu lakukan perubahan kembali.",
+            )
 
     def _threshold_for_kri_status(self, status):
         risk = self.risk
@@ -799,6 +956,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                 "Isi realisasi KRI Teks/Komposit jika menggunakan status manual.",
             )
 
+        self._validate_concurrent_edit()
         return cleaned
 
     def save(self, commit=True):
