@@ -1169,17 +1169,53 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         item = self.instance
         if not item or not item.pk or not item.report_id:
             return ""
+
         approval_log = (
-            item.report.submission_logs.filter(action="approve")
+            item.report.submission_logs
+            .filter(action="approve")
             .order_by("-pk")
             .first()
         )
-        review = item.pairing_reviews.filter(
-            approval_log=approval_log
-        ).first()
+
+        review = (
+            item.pairing_reviews
+            .filter(approval_log=approval_log)
+            .first()
+        )
+
         if review is None:
             return "Belum Direview"
+
         return review.get_decision_display()
+
+    @property
+    def pairing_review_disabled_reason(self):
+        # PAIRING_NONAKTIF_SEPARATE_UI_V1
+        item = self.instance
+
+        if not item or not item.pk or not item.report_id:
+            return ""
+
+        approval_log = (
+            item.report.submission_logs
+            .filter(action="approve")
+            .order_by("-pk")
+            .first()
+        )
+
+        review = (
+            item.pairing_reviews
+            .filter(
+                approval_log=approval_log,
+                decision="nonaktif",
+            )
+            .first()
+        )
+
+        if review is None:
+            return ""
+
+        return (review.comment or "").strip()
 
     @property
     def completion_status(self):
@@ -2613,30 +2649,59 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         )
 
     def _pairing_review_progress(self, obj):
+        # PAIRING_DISABLE_V1
+        # PAIRING_NONAKTIF_SEPARATE_UI_V1
         approval_log = self._current_approval_log(obj)
         owner_items = _monthly_report_pairing_owner_items(obj)
         owner_ids = [item.pk for item in owner_items]
-        total = len(owner_ids)
-        reviews = MonthlyRiskReportItemPairingReview.objects.filter(
+        owner_total = len(owner_ids)
+
+        pairing_rows = MonthlyRiskReportItemPairingReview.objects.filter(
             item_id__in=owner_ids,
             approval_log=approval_log,
         )
+
+        disabled = pairing_rows.filter(
+            decision="nonaktif"
+        ).count()
+
+        total = max(owner_total - disabled, 0)
+
+        reviews = pairing_rows.filter(
+            decision__in={"sesuai", "perlu_perbaikan"}
+        )
+
         reviewed = reviews.count()
+
         revision_required = reviews.filter(
             decision="perlu_perbaikan"
         ).count()
+
         return {
             "approval_log": approval_log,
+            "owner_total": owner_total,
             "total": total,
+            "disabled": disabled,
             "reviewed": reviewed,
             "revision_required": revision_required,
         }
 
     def _pairing_review_state(self, obj):
         progress = self._pairing_review_progress(obj)
+
         if progress["revision_required"]:
             return "revision_required", None
-        if progress["total"] and progress["reviewed"] == progress["total"]:
+
+        # Satu risiko dianggap selesai untuk Pairing apabila:
+        # - sudah direview; atau
+        # - Pairing-nya dinonaktifkan dengan alasan.
+        if (
+            progress["owner_total"]
+            and (
+                progress["reviewed"] + progress["disabled"]
+                == progress["owner_total"]
+            )
+        ):
             return "reviewed", None
 
         log = self._current_pairing_review_log(obj)
@@ -3228,6 +3293,293 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         )
 
     def pairing_review_view(self, request, object_id):
+        # PAIRING_DISABLE_V1
+        pairing_action = (
+            request.POST.get("pairing_action") or ""
+        ).strip().lower()
+
+        if (
+            request.method == "POST"
+            and pairing_action in {"disable", "enable"}
+        ):
+            report_for_control = self.get_object(
+                request,
+                object_id,
+            )
+
+            if report_for_control is None:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": "Monthly Risk Report tidak ditemukan.",
+                    },
+                    status=404,
+                )
+
+            if report_for_control.status != "approved":
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Pengaturan Pairing hanya dapat dilakukan "
+                            "pada laporan berstatus Approved."
+                        ),
+                    },
+                    status=400,
+                )
+
+            try:
+                item_id = int(
+                    request.POST.get("item_id") or 0
+                )
+            except (TypeError, ValueError):
+                item_id = 0
+
+            reason = (
+                request.POST.get("reason") or ""
+            ).strip()
+
+            if pairing_action == "disable" and not reason:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Alasan menonaktifkan Pairing wajib diisi."
+                        ),
+                    },
+                    status=400,
+                )
+
+            try:
+                with transaction.atomic():
+                    locked_report = (
+                        self.model.objects
+                        .select_for_update()
+                        .select_related(
+                            "reassessment",
+                            "reassessment__unit_bisnis",
+                            "periode",
+                        )
+                        .get(pk=report_for_control.pk)
+                    )
+
+                    if locked_report.status != "approved":
+                        raise ValidationError(
+                            "Status laporan telah berubah. "
+                            "Pairing hanya dapat diatur ketika "
+                            "laporan berstatus Approved."
+                        )
+
+                    active_pairings = resolve_pairing_officers(
+                        locked_report
+                    )
+                    active_pairing_ids = {
+                        user.pk for user in active_pairings
+                    }
+
+                    if (
+                        not request.user.is_superuser
+                        and request.user.pk
+                        not in active_pairing_ids
+                    ):
+                        raise ValidationError(
+                            "User bukan Pairing Officer aktif "
+                            "untuk unit laporan."
+                        )
+
+                    owner_items = (
+                        _monthly_report_pairing_owner_items(
+                            locked_report
+                        )
+                    )
+                    owner_by_id = {
+                        item.pk: item
+                        for item in owner_items
+                    }
+
+                    owner_item = owner_by_id.get(item_id)
+
+                    if owner_item is None:
+                        raise ValidationError(
+                            "Item bukan canonical owner "
+                            "risiko pada laporan ini."
+                        )
+
+                    approval_log = (
+                        self._current_approval_log(
+                            locked_report
+                        )
+                    )
+
+                    existing = (
+                        MonthlyRiskReportItemPairingReview
+                        .objects
+                        .select_for_update()
+                        .filter(
+                            item=owner_item,
+                            approval_log=approval_log,
+                        )
+                        .first()
+                    )
+
+                    if pairing_action == "disable":
+                        if (
+                            existing
+                            and existing.decision
+                            in {
+                                "sesuai",
+                                "perlu_perbaikan",
+                            }
+                        ):
+                            raise ValidationError(
+                                "Risiko yang sudah direview Pairing "
+                                "tidak dapat dinonaktifkan."
+                            )
+
+                        review, _ = (
+                            MonthlyRiskReportItemPairingReview
+                            .objects
+                            .update_or_create(
+                                item=owner_item,
+                                approval_log=approval_log,
+                                defaults={
+                                    "decision": "nonaktif",
+                                    "comment": reason,
+                                    "reviewed_by": request.user,
+                                },
+                            )
+                        )
+
+                        status_label = "Pairing Nonaktif"
+                        is_disabled = True
+
+                    else:
+                        if (
+                            existing is None
+                            or existing.decision != "nonaktif"
+                        ):
+                            raise ValidationError(
+                                "Pairing risiko ini tidak sedang "
+                                "berstatus Nonaktif."
+                            )
+
+                        existing.decision = "aktif"
+                        existing.comment = ""
+                        existing.reviewed_by = request.user
+                        existing.save(
+                            update_fields=[
+                                "decision",
+                                "comment",
+                                "reviewed_by",
+                                "reviewed_at",
+                            ]
+                        )
+
+                        review = existing
+                        status_label = "Belum Direview"
+                        is_disabled = False
+
+            except ValidationError as exc:
+                message = (
+                    "; ".join(exc.messages)
+                    if hasattr(exc, "messages")
+                    else str(exc)
+                )
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": message,
+                    },
+                    status=400,
+                )
+
+            progress = self._pairing_review_progress(
+                locked_report
+            )
+
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "item_id": owner_item.pk,
+                    "pairing_disabled": is_disabled,
+                    "status_label": status_label,
+                    "reason": (
+                        review.comment
+                        if is_disabled
+                        else ""
+                    ),
+                    "reviewed": progress["reviewed"],
+                    "total": progress["total"],
+                    "disabled": progress["disabled"],
+                    "owner_total": progress["owner_total"],
+                }
+            )
+
+        # Server-side guard:
+        # review biasa tidak boleh menimpa Pairing Nonaktif.
+        if (
+            request.method == "POST"
+            and not pairing_action
+            and request.POST.get("item_id")
+        ):
+            try:
+                guard_item_id = int(
+                    request.POST.get("item_id")
+                )
+            except (TypeError, ValueError):
+                guard_item_id = 0
+
+            guard_report = self.get_object(
+                request,
+                object_id,
+            )
+
+            if guard_report is not None:
+                guard_approval_log = (
+                    self._current_approval_log(
+                        guard_report
+                    )
+                )
+
+                disabled_review = (
+                    MonthlyRiskReportItemPairingReview
+                    .objects
+                    .filter(
+                        item_id=guard_item_id,
+                        approval_log=guard_approval_log,
+                        decision="nonaktif",
+                    )
+                    .exists()
+                )
+
+                if disabled_review:
+                    if (
+                        request.POST.get("modal") == "1"
+                        or request.headers.get(
+                            "X-Requested-With"
+                        ) == "XMLHttpRequest"
+                    ):
+                        return JsonResponse(
+                            {
+                                "ok": False,
+                                "error": (
+                                    "Pairing risiko ini sedang "
+                                    "dinonaktifkan. Aktifkan Pairing "
+                                    "terlebih dahulu."
+                                ),
+                            },
+                            status=400,
+                        )
+
+                    self.message_user(
+                        request,
+                        (
+                            "Pairing risiko sedang dinonaktifkan. "
+                            "Aktifkan Pairing terlebih dahulu."
+                        ),
+                        level=messages.ERROR,
+                    )
+                    return redirect(request.path)
         from django.db import transaction
         from monthly_report.recipient_services import resolve_pairing_officers
 

@@ -979,7 +979,10 @@ class MonthlyRiskReportSubmissionLog(models.Model):
 
 
 class MonthlyRiskReportItemPairingReview(models.Model):
+    # PAIRING_DISABLE_V1
     DECISION_CHOICES = [
+        ("aktif", "Belum Direview"),
+        ("nonaktif", "Pairing Nonaktif"),
         ("sesuai", "Sesuai"),
         ("perlu_perbaikan", "Perlu Perbaikan"),
     ]

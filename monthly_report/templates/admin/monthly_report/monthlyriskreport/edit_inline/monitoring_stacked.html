@@ -47,17 +47,66 @@
             <span class="completion-badge {% if inline_admin_form.form.completion_status == 'Lengkap' %}is-complete{% elif inline_admin_form.form.completion_status == 'Perlu Diperiksa' %}needs-check{% else %}is-incomplete{% endif %}">{{ inline_admin_form.form.completion_status }}</span>
             {% if inline_admin_form.form.instance.report.status == "approved" and inline_admin_form.form.pairing_review_is_owner %}
               {% url 'risk_admin:monthly_report_monthlyriskreport_pairing_review' inline_admin_form.form.instance.report_id as pairing_review_url %}
+              {# PAIRING_NONAKTIF_SEPARATE_UI_V1 #}
               <span class="pairing-review-actions">
-                <span class="pairing-review-status" data-pairing-status-for="{{ inline_admin_form.form.instance.pk }}">
+
+                <span class="pairing-review-status"
+                      data-pairing-status-for="{{ inline_admin_form.form.instance.pk }}">
                   {{ inline_admin_form.form.pairing_review_status }}
                 </span>
-                <button type="button"
-                        class="button pairing-review-open"
-                        data-pairing-review-url="{{ pairing_review_url }}?modal=1&amp;item_id={{ inline_admin_form.form.instance.pk }}"
-                        data-pairing-item-id="{{ inline_admin_form.form.instance.pk }}"
-                        aria-haspopup="dialog">
-                  Review Risiko
-                </button>
+
+                {% if inline_admin_form.form.pairing_review_status == "Pairing Nonaktif" %}
+
+                  {% if inline_admin_form.form.pairing_review_disabled_reason %}
+                    <span style="
+                        display:inline-block;
+                        max-width:420px;
+                        margin-left:8px;
+                        padding:4px 8px;
+                        border-radius:6px;
+                        background:#fff7ed;
+                        color:#92400e;
+                        white-space:normal;
+                        vertical-align:middle;">
+                      <strong>Alasan:</strong>
+                      {{ inline_admin_form.form.pairing_review_disabled_reason }}
+                    </span>
+                  {% endif %}
+
+                  <button type="button"
+                          class="button pairing-state-action"
+                          data-pairing-action="enable"
+                          data-pairing-state-url="{{ pairing_review_url }}"
+                          data-pairing-item-id="{{ inline_admin_form.form.instance.pk }}">
+                    Aktifkan Pairing
+                  </button>
+
+                {% else %}
+
+                  <button type="button"
+                          class="button pairing-review-open"
+                          data-pairing-review-url="{{ pairing_review_url }}?modal=1&amp;item_id={{ inline_admin_form.form.instance.pk }}"
+                          data-pairing-item-id="{{ inline_admin_form.form.instance.pk }}"
+                          aria-haspopup="dialog">
+                    Review Risiko
+                  </button>
+
+                  {% if inline_admin_form.form.pairing_review_status == "Belum Direview" %}
+                    <button type="button"
+                            class="button pairing-state-action"
+                            style="
+                                background:#b45309;
+                                border-color:#92400e;
+                                color:#ffffff;"
+                            data-pairing-action="disable"
+                            data-pairing-state-url="{{ pairing_review_url }}"
+                            data-pairing-item-id="{{ inline_admin_form.form.instance.pk }}">
+                      NONAKTIF
+                    </button>
+                  {% endif %}
+
+                {% endif %}
+
               </span>
             {% endif %}
             {% with missing_items=inline_admin_form.form.missing_fields_guidance %}
@@ -211,7 +260,11 @@
         ".monitoring-inline-group .monitoring-risk button"
       );
 
-      if (button && !button.classList.contains("pairing-review-open")) {
+      if (
+        button
+        && !button.classList.contains("pairing-review-open")
+        && !button.classList.contains("pairing-state-action")
+      ) {
         markMonitoringRiskTouched(button);
       }
     },
