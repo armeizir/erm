@@ -1,0 +1,63 @@
+<div class="pairing-review-panel" data-pairing-review-panel data-item-id="{{ row.item.pk }}">
+  <header class="pairing-review-drawer-header">
+    <div>
+      <span class="pairing-review-eyebrow">REVIEW RISIKO</span>
+      <h2 id="pairing-review-drawer-title">
+        Risiko {{ row.item.risk_event.no_risiko|default:row.item.risk_event.no_item }}
+      </h2>
+    </div>
+    <button type="button" class="pairing-review-close" data-pairing-review-close aria-label="Tutup review">×</button>
+  </header>
+
+  <div class="pairing-review-drawer-body">
+    <h3>{{ row.item.risk_event.peristiwa_risiko }}</h3>
+    <dl class="pairing-review-context">
+      <div><dt>Periode</dt><dd>{{ report.periode.nama_periode }}</dd></div>
+      <div><dt>Status data</dt><dd>{{ drawer_completion_status }}</dd></div>
+      <div><dt>Status laporan</dt><dd>{{ report.get_status_display }}</dd></div>
+    </dl>
+
+    <div class="pairing-review-feedback" data-pairing-review-feedback hidden role="status"></div>
+
+    {% if row.review %}
+      <div class="pairing-review-existing">
+        <strong data-pairing-decision>{{ row.review.get_decision_display }}</strong>
+        <p>
+          {{ row.review.reviewed_by.get_full_name|default:row.review.reviewed_by.username }}
+          · {{ row.review.reviewed_at|date:"d-m-Y H:i" }}
+        </p>
+        {% if row.review.comment %}<p class="pairing-review-comment">{{ row.review.comment|linebreaksbr }}</p>{% endif %}
+      </div>
+    {% elif can_submit_review %}
+      <div class="pairing-review-fields">
+        <fieldset>
+          <legend>Keputusan review</legend>
+          <label><input type="radio" name="drawer_decision_{{ row.item.pk }}" value="sesuai"> Sesuai</label>
+          <label><input type="radio" name="drawer_decision_{{ row.item.pk }}" value="perlu_perbaikan"> Perlu Perbaikan</label>
+        </fieldset>
+        <label for="pairing-review-comment-{{ row.item.pk }}">Catatan Reviewer</label>
+        <textarea id="pairing-review-comment-{{ row.item.pk }}" data-pairing-review-comment rows="5" placeholder="Wajib diisi bila perlu perbaikan."></textarea>
+      </div>
+    {% else %}
+      <p class="pairing-review-warning">
+        {% if report.status != "approved" %}
+          Review hanya dapat dilakukan ketika laporan berstatus Approved.
+        {% else %}
+          Hanya Pairing Officer unit terkait yang dapat menyimpan review.
+        {% endif %}
+      </p>
+    {% endif %}
+  </div>
+
+  <footer class="pairing-review-drawer-footer">
+    <button type="button" class="button" data-pairing-review-close>Batal</button>
+    {% if not row.review and can_submit_review %}
+      <button type="button"
+              class="button default pairing-review-save"
+              data-pairing-review-save
+              data-post-url="{% url 'risk_admin:monthly_report_monthlyriskreport_pairing_review' report.pk %}">
+        Simpan Review
+      </button>
+    {% endif %}
+  </footer>
+</div>

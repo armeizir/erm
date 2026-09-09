@@ -32,6 +32,21 @@
               Status KRI: {{ inline_admin_form.form.kri_status_display }}
             </span>
             <span class="completion-badge {% if inline_admin_form.form.completion_status == 'Lengkap' %}is-complete{% elif inline_admin_form.form.completion_status == 'Perlu Diperiksa' %}needs-check{% else %}is-incomplete{% endif %}">{{ inline_admin_form.form.completion_status }}</span>
+            {% if inline_admin_form.form.instance.report.status == "approved" and inline_admin_form.form.pairing_review_is_owner %}
+              {% url 'risk_admin:monthly_report_monthlyriskreport_pairing_review' inline_admin_form.form.instance.report_id as pairing_review_url %}
+              <span class="pairing-review-actions">
+                <span class="pairing-review-status" data-pairing-status-for="{{ inline_admin_form.form.instance.pk }}">
+                  {{ inline_admin_form.form.pairing_review_status }}
+                </span>
+                <button type="button"
+                        class="button pairing-review-open"
+                        data-pairing-review-url="{{ pairing_review_url }}?modal=1&amp;item_id={{ inline_admin_form.form.instance.pk }}"
+                        data-pairing-item-id="{{ inline_admin_form.form.instance.pk }}"
+                        aria-haspopup="dialog">
+                  Review Risiko
+                </button>
+              </span>
+            {% endif %}
             {% with missing_items=inline_admin_form.form.missing_fields_guidance %}
               {% if missing_items %}
                 <span class="risk-summary-missing">
@@ -94,6 +109,18 @@
       </div>
     {% endfor %}
   </fieldset>
+
+  <div class="pairing-review-overlay" data-pairing-review-overlay hidden></div>
+  <aside class="pairing-review-drawer"
+         data-pairing-review-drawer
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="pairing-review-drawer-title"
+         hidden>
+    <div class="pairing-review-drawer-loading" data-pairing-review-content>
+      Memuat review risiko…
+    </div>
+  </aside>
 </div>
 
 <script>
@@ -173,7 +200,7 @@
         ".monitoring-inline-group .monitoring-risk button"
       );
 
-      if (button) {
+      if (button && !button.classList.contains("pairing-review-open")) {
         markMonitoringRiskTouched(button);
       }
     },

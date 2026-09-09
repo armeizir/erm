@@ -490,6 +490,37 @@ def _monthly_risk_item_number_map(items):
     return number_by_pk
 
 
+def _monthly_report_pairing_owner_items(report, *, for_update=False):
+    """Return one canonical MonthlyRiskReportItem for each business risk."""
+    if not report or not report.pk:
+        return []
+
+    queryset = report.items.select_related(
+        "risk_event",
+        "risk_event__summary",
+        "risk_event__summary__unit_bisnis",
+    ).order_by(
+        "risk_event__no_risiko",
+        "risk_event__no_item",
+        "risk_event__no_penyebab_risiko",
+        "pk",
+    )
+    if for_update:
+        queryset = queryset.select_for_update()
+
+    owners = []
+    seen_keys = set()
+    for item in queryset:
+        if not item.risk_event_id:
+            continue
+        key = _monthly_risk_item_key(item.risk_event)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        owners.append(item)
+    return owners
+
+
 def _monthly_risk_item_label(item, number_by_pk=None):
     unit_code = ""
     if item.summary_id and item.summary.unit_bisnis_id:
@@ -1079,6 +1110,27 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                 return candidate.pk == item.pk
 
         return True
+
+    @property
+    def pairing_review_is_owner(self):
+        return self.kri_is_owner
+
+    @property
+    def pairing_review_status(self):
+        item = self.instance
+        if not item or not item.pk or not item.report_id:
+            return ""
+        approval_log = (
+            item.report.submission_logs.filter(action="approve")
+            .order_by("-pk")
+            .first()
+        )
+        review = item.pairing_reviews.filter(
+            approval_log=approval_log
+        ).first()
+        if review is None:
+            return "Belum Direview"
+        return review.get_decision_display()
 
     @property
     def completion_status(self):
@@ -2505,9 +2557,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
     def _pairing_review_progress(self, obj):
         approval_log = self._current_approval_log(obj)
-        total = obj.items.count() if obj and obj.pk else 0
+        owner_items = _monthly_report_pairing_owner_items(obj)
+        owner_ids = [item.pk for item in owner_items]
+        total = len(owner_ids)
         reviews = MonthlyRiskReportItemPairingReview.objects.filter(
-            item__report=obj,
+            item_id__in=owner_ids,
             approval_log=approval_log,
         )
         reviewed = reviews.count()
@@ -2553,10 +2607,10 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         if state == "not_applicable":
             return "-"
 
-        url = reverse(
-            f"{self.admin_site.name}:monthly_report_monthlyriskreport_pairing_review",
+        url = "{}#risk-monitoring-list".format(reverse(
+            f"{self.admin_site.name}:monthly_report_monthlyriskreport_change",
             args=[obj.pk],
-        )
+        ))
 
         if state == "pending":
             return format_html(
@@ -2564,7 +2618,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 '<span style="display:inline-block;padding:4px 8px;'
                 'border-radius:12px;background:#fff7ed;color:#9a3412;'
                 'font-weight:600;margin-right:6px">{}/{} Risiko Direview</span>'
-                '<a class="button" href="{}">Review per Risiko</a>'
+                '<a class="button" href="{}">Buka Detail &amp; Review</a>'
                 '</div>',
                 progress["reviewed"],
                 progress["total"],
@@ -2577,7 +2631,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 '<span style="display:inline-block;padding:4px 8px;'
                 'border-radius:12px;background:#ecfdf5;color:#166534;'
                 'font-weight:600;margin-right:6px">{}/{} Risiko Reviewed</span>'
-                '<a class="button" href="{}">Lihat Review</a>'
+                '<a class="button" href="{}">Lihat Detail &amp; Review</a>'
                 '</div>',
                 progress["reviewed"],
                 progress["total"],
@@ -2589,7 +2643,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             '<span style="display:inline-block;padding:4px 8px;'
             'border-radius:12px;background:#fef2f2;color:#991b1b;'
             'font-weight:600;margin-right:6px">{} Risiko Perlu Perbaikan</span>'
-            '<a class="button" href="{}">Lihat Komentar</a>'
+            '<a class="button" href="{}">Lihat Detail &amp; Komentar</a>'
             '</div>',
             progress["revision_required"],
             url,
@@ -3121,6 +3175,20 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         from monthly_report.recipient_services import resolve_pairing_officers
 
         report = self.get_object(request, object_id)
+        is_drawer_request = bool(
+            request.GET.get("modal") == "1"
+            or request.POST.get("modal") == "1"
+            or request.headers.get("x-requested-with") == "XMLHttpRequest"
+        )
+
+        def error_response(message, status=400):
+            if is_drawer_request:
+                return JsonResponse({"ok": False, "error": message}, status=status)
+            if status == 403:
+                raise PermissionDenied(message)
+            self.message_user(request, message, level=messages.ERROR)
+            return redirect(request.path)
+
         if report is None:
             raise Http404("Monthly risk report tidak ditemukan.")
 
@@ -3141,9 +3209,10 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
         if request.method == "POST":
             if not can_review:
-                raise PermissionDenied(
+                return error_response(
                     "Hanya Pairing Officer unit terkait yang dapat melakukan "
-                    "review setelah laporan Approved."
+                    "review setelah laporan Approved.",
+                    status=403,
                 )
 
             decision = (request.POST.get("decision") or "").strip()
@@ -3153,37 +3222,21 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             try:
                 item_id = int(item_id)
             except (TypeError, ValueError):
-                self.message_user(
-                    request,
-                    "Risiko yang akan direview tidak valid.",
-                    level=messages.ERROR,
-                )
-                return redirect(request.path)
+                return error_response("Risiko yang akan direview tidak valid.")
 
             if decision not in {"sesuai", "perlu_perbaikan"}:
-                self.message_user(
-                    request,
-                    "Pilih hasil review Pairing.",
-                    level=messages.ERROR,
-                )
-                return redirect(request.path)
+                return error_response("Pilih hasil review Pairing.")
 
             if decision == "perlu_perbaikan" and not comment:
-                self.message_user(
-                    request,
-                    "Komentar wajib diisi jika laporan perlu diperbaiki.",
-                    level=messages.ERROR,
+                return error_response(
+                    "Komentar wajib diisi jika laporan perlu diperbaiki."
                 )
-                return redirect(request.path)
 
             if report.status != "approved":
-                self.message_user(
-                    request,
+                return error_response(
                     "Review Pairing hanya dapat dilakukan setelah laporan "
-                    "berstatus Approved.",
-                    level=messages.ERROR,
+                    "berstatus Approved."
                 )
-                return redirect(request.path)
 
             all_risks_reviewed = False
             try:
@@ -3217,15 +3270,18 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                             "User bukan Pairing Officer aktif untuk unit laporan."
                         )
 
-                    review_item = (
-                        locked_report.items.select_for_update()
-                        .select_related("risk_event")
-                        .filter(pk=item_id)
-                        .first()
+                    owner_items = _monthly_report_pairing_owner_items(
+                        locked_report,
+                        for_update=True,
+                    )
+                    review_item = next(
+                        (item for item in owner_items if item.pk == item_id),
+                        None,
                     )
                     if review_item is None:
                         raise ValidationError(
-                            "Risiko tidak ditemukan pada laporan ini."
+                            "Risiko tidak ditemukan atau bukan canonical owner "
+                            "pada laporan ini."
                         )
 
                     approval_log = self._current_approval_log(locked_report)
@@ -3268,10 +3324,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                             ),
                         )
                     else:
-                        total_items = locked_report.items.count()
+                        owner_ids = [item.pk for item in owner_items]
+                        total_items = len(owner_ids)
                         reviewed_items = (
                             MonthlyRiskReportItemPairingReview.objects.filter(
-                                item__report=locked_report,
+                                item_id__in=owner_ids,
                                 approval_log=approval_log,
                                 decision="sesuai",
                             ).count()
@@ -3296,12 +3353,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                     if hasattr(exc, "messages")
                     else str(exc)
                 )
-                self.message_user(
-                    request,
-                    message,
-                    level=messages.ERROR,
-                )
-                return redirect(request.path)
+                return error_response(message)
 
             if decision == "perlu_perbaikan":
                 # Gunakan routing notifikasi revision existing agar drafter
@@ -3331,6 +3383,37 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                     level=messages.SUCCESS,
                 )
 
+            if is_drawer_request:
+                saved_review = MonthlyRiskReportItemPairingReview.objects.get(
+                    item_id=item_id,
+                    approval_log=self._current_approval_log(report),
+                )
+                progress = self._pairing_review_progress(report)
+                return JsonResponse({
+                    "ok": True,
+                    "item_id": item_id,
+                    "decision": saved_review.decision,
+                    "decision_label": saved_review.get_decision_display(),
+                    "comment": saved_review.comment,
+                    "reviewed_by": (
+                        saved_review.reviewed_by.get_full_name()
+                        or saved_review.reviewed_by.username
+                    ),
+                    "reviewed_at": timezone.localtime(
+                        saved_review.reviewed_at
+                    ).strftime("%d-%m-%Y %H:%M"),
+                    "report_status": report.status,
+                    "progress": {
+                        "reviewed": progress["reviewed"],
+                        "total": progress["total"],
+                    },
+                    "message": (
+                        "Seluruh risiko selesai direview dan dinyatakan sesuai."
+                        if all_risks_reviewed
+                        else "Review risiko berhasil disimpan."
+                    ),
+                })
+
             return HttpResponseRedirect(
                 reverse(
                     f"{self.admin_site.name}:"
@@ -3349,9 +3432,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         }
         review_rows = [
             {"item": item, "review": item_reviews.get(item.pk)}
-            for item in report.items.select_related("risk_event").order_by(
-                "risk_event__no_item", "risk_event__no_risiko", "pk"
-            )
+            for item in _monthly_report_pairing_owner_items(report)
         ]
 
         context = {
@@ -3375,6 +3456,29 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 "monthly_report_monthlyriskreport_changelist"
             ),
         }
+
+        if request.GET.get("modal") == "1":
+            try:
+                drawer_item_id = int(request.GET.get("item_id"))
+            except (TypeError, ValueError):
+                return error_response("Risiko yang akan direview tidak valid.")
+            drawer_row = next(
+                (row for row in review_rows if row["item"].pk == drawer_item_id),
+                None,
+            )
+            if drawer_row is None:
+                return error_response(
+                    "Risiko tidak ditemukan atau bukan canonical owner pada laporan ini."
+                )
+            context["row"] = drawer_row
+            context["drawer_completion_status"] = MonthlyRiskReportItemForm(
+                instance=drawer_row["item"]
+            ).completion_status
+            return TemplateResponse(
+                request,
+                "admin/monthly_report/monthlyriskreport/pairing_review_drawer.html",
+                context,
+            )
 
         return TemplateResponse(
             request,

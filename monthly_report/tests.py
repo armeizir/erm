@@ -134,11 +134,21 @@ class MonthlyRiskReportAdminTests(TestCase):
         report = self._report("BID PAIRING PER RISK")
         first_item = MonthlyRiskReportItem.objects.create(
             report=report,
-            risk_event=self._risk_item(report, no_item=1, no_risiko=1),
+            risk_event=self._risk_item(
+                report,
+                no_item=1,
+                no_risiko=1,
+                peristiwa_risiko="Risiko pairing pertama",
+            ),
         )
         second_item = MonthlyRiskReportItem.objects.create(
             report=report,
-            risk_event=self._risk_item(report, no_item=2, no_risiko=2),
+            risk_event=self._risk_item(
+                report,
+                no_item=2,
+                no_risiko=2,
+                peristiwa_risiko="Risiko pairing kedua",
+            ),
         )
         report.status = "approved"
         report.approved_at = timezone.now()
@@ -185,6 +195,89 @@ class MonthlyRiskReportAdminTests(TestCase):
             2,
         )
         self.assertIn("2/2 Risiko Reviewed", str(report_admin.pairing_review_column(report)))
+
+    def test_pairing_review_drawer_uses_canonical_risk_owner(self):
+        report = self._report("BID PAIRING DRAWER")
+        owner = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=self._risk_item(
+                report,
+                no_item=4,
+                no_risiko=4,
+                no_penyebab_risiko="d",
+                peristiwa_risiko="Risiko BES yang sama",
+            ),
+        )
+        child = MonthlyRiskReportItem.objects.create(
+            report=report,
+            risk_event=self._risk_item(
+                report,
+                no_item=5,
+                no_risiko=4,
+                no_penyebab_risiko="e",
+                peristiwa_risiko="Risiko BES yang sama",
+            ),
+        )
+        report.status = "approved"
+        report.approved_at = timezone.now()
+        report.is_locked = True
+        report.save(update_fields=["status", "approved_at", "is_locked"])
+        MonthlyRiskReportSubmissionLog.objects.create(
+            report=report,
+            action="approve",
+            action_by=self.admin_user,
+        )
+        self.client.force_login(self.admin_user)
+        review_url = reverse(
+            "risk_admin:monthly_report_monthlyriskreport_pairing_review",
+            args=[report.pk],
+        )
+
+        change_response = self.client.get(reverse(
+            "risk_admin:monthly_report_monthlyriskreport_change",
+            args=[report.pk],
+        ))
+        self.assertEqual(change_response.status_code, 200)
+        self.assertEqual(
+            change_response.content.decode().count("data-pairing-review-url="),
+            1,
+        )
+
+        fragment_response = self.client.get(
+            review_url,
+            {"modal": "1", "item_id": owner.pk},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(fragment_response.status_code, 200)
+        self.assertContains(fragment_response, "Risiko BES yang sama")
+        self.assertContains(fragment_response, f'data-item-id="{owner.pk}"')
+
+        child_response = self.client.post(
+            review_url,
+            {
+                "modal": "1",
+                "item_id": child.pk,
+                "decision": "sesuai",
+                "comment": "",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(child_response.status_code, 400)
+        self.assertFalse(MonthlyRiskReportItemPairingReview.objects.exists())
+
+        owner_response = self.client.post(
+            review_url,
+            {
+                "modal": "1",
+                "item_id": owner.pk,
+                "decision": "sesuai",
+                "comment": "Sudah sesuai.",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertTrue(owner_response.json()["ok"])
+        self.assertEqual(owner_response.json()["progress"], {"reviewed": 1, "total": 1})
 
     def test_report_delete_cascades_import_batches_and_matched_rows(self):
         report = self._report("BID DELETE IMPORT")
