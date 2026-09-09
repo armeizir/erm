@@ -1,4 +1,7 @@
-<div class="pairing-review-panel" data-pairing-review-panel data-item-id="{{ row.item.pk }}">
+<div class="pairing-review-panel"
+     data-pairing-review-panel
+     data-item-id="{{ row.item.pk }}"
+     data-pairing-disabled="{% if row.review and row.review.decision == 'nonaktif' %}1{% else %}0{% endif %}">
   <header class="pairing-review-drawer-header">
     <div>
       <span class="pairing-review-eyebrow">REVIEW RISIKO</span>
@@ -39,6 +42,9 @@
         <textarea id="pairing-review-comment-{{ row.item.pk }}" data-pairing-review-comment rows="5" placeholder="Wajib diisi bila perlu perbaikan."></textarea>
       </div>
     {% else %}
+      {# PAIRING_NONAKTIF_SEPARATE_UI_V1:
+           NONAKTIF dipindahkan ke header risiko. #}
+
       <p class="pairing-review-warning">
         {% if report.status != "approved" %}
           Review hanya dapat dilakukan ketika laporan berstatus Approved.

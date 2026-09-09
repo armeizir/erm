@@ -6,7 +6,7 @@
   }
 
   document.addEventListener("DOMContentLoaded", updateAddButtonText);
-  document.body.addEventListener("formset:added", function (event) {
+  document.addEventListener("formset:added", function (event) {
     updateAddButtonText();
     var row = event.target && event.target.closest ? event.target.closest(".monitoring-risk") : null;
     var details = row && row.querySelector("details");
@@ -136,6 +136,24 @@
     feedback.hidden = false;
   }
 
+  // PAIRING_DISABLE_V1
+  function applyPairingDisabledState() {
+    var panel = pairingDrawer &&
+      pairingDrawer.querySelector("[data-pairing-review-panel]");
+
+    if (!panel) return;
+
+    var disabled = panel.dataset.pairingDisabled === "1";
+
+    panel.querySelectorAll(
+      'input[type="radio"], ' +
+      '[data-pairing-review-comment], ' +
+      '[data-pairing-review-save]'
+    ).forEach(function (control) {
+      control.disabled = disabled;
+    });
+  }
+
   async function openPairingDrawer(trigger) {
     if (!pairingDrawer || !pairingOverlay || !pairingContent) return;
     pairingTrigger = trigger;
@@ -151,6 +169,7 @@
       });
       if (!response.ok) throw new Error("Review risiko tidak dapat dimuat.");
       pairingContent.innerHTML = await response.text();
+      applyPairingDisabledState();
       var closeButton = pairingDrawer.querySelector("[data-pairing-review-close]");
       if (closeButton) closeButton.focus();
     } catch (error) {
@@ -186,11 +205,126 @@
     if (event.target.closest("[data-pairing-review-panel]")) pairingDirty = true;
   });
 
+  // PAIRING_NONAKTIF_SEPARATE_UI_V1
+  document.addEventListener("click", async function (event) {
+    var button = event.target.closest(
+      "[data-pairing-state-url]"
+    );
+
+    if (!button) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    var action = button.dataset.pairingAction;
+    var itemId = button.dataset.pairingItemId;
+    var postUrl = button.dataset.pairingStateUrl;
+    var reason = "";
+
+    if (action === "disable") {
+      reason = window.prompt(
+        "Alasan menonaktifkan Pairing wajib diisi.\n\n" +
+        "Contoh: Risiko belum aktif karena proyek belum " +
+        "memasuki tahap pelaksanaan."
+      );
+
+      if (reason === null) return;
+
+      reason = reason.trim();
+
+      if (!reason) {
+        window.alert(
+          "Alasan menonaktifkan Pairing wajib diisi."
+        );
+        return;
+      }
+
+      if (
+        !window.confirm(
+          "Nonaktifkan Pairing untuk risiko ini?\n\n" +
+          "Item risiko tetap tersimpan dan tidak akan dihapus."
+        )
+      ) {
+        return;
+      }
+
+    } else if (action === "enable") {
+
+      if (
+        !window.confirm(
+          "Aktifkan kembali Pairing untuk risiko ini?"
+        )
+      ) {
+        return;
+      }
+
+    } else {
+      return;
+    }
+
+    button.disabled = true;
+
+    var data = new URLSearchParams({
+      modal: "1",
+      item_id: itemId,
+      pairing_action: action,
+      reason: reason
+    });
+
+    try {
+      var response = await fetch(postUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type":
+            "application/x-www-form-urlencoded;charset=UTF-8",
+          "X-CSRFToken": csrfToken(),
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        body: data.toString()
+      });
+
+      var result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(
+          result.error ||
+          "Status Pairing gagal diperbarui."
+        );
+      }
+
+      /*
+       * Reload sengaja dilakukan karena status Pairing,
+       * alasan, tombol dan progress changelist berasal
+       * dari server dan harus konsisten.
+       *
+       * Data MonthlyRiskReportItem tidak dihapus.
+       */
+      window.location.reload();
+
+    } catch (error) {
+      window.alert(error.message);
+      button.disabled = false;
+    }
+  });
+
   document.addEventListener("click", async function (event) {
     var saveButton = event.target.closest("[data-pairing-review-save]");
     if (!saveButton) return;
     event.preventDefault();
     var panel = saveButton.closest("[data-pairing-review-panel]");
+
+    if (
+      panel &&
+      panel.dataset.pairingDisabled === "1"
+    ) {
+      showPairingError(
+        "Pairing risiko ini sedang dinonaktifkan. " +
+        "Aktifkan Pairing terlebih dahulu."
+      );
+      return;
+    }
+
     var decision = panel.querySelector('input[type="radio"]:checked');
     var comment = panel.querySelector("[data-pairing-review-comment]");
     if (!decision) {
