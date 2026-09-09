@@ -1043,8 +1043,8 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         """
         KRI ditampilkan satu kali per Risiko / No. Item.
 
-        Bila satu Risiko mempunyai beberapa baris penyebab, baris pertama
-        pada laporan menjadi pemilik field input KRI.
+        Jika satu risiko mempunyai beberapa baris penyebab, baris canonical
+        pertama pada laporan menjadi pemilik field input KRI.
         """
         item = self.instance
 
@@ -1057,7 +1057,6 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             return True
 
         current_key = _monthly_risk_item_key(self.risk)
-
         report_items = (
             item.report.items
             .select_related(
@@ -1065,13 +1064,17 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                 "risk_event__summary",
                 "risk_event__summary__unit_bisnis",
             )
-            .order_by("pk")
+            .order_by(
+                "risk_event__no_risiko",
+                "risk_event__no_item",
+                "risk_event__no_penyebab_risiko",
+                "pk",
+            )
         )
 
         for candidate in report_items:
             if not candidate.risk_event_id:
                 continue
-
             if _monthly_risk_item_key(candidate.risk_event) == current_key:
                 return candidate.pk == item.pk
 
