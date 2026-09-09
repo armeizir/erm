@@ -473,9 +473,19 @@ def _users_for_unit_group(unit):
 
 
 def _monthly_risk_item_key(item):
+    """Canonical grouping key for one business risk in monthly monitoring.
+
+    no_risiko is the parent/business-risk identifier.  no_item is only the
+    technical/source row and may repeat one business risk across causes.
+    Fall back to event text only for legacy data where no_risiko is absent.
+    """
+    risk_number = getattr(item, "no_risiko", None)
+    if risk_number not in (None, ""):
+        return f"risk:{risk_number}"
+
     risk_event = (item.peristiwa_risiko or "").strip().casefold()
     if risk_event:
-        return risk_event
+        return f"event:{risk_event}"
     return f"item:{item.pk}"
 
 
@@ -539,7 +549,6 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
     realisasi_kri_text = forms.CharField(
         label="Realisasi KRI Teks / Komposit",
         required=False,
-        max_length=100,
         widget=forms.Textarea(
             attrs={
                 "rows": 3,
@@ -784,6 +793,36 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                 "data-kri-unit": risk.unit_satuan_kri or "",
             })
 
+        # MRR_RISK_PARENT_GROUPING_V1
+        #
+        # Residual risk and KRI are attributes of one business risk
+        # (no_risiko), not of every source/cause row (no_item).  Child cause
+        # rows keep their own III.B treatment fields.  Disabled risk-level
+        # fields preserve existing database values even though their fieldsets
+        # are not rendered for child rows.
+        if risk and self.instance and self.instance.pk and not self.kri_is_owner:
+            risk_level_fields = (
+                "realisasi_asumsi_dampak",
+                "realisasi_nilai_dampak",
+                "realisasi_skala_dampak",
+                "realisasi_skala_dampak_kbumn",
+                "realisasi_nilai_probabilitas",
+                "realisasi_skala_probabilitas",
+                "realisasi_skala_probabilitas_kbumn",
+                "realisasi_eksposur",
+                "realisasi_skor_risiko",
+                "realisasi_skala_nilai_risiko_kbumn",
+                "realisasi_level_risiko_bumn",
+                "realisasi_level_risiko_kbumn",
+                "efektivitas_perlakuan_risiko",
+                "realisasi_nilai_kri",
+                "realisasi_kri_text",
+                "realisasi_kri_status_manual",
+            )
+            for field_name in risk_level_fields:
+                if field_name in self.fields:
+                    self.fields[field_name].disabled = True
+
         # MRR_CONCURRENT_EDIT_GUARD_V2
         #
         # V2 menggunakan penanda row yang benar-benar disentuh browser.
@@ -966,27 +1005,28 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         text_value = (cleaned.get("realisasi_kri_text") or "").strip()
         manual_status = cleaned.get("realisasi_kri_status_manual")
 
-        if numeric_value is not None and text_value:
-            self.add_error(
-                "realisasi_kri_text",
-                "Isi salah satu saja: Nilai Realisasi KRI numerik atau "
-                "Realisasi KRI Teks/Komposit.",
-            )
+        if self.kri_is_owner:
+            if numeric_value is not None and text_value:
+                self.add_error(
+                    "realisasi_kri_text",
+                    "Isi salah satu saja: Nilai Realisasi KRI numerik atau "
+                    "Realisasi KRI Teks/Komposit.",
+                )
 
-        if text_value and not manual_status:
-            self.add_error(
-                "realisasi_kri_status_manual",
-                "Status Threshold wajib dipilih untuk KRI Teks/Komposit.",
-            )
+            if text_value and not manual_status:
+                self.add_error(
+                    "realisasi_kri_status_manual",
+                    "Status Threshold wajib dipilih untuk KRI Teks/Komposit.",
+                )
 
-        # KRI numeric dan KRI Teks/Komposit adalah dua mode yang berbeda.
-        # Status manual hanya mewajibkan teks jika mode numeric tidak digunakan.
-        # Untuk KRI numeric, status threshold dihitung otomatis oleh model.
-        if numeric_value is None and manual_status and not text_value:
-            self.add_error(
-                "realisasi_kri_text",
-                "Isi realisasi KRI Teks/Komposit jika menggunakan status manual.",
-            )
+            # KRI numeric dan KRI Teks/Komposit adalah dua mode yang berbeda.
+            # Status manual hanya mewajibkan teks jika mode numeric tidak digunakan.
+            # Untuk KRI numeric, status threshold dihitung otomatis oleh model.
+            if numeric_value is None and manual_status and not text_value:
+                self.add_error(
+                    "realisasi_kri_text",
+                    "Isi realisasi KRI Teks/Komposit jika menggunakan status manual.",
+                )
 
         self._validate_concurrent_edit()
         return cleaned
@@ -997,22 +1037,23 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         kri_text = (self.cleaned_data.get("realisasi_kri_text") or "").strip()
         manual_status = self.cleaned_data.get("realisasi_kri_status_manual")
 
-        if kri_text:
-            # Mode KRI Teks/Komposit:
-            # jangan jalankan evaluator numerik.
-            obj.realisasi_nilai_kri = None
-            obj.realisasi_kri_text = kri_text
-            obj.realisasi_threshold_kri_skor = (
-                self._threshold_for_kri_status(manual_status)
-            )
-            obj.realisasi_threshold_kri = manual_status
-        elif self.cleaned_data.get("realisasi_nilai_kri") is None:
-            # Kedua mode kosong: kosongkan hasil KRI.
-            obj.realisasi_threshold_kri = None
-            obj.realisasi_threshold_kri_skor = None
+        if self.kri_is_owner:
+            if kri_text:
+                # Mode KRI Teks/Komposit:
+                # jangan jalankan evaluator numerik.
+                obj.realisasi_nilai_kri = None
+                obj.realisasi_kri_text = kri_text
+                obj.realisasi_threshold_kri_skor = (
+                    self._threshold_for_kri_status(manual_status)
+                )
+                obj.realisasi_threshold_kri = manual_status
+            elif self.cleaned_data.get("realisasi_nilai_kri") is None:
+                # Kedua mode kosong: kosongkan hasil KRI.
+                obj.realisasi_threshold_kri = None
+                obj.realisasi_threshold_kri_skor = None
 
-        # Bila realisasi_nilai_kri berisi angka, tidak perlu set status di sini.
-        # Model akan menjalankan evaluator threshold numerik seperti sebelumnya.
+            # Bila realisasi_nilai_kri berisi angka, tidak perlu set status di sini.
+            # Model akan menjalankan evaluator threshold numerik seperti sebelumnya.
 
         selected = set(self.cleaned_data.get("realisasi_timeline_bulanan", ()))
         for month in range(1, 13):
@@ -1036,11 +1077,19 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         if not self.risk:
             return "Risiko Baru"
 
-        risk_number = self.risk.no_item
+        risk_number = self.risk.no_risiko or self.risk.no_item or "-"
         risk_name = (
             self.risk.peristiwa_risiko
             or "Nama risiko belum tersedia"
         ).strip()
+        cause_number = (self.risk.no_penyebab_risiko or "").strip()
+
+        if not self.kri_is_owner and cause_number:
+            cause_name = (
+                self.risk.penyebab_risiko
+                or "Penyebab risiko"
+            ).strip()
+            return f"↳ Penyebab {cause_number} – {cause_name}"
 
         return f"Risiko {risk_number} – {risk_name}"
 
@@ -1197,17 +1246,25 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
 
     @property
     def required_monitoring_fields(self):
-        fields = [
+        treatment_fields = [
+            ("status_rencana_perlakuan", "status mitigasi"),
+            ("progress_pelaksanaan_percent", "progres mitigasi"),
+        ]
+
+        # Child cause rows only carry III.B treatment monitoring.  Residual
+        # risk and KRI completeness belong to the first/owner row of no_risiko.
+        if not self.kri_is_owner:
+            return treatment_fields
+
+        risk_level_fields = [
             ("risk_event", "risiko"),
             ("realisasi_skala_dampak", "skala dampak"),
             ("realisasi_skala_probabilitas", "skala probabilitas"),
             ("realisasi_eksposur", "nilai eksposur"),
             ("realisasi_skor_risiko", "skala nilai risiko"),
             ("realisasi_level_risiko_bumn", "level risiko BUMN"),
-            ("status_rencana_perlakuan", "status mitigasi"),
-            ("progress_pelaksanaan_percent", "progres mitigasi"),
         ]
-        return fields
+        return risk_level_fields + treatment_fields
 
     @property
     def kri_missing_label(self):
@@ -1369,9 +1426,9 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             .get_queryset(request)
             .select_related("risk_event")
             .order_by(
-                "risk_event__no_item",
-                "risk_event__no_penyebab_risiko",
                 "risk_event__no_risiko",
+                "risk_event__no_penyebab_risiko",
+                "risk_event__no_item",
                 "pk",
             )
         )
@@ -1447,7 +1504,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         (
             "REALISASI RESIDUAL RISK – QUARTER AKTIF",
             {
-                "classes": ("residual-grid",),
+                "classes": ("residual-grid", "risk-level-only"),
                 "description": "Isi hasil pemantauan residual untuk quarter aktif. Field berlabel dihitung otomatis tidak perlu diketik.",
                 "fields": (
                     "realisasi_asumsi_dampak",
@@ -1504,7 +1561,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         (
             "REFERENSI KONFIGURASI KRI (klik untuk membuka)",
             {
-                "classes": ("collapse", "profile-reference"),
+                "classes": ("collapse", "profile-reference", "risk-level-only"),
                 "description": "Indikator, satuan, dan batas kategori yang ditetapkan pada profil risiko.",
                 "fields": (
                     "key_risk_indicators_profil",
@@ -1518,7 +1575,7 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
         (
             "REALISASI KEY RISK INDICATOR BULAN INI",
             {
-                "classes": ("kri-current",),
+                "classes": ("kri-current", "risk-level-only"),
                 "description": (
                     "Untuk KRI numerik, isi Nilai Realisasi KRI dan status akan "
                     "dihitung otomatis. Untuk KRI Teks/Komposit, isi field teks "
