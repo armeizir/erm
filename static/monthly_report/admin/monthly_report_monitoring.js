@@ -87,11 +87,29 @@
     rangeTarget.textContent = categories[0][2];
   });
 
-  var pairingDrawer = document.querySelector("[data-pairing-review-drawer]");
-  var pairingOverlay = document.querySelector("[data-pairing-review-overlay]");
-  var pairingContent = document.querySelector("[data-pairing-review-content]");
+  var pairingDrawer = null;
+  var pairingOverlay = null;
+  var pairingContent = null;
   var pairingTrigger = null;
   var pairingDirty = false;
+
+  function initializePairingDrawer() {
+    pairingDrawer = document.querySelector("[data-pairing-review-drawer]");
+    pairingOverlay = document.querySelector("[data-pairing-review-overlay]");
+    pairingContent = document.querySelector("[data-pairing-review-content]");
+    if (pairingOverlay && !pairingOverlay.dataset.pairingCloseBound) {
+      pairingOverlay.dataset.pairingCloseBound = "1";
+      pairingOverlay.addEventListener("click", function () {
+        closePairingDrawer(false);
+      });
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializePairingDrawer);
+  } else {
+    initializePairingDrawer();
+  }
 
   function csrfToken() {
     var input = document.querySelector('input[name="csrfmiddlewaretoken"]');
@@ -152,10 +170,6 @@
       event.preventDefault();
       closePairingDrawer(false);
     }
-  });
-
-  if (pairingOverlay) pairingOverlay.addEventListener("click", function () {
-    closePairingDrawer(false);
   });
 
   document.addEventListener("keydown", function (event) {
