@@ -1106,7 +1106,6 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             return True
 
         current_key = _monthly_risk_item_key(self.risk)
-
         report_items = (
             item.report.items
             .select_related(
@@ -1125,7 +1124,6 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         for candidate in report_items:
             if not candidate.risk_event_id:
                 continue
-
             if _monthly_risk_item_key(candidate.risk_event) == current_key:
                 return candidate.pk == item.pk
 
