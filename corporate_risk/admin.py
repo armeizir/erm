@@ -3457,10 +3457,10 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         {action_button}
         <div style="padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #ddd;">
             <div style="padding:12px; background:#eef6ff; border:1px solid #bfdbfe; border-radius:8px;">
-                <strong>Konteks Tambahan User</strong>
+                <strong>Konteks Bisnis &amp; Arahan Analisis</strong>
                 <div style="margin-top:6px;">{user_context}</div>
                 <div style="margin-top:6px;font-size:12px;color:#64748b;">
-                    Konteks ini memperkaya analisis, tetapi tidak mengubah fakta sistem seperti target,
+                    Konteks ini dikombinasikan dengan hasil Monte Carlo yang relevan, tetapi tidak mengubah fakta sistem seperti target,
                     polaritas, P5/P50/P95, probabilitas, dan validasi model.
                 </div>
             </div>

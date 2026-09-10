@@ -2605,6 +2605,118 @@ def map_risk_appetite(probability_percent):
         return 60
     
 
+def _polish_multi_metric_insight_context_aware(
+    result,
+    executive_summary,
+    key_findings,
+    recommended_actions,
+    user_context="",
+):
+    # V4.11.2 — context-aware single AI insight.
+    # This wrapper keeps one AI-polish call only.
+    user_context = " ".join(str(user_context or "").split()).strip()[:5000]
+
+    if not user_context:
+        return _polish_multi_metric_insight_with_ai(
+            result,
+            executive_summary,
+            key_findings,
+            recommended_actions,
+        )
+
+    risk_item = result.corporate_risk_item
+    risk_number = getattr(risk_item, "no_item", None)
+    risk_title = getattr(risk_item, "peristiwa_risiko", None) or str(risk_item)
+
+    metrics = (result.metric_snapshot or {}).get("metrics", [])
+    metric_names = [
+        str(row.get("metric_name") or "").strip()
+        for row in metrics
+        if str(row.get("metric_name") or "").strip()
+    ]
+
+    direction_rows = []
+    for row in metrics:
+        name = str(row.get("metric_name") or "-").strip()
+        direction = str(row.get("direction") or "").strip()
+        if direction:
+            direction_rows.append(f"{name}: {direction}")
+
+    system_facts = (
+        f"Risk #: {risk_number or '-'}; "
+        f"Peristiwa risiko: {risk_title}; "
+        f"Periode forecast: {result.forecast_periode}; "
+        f"Status target: {result.target_status or '-'}; "
+        f"Status risiko: {result.risk_status or '-'}; "
+        f"Target RKAP: {float(result.target_value or 0):,.4f}; "
+        f"Forecast P50: {float(result.forecast_total or 0):,.4f}; "
+        f"Gap target: {float(result.target_gap or 0):,.4f}; "
+        f"Probabilitas target tercapai: {float(result.probability_achieve_target or 0):,.2f}%; "
+        f"Probabilitas target tidak tercapai: {float(result.probability_not_achieve_target or 0):,.2f}%; "
+        f"VaR 95%: {float(result.var_95 or 0):,.4f}; "
+        f"Metric: {', '.join(metric_names) or '-'}; "
+        f"Direction: {', '.join(direction_rows) or '-'}."
+    )
+
+    guidance = f"\n".join([
+        "[INTERNAL CONTEXT SYNTHESIS RULES — DO NOT REPEAT THIS BLOCK IN THE OUTPUT]",
+        "",
+        "HIERARCHY OF SOURCES",
+        "1. SYSTEM / MONTE CARLO FACTS below are authoritative and MUST NOT be changed.",
+        "2. USER BUSINESS CONTEXT is supporting context only.",
+        "3. If user context conflicts with system facts, keep the system fact and explain the discrepancy carefully.",
+        "   Never overwrite target, polarity/direction, P5/P50/P95, probability, VaR, validation status, or Monte Carlo result.",
+        "",
+        "RELEVANCE RULES",
+        f"- Use only user context materially relevant to Risk #{risk_number or '-'}: {risk_title}.",
+        f"- Current metrics: {', '.join(metric_names) or '-'}.",
+        "- Do NOT force unrelated context into this risk.",
+        "- If an item is related only indirectly, label it as cross-risk/supporting context.",
+        "- Do not invent causality merely because items appear in the same user prompt.",
+        "- Do not invent new numbers, dates, contracts, regulations, or facts.",
+        "- User-entered management actions are proposals/context, not approved decisions.",
+        "",
+        "HOW TO SYNTHESIZE",
+        "- Executive Summary: lead with system facts, then integrate only the most relevant context.",
+        "- Key Findings: connect relevant user context to the Monte Carlo result.",
+        "- Recommended Actions: prioritize relevant user-proposed treatments first, then add focused AI recommendations.",
+        "- Keep the analysis detailed but management-readable.",
+        "",
+        "AUTHORITATIVE SYSTEM FACTS:",
+        system_facts,
+        "",
+        "USER BUSINESS CONTEXT / ANALYSIS DIRECTION:",
+        user_context,
+        "",
+        "[END INTERNAL CONTEXT SYNTHESIS RULES]",
+    ])
+
+    # The existing AI polisher receives all three draft sections in one call.
+    # Put the context/rules in one section only to avoid tripling prompt size.
+    enriched_summary = executive_summary
+    enriched_findings = (
+        f"{key_findings}\n\n{guidance}\n\n"
+        "Apply these synthesis rules to ALL output sections: Executive Summary, "
+        "Key Findings, and Recommended Actions."
+    )
+    enriched_actions = recommended_actions
+
+    polished = _polish_multi_metric_insight_with_ai(
+        result,
+        enriched_summary,
+        enriched_findings,
+        enriched_actions,
+    )
+
+    cleaned = []
+    for value in polished:
+        value = str(value or "")
+        if "[INTERNAL CONTEXT SYNTHESIS RULES" in value:
+            value = value.split("[INTERNAL CONTEXT SYNTHESIS RULES", 1)[0].rstrip()
+        cleaned.append(value)
+    return tuple(cleaned)
+
+
 def generate_rule_based_ai_insight_for_multi_metric_result(result, user_context=""):
     """
     V4.11 — one AI insight call; management decision is derived from the same insight.
@@ -2705,17 +2817,12 @@ def generate_rule_based_ai_insight_for_multi_metric_result(result, user_context=
             "siapkan rencana mitigasi demand/penjualan dan trigger eskalasi bulanan."
         )
 
-    if user_context:
-        key_findings += (
-            "\nKonteks tambahan dari user (dipakai sebagai konteks bisnis, bukan pengganti fakta model): "
-            f"{user_context}"
-        )
-
-    executive_summary, key_findings, recommended_actions = _polish_multi_metric_insight_with_ai(
+    executive_summary, key_findings, recommended_actions = _polish_multi_metric_insight_context_aware(
         result,
         executive_summary,
         key_findings,
         recommended_actions,
+        user_context=user_context,
     )
 
     # Management Decision is NOT generated by a second AI call.

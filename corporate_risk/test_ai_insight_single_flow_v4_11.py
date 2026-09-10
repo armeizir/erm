@@ -68,3 +68,62 @@ class AIInsightSingleFlowV411Test(SimpleTestCase):
         self.assertIn("AI SUMMARY", defaults["management_decision_draft"])
         self.assertIn("Action A", defaults["management_decision_draft"])
         self.assertIn("AI Draft", defaults["management_decision_draft"])
+
+class AIInsightContextAwareV4112Test(AIInsightSingleFlowV411Test):
+    @patch("corporate_risk.services.MultiMetricAIInsightKorporat.objects.update_or_create")
+    @patch("corporate_risk.services._polish_multi_metric_insight_with_ai")
+    def test_context_aware_wrapper_keeps_single_ai_call(
+        self,
+        polish_mock,
+        update_mock,
+    ):
+        captured = {}
+
+        def fake_polish(result, summary, findings, actions):
+            captured["summary"] = summary
+            captured["findings"] = findings
+            captured["actions"] = actions
+            return (
+                "AI SUMMARY TERPADU",
+                "AI FINDINGS TERPADU",
+                "1. ACTION TERPADU",
+            )
+
+        polish_mock.side_effect = fake_polish
+        update_mock.return_value = (SimpleNamespace(pk=88), True)
+
+        generate_rule_based_ai_insight_for_multi_metric_result(
+            self._result(),
+            user_context=(
+                "Risk driver: keterbatasan pasokan gas. "
+                "Program perlakuan: evaluasi kontrak dan optimasi dispatch."
+            ),
+        )
+
+        self.assertEqual(polish_mock.call_count, 1)
+        self.assertNotIn(
+            "USER BUSINESS CONTEXT / ANALYSIS DIRECTION",
+            captured["summary"],
+        )
+        self.assertIn(
+            "USER BUSINESS CONTEXT / ANALYSIS DIRECTION",
+            captured["findings"],
+        )
+        self.assertIn(
+            "keterbatasan pasokan gas",
+            captured["findings"],
+        )
+        self.assertIn(
+            "Do NOT force unrelated context into this risk",
+            captured["findings"],
+        )
+        self.assertNotIn(
+            "USER BUSINESS CONTEXT / ANALYSIS DIRECTION",
+            captured["actions"],
+        )
+
+        defaults = update_mock.call_args.kwargs["defaults"]
+        self.assertEqual(defaults["executive_summary"], "AI SUMMARY TERPADU")
+        self.assertEqual(defaults["key_findings"], "AI FINDINGS TERPADU")
+        self.assertIn("ACTION TERPADU", defaults["management_decision_draft"])
+
