@@ -2151,6 +2151,64 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                 "</div>"
             )
 
+        # V4.10 — plain-language analysis copy.
+        # Presentation only: recommendation engine and stored statistics remain unchanged.
+        confidence_map = {
+            "High": "Tinggi",
+            "Medium": "Sedang",
+            "Low": "Rendah",
+            "high": "Tinggi",
+            "medium": "Sedang",
+            "low": "Rendah",
+        }
+
+        plain_distribution_copy = {
+            "normal": (
+                "Pola perubahan data relatif seimbang di sekitar nilai rata-ratanya.",
+                "Kurang cocok bila data sangat berat ke satu sisi atau banyak nilai ekstrem.",
+            ),
+            "lognormal": (
+                "Data selalu positif dan ada kemungkinan beberapa nilai jauh lebih tinggi dari pola umumnya.",
+                "Hasil dapat lebih sensitif terhadap nilai historis yang sangat tinggi.",
+            ),
+            "gamma": (
+                "Data selalu positif dan sebagian nilainya cenderung lebih tinggi dari pola umumnya. "
+                "Gamma cocok untuk volume, biaya, durasi, atau besaran lain yang tidak boleh negatif.",
+                "Kurang cocok jika data banyak berisi nilai 0 atau berupa jumlah kejadian diskrit.",
+            ),
+            "weibull": (
+                "Data bernilai positif dan polanya cocok untuk variasi waktu, umur, keandalan, atau besaran risiko.",
+                "Gunakan dengan hati-hati bila data tidak berkaitan dengan waktu, umur, atau keandalan.",
+            ),
+            "triangular": (
+                "Data historis masih terbatas, tetapi nilai minimum, paling mungkin, dan maksimum masih dapat diperkirakan.",
+                "Hasil sangat dipengaruhi oleh penetapan tiga nilai tersebut.",
+            ),
+            "uniform": (
+                "Belum ada nilai yang terlihat jauh lebih mungkin; seluruh rentang dianggap relatif sama kemungkinannya.",
+                "Model ini sederhana dan bisa terlalu meratakan pola data yang sebenarnya.",
+            ),
+            "beta": (
+                "Data berada dalam rentang yang terbatas, sehingga cocok untuk proporsi, persentase, atau nilai berbatas.",
+                "Pastikan batas bawah dan batas atas datanya memang jelas dan konsisten.",
+            ),
+            "empirical": (
+                "Sistem mengikuti pola data historis secara langsung karena bentuk distribusinya belum cukup kuat untuk diasumsikan.",
+                "Lebih sedikit asumsi, tetapi kurang baik untuk memperkirakan kondisi ekstrem di luar data historis.",
+            ),
+        }
+
+        plain_alternative_copy = {
+            "normal": "Cocok bila perubahan data relatif seimbang di sekitar rata-rata.",
+            "lognormal": "Cocok untuk data positif dengan kemungkinan nilai tinggi yang lebih kuat.",
+            "gamma": "Cocok untuk data positif seperti volume, biaya, durasi, atau besaran kerugian.",
+            "weibull": "Cocok untuk data positif yang berkaitan dengan waktu, umur, atau keandalan.",
+            "triangular": "Cocok bila data terbatas tetapi nilai minimum, paling mungkin, dan maksimum dapat ditentukan.",
+            "uniform": "Cocok bila seluruh nilai dalam suatu rentang dianggap relatif sama kemungkinannya.",
+            "beta": "Cocok untuk data yang memiliki batas bawah dan batas atas yang jelas.",
+            "empirical": "Mengikuti pola historis secara langsung dengan asumsi distribusi yang lebih sedikit.",
+        }
+
         rows = []
         for metric in metrics:
             histories = MonteCarloMetricHistory.objects.filter(metric=metric)
@@ -2161,12 +2219,47 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             recommendation = recommend_monte_carlo_distribution(values)
             warnings = recommendation.get("data_quality_warnings") or []
             alternatives = recommendation.get("alternative_distributions") or []
-            warning_items = "".join(f"<li>{escape(warning)}</li>" for warning in warnings) or "<li>-</li>"
-            alternative_items = "".join(
-                f"<li><strong>{escape(item.get('distribution', '-'))}</strong>: "
-                f"{escape(item.get('reason', '-'))} <em>{escape(item.get('limitation', ''))}</em></li>"
-                for item in alternatives
-            ) or "<li>-</li>"
+
+            distribution_code = (recommendation.get("recommended") or "empirical").lower()
+            plain_reason, plain_limitation = plain_distribution_copy.get(
+                distribution_code,
+                (
+                    "Model ini dipilih karena paling mendekati pola data historis yang tersedia.",
+                    "Hasil simulasi tetap perlu dibaca bersama konteks bisnis dan kualitas data historis.",
+                ),
+            )
+            confidence_text = confidence_map.get(
+                recommendation.get("confidence") or "-",
+                recommendation.get("confidence") or "-",
+            )
+
+            if warnings:
+                quality_text = (
+                    "Ada catatan pada kualitas data. Detail teknis tetap tersedia pada bagian Detail Statistik."
+                )
+                warning_items = "".join(
+                    f"<li>{escape(warning)}</li>" for warning in warnings
+                )
+            else:
+                quality_text = (
+                    f"Tersedia {len(values)} data historis dan tidak ada peringatan kualitas data yang menonjol."
+                    if values
+                    else "Belum tersedia data historis yang cukup untuk dinilai."
+                )
+                warning_items = "<li>Tidak ada warning teknis.</li>"
+
+            alternative_items = []
+            for item in alternatives:
+                code = (item.get("distribution") or "").lower()
+                label = item.get("distribution") or "-"
+                simple_reason = plain_alternative_copy.get(
+                    code,
+                    "Dapat dipertimbangkan sebagai model pembanding.",
+                )
+                alternative_items.append(
+                    f"<li><strong>{escape(label)}</strong>: {escape(simple_reason)}</li>"
+                )
+            alternative_items = "".join(alternative_items) or "<li>Tidak ada alternatif utama yang perlu ditonjolkan.</li>"
             rows.append(
                 f"""
                 <tr>
@@ -2175,9 +2268,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                     <td style="padding:8px;border-bottom:1px solid #e5e7eb;"><strong>{escape(recommendation.get("recommended_label") or "-")}</strong></td>
                     <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{self._fmt(recommendation.get("growth_mean"), 6) if recommendation.get("growth_mean") is not None else "-"}</td>
                     <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{self._fmt(recommendation.get("growth_std"), 6) if recommendation.get("growth_std") is not None else "-"}</td>
-                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{escape(recommendation.get("reason_summary") or "-")}</td>
-                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{escape(recommendation.get("limitations") or "-")}</td>
-                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;"><strong>{escape(recommendation.get("confidence") or "-")}</strong></td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{escape(plain_reason)}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;">{escape(plain_limitation)}</td>
+                    <td style="padding:8px;border-bottom:1px solid #e5e7eb;"><strong>{escape(confidence_text)}</strong></td>
                 </tr>
                 <tr>
                     <td colspan="8" style="padding:8px 12px 14px;border-bottom:1px solid #e5e7eb;background:#fbfdff;">
@@ -2185,17 +2278,31 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                             <summary style="cursor:pointer;font-weight:600;">Lihat Analisa</summary>
                             <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
                                 <div>
-                                    <strong>Alasan Detail</strong>
-                                    <p>{escape(recommendation.get("reason_detail") or "-")}</p>
+                                    <strong>Mengapa Model Ini Dipilih?</strong>
+                                    <p>{escape(plain_reason)}</p>
                                 </div>
                                 <div>
-                                    <strong>Warning Data Quality</strong>
-                                    <ul>{warning_items}</ul>
+                                    <strong>Kualitas Data</strong>
+                                    <p>{escape(quality_text)}</p>
                                 </div>
                                 <div>
-                                    <strong>Alternatif</strong>
+                                    <strong>Yang Perlu Diperhatikan</strong>
+                                    <p>{escape(plain_limitation)}</p>
+                                </div>
+                                <div>
+                                    <strong>Pilihan Model Lain</strong>
                                     <ul>{alternative_items}</ul>
                                 </div>
+                            </div>
+                            <details style="margin-top:12px;padding:10px 12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
+                                <summary style="cursor:pointer;font-weight:600;">Detail Statistik</summary>
+                                <div style="margin-top:8px;">
+                                    <p><strong>Penjelasan teknis model:</strong> {escape(recommendation.get("reason_detail") or "-")}</p>
+                                    <p><strong>Catatan teknis kualitas data:</strong></p>
+                                    <ul>{warning_items}</ul>
+                                </div>
+                            </details>
+                            <div style="display:none;">
                             </div>
                         </details>
                     </td>
@@ -2211,7 +2318,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         if obj.recommended_distribution and obj.distribution_type != obj.recommended_distribution:
             selected_warning = (
                 "<p style='padding:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'>"
-                "Pilihan Anda berbeda dari rekomendasi sistem. Pastikan justifikasi bisnis/statistik terisi sebelum menyimpan."
+                "Model yang dipilih berbeda dari rekomendasi sistem. Pastikan alasan bisnis atau statistik sudah dipertimbangkan sebelum menyimpan."
                 "</p>"
             )
 
@@ -2219,12 +2326,10 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             f"""
             <div style="padding:14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
                 <p style="margin-top:0;">
-                    <strong>Distribusi yang dipilih:</strong> {escape(selected_label)}. Gunakan rekomendasi di bawah sebagai dasar
-                    memilih field <strong>Model Distribusi Monte Carlo</strong> sebelum menyimpan prediksi.
+                    <strong>Model distribusi yang dipilih:</strong> {escape(selected_label)}. Gunakan rekomendasi di bawah untuk membantu memilih <strong>Model Distribusi Monte Carlo</strong> yang paling sesuai.
                 </p>
                 <p style="margin-top:0;color:#4b5563;">
-                    Catatan: simulasi multi metric saat ini memakai satu model distribusi global untuk beberapa metric.
-                    Rekomendasi agregat adalah kompromi; tinjau detail per metric sebelum override.
+                    Catatan: satu model distribusi digunakan untuk beberapa metric. Karena itu, rekomendasi akhir merupakan pilihan yang paling mewakili keseluruhan data.
                 </p>
                 {selected_warning}
                 <table style="width:100%;border-collapse:collapse;background:#fff;">
@@ -2233,11 +2338,11 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
                             <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Metric</th>
                             <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Data</th>
                             <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Rekomendasi</th>
-                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Mean Growth</th>
-                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Std Growth</th>
-                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Alasan Rekomendasi</th>
-                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Catatan Risiko</th>
-                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Confidence</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Rata-rata Pertumbuhan</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Variasi Pertumbuhan</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Mengapa Dipilih?</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Yang Perlu Diperhatikan</th>
+                            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;">Tingkat Keyakinan</th>
                         </tr>
                     </thead>
                     <tbody>{''.join(rows)}</tbody>
