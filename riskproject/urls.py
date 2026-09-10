@@ -6,11 +6,19 @@ from risk.views import dashboard, export_rcc_excel, kpmr_review_view, kpmr_updat
 from riskproject.admin_site import risk_admin_site
 
 from risk.bod_phase2 import bod_phase2_api
-from risk.executive_signage import executive_risk_dashboard
+from risk.executive_signage import (
+    executive_risk_dashboard,
+    executive_risk_ai_decision,
+)
 
 urlpatterns = [
     path("strategy-risk-map/", include("risk.strategy_risk_map_urls")),
     path("executive-risk/", executive_risk_dashboard, name="executive_risk_dashboard"),
+    path(
+        "executive-risk/<int:risk_id>/ai-decision/",
+        executive_risk_ai_decision,
+        name="executive_risk_ai_decision",
+    ),
     path("api/bod-phase2/", bod_phase2_api, name="bod_phase2_api"),
     path("", dashboard, name="dashboard"),
 

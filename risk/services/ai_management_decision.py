@@ -133,8 +133,11 @@ def _call_gemini(setting: AppSetting, prompt: str) -> str:
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": float(setting.ai_temperature or 0.2),
-            "maxOutputTokens": 1400,
+            "maxOutputTokens": 4096,
             "responseMimeType": "application/json",
+            "thinkingConfig": {
+                "thinkingBudget": 0,
+            },
         },
     }
     try:

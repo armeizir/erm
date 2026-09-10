@@ -1485,13 +1485,10 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         ("Kontribusi Metric", {
             "fields": ("metric_contribution_html",)
         }),
-        ("Histori Aktual Multi Metric (Tahap 1)", {
+        ("Histori Aktual Multi Metric", {
             "fields": ("multi_metric_history_rows_html",)
         }),
-        ("Analisis Deskriptif Prediksi (Tahap 2)", {
-            "fields": ("multi_metric_descriptive_projection_rows_html",)
-        }),
-        ("Proyeksi Bulanan Multi Metric", {
+        ("Proyeksi & Asumsi Forecast", {
             "fields": ("multi_metric_projection_rows_html",)
         }),
         ("Grafik Multi Metric Monte Carlo", {
@@ -2683,7 +2680,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         """
         return mark_safe(html)
 
-    multi_metric_projection_rows_html.short_description = "Proyeksi Bulanan Multi Metric"
+    multi_metric_projection_rows_html.short_description = "Proyeksi & Asumsi Forecast"
 
     def multi_metric_chart_html(self, obj):
         snapshot = obj.simulation_snapshot or {}
