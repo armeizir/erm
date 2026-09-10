@@ -660,6 +660,22 @@ class MultiMetricAIInsightKorporat(models.Model):
     executive_summary = models.TextField()
     key_findings = models.TextField()
     recommended_actions = models.TextField()
+    user_context = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Konteks tambahan dari user saat AI Insight dibuat. "
+            "Konteks ini tidak menggantikan fakta/angka hasil Monte Carlo."
+        ),
+    )
+    management_decision_draft = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Draft ringkas Management Decision yang diturunkan dari AI Insight yang sama. "
+            "Draft ini belum merupakan keputusan final manajemen."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

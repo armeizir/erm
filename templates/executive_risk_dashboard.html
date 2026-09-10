@@ -124,27 +124,34 @@
           </div>
         </aside>
       </section>
-
       <footer class="decision">
-        <div class="decision-title">Management<br>Decision</div>
-        <div class="decision-body">
-        {% if risk_card.decisions %}
-          <ol>{% for decision in risk_card.decisions %}<li>{{ decision }}</li>{% endfor %}</ol>
-        {% else %}
-          <div class="ai-empty">
-            <div class="ai-empty-copy">
-              <div class="empty">Belum ada rencana perlakuan/management decision yang terisi pada profil risiko ini.</div>
-              {% if not tv_mode %}<span class="ai-empty-note">AI hanya menyusun draft rekomendasi; keputusan final tetap ditetapkan oleh manajemen.</span>{% endif %}
+        <div style="font-size:28px;font-weight:900;line-height:1.05;color:#174a7c;min-width:250px;">
+          Management<br>Decision
+        </div>
+        <div style="flex:1;padding-left:28px;border-left:3px solid #3b82f6;">
+          {% if risk_card.decisions %}
+            <div style="font-size:12px;color:#64748b;font-weight:800;margin-bottom:6px;">
+              KEPUTUSAN / RENCANA PERLAKUAN FORMAL
             </div>
-            {% if ai_management_enabled and perms.risk.change_profilrisikokorporatitem and not tv_mode %}
-              <button type="button" class="ai-generate" id="aiDecisionBtn" data-url="{% url 'executive_risk_ai_decision' risk_card.id %}">✨ Buat Rekomendasi dengan AI</button>
-              <form id="aiDecisionCsrf" style="display:none">{% csrf_token %}</form>
-            {% endif %}
-          </div>
-          {% if not ai_management_enabled and not tv_mode %}
-            <span class="ai-empty-note">AI belum aktif/dikonfigurasi pada Pengaturan Aplikasi.</span>
+            {% for decision in risk_card.decisions %}
+              <div style="margin:4px 0;font-weight:700;">{{ decision }}</div>
+            {% endfor %}
+          {% elif risk_card.ai_management_draft %}
+            <div style="font-size:12px;color:#b45309;font-weight:900;margin-bottom:7px;">
+              DRAFT REKOMENDASI DARI AI INSIGHT
+            </div>
+            <div style="white-space:pre-line;line-height:1.5;color:#334155;">
+              {{ risk_card.ai_management_draft }}
+            </div>
+            <div style="margin-top:8px;font-size:11px;color:#9a3412;font-weight:800;">
+              AI Draft — wajib direview. Keputusan final tetap ditetapkan oleh manajemen.
+            </div>
+          {% else %}
+            <div style="color:#64748b;">
+              Belum ada Management Decision formal dan belum ada AI Insight untuk hasil Monte Carlo ini.
+              Generate AI Insight pada modul Multi Metric Monte Carlo untuk membuat draft rekomendasi.
+            </div>
           {% endif %}
-        {% endif %}
         </div>
       </footer>
       {% if tv_mode %}<div class="tv-indicator">TV Signage · refresh saat berpindah risiko</div><div class="progress" id="progress"></div>{% endif %}
@@ -154,33 +161,6 @@
     {% endif %}
   </main>
 
-  {% if risk_card and not risk_card.decisions and ai_management_enabled and perms.risk.change_profilrisikokorporatitem and not tv_mode %}
-  <div class="ai-modal" id="aiDecisionModal" hidden aria-hidden="true">
-    <section class="ai-dialog" role="dialog" aria-modal="true" aria-labelledby="aiDecisionTitle">
-      <div class="ai-dialog-head">
-        <div>
-          <h3 id="aiDecisionTitle">AI Management Decision Assistant</h3>
-          <p>Draft untuk Risk #{{ risk_card.number }} · {{ ai_management_provider }} / {{ ai_management_model }}</p>
-        </div>
-        <span class="ai-priority" id="aiPriority">DRAFT</span>
-      </div>
-      <div class="ai-grid">
-        <div class="ai-field full"><label for="aiExecutiveSummary">Ringkasan Eksekutif</label><textarea id="aiExecutiveSummary"></textarea></div>
-        <div class="ai-field"><label for="aiImmediateActions">Immediate Action</label><textarea id="aiImmediateActions"></textarea></div>
-        <div class="ai-field"><label for="aiManagementDirection">Management Direction</label><textarea id="aiManagementDirection"></textarea></div>
-        <div class="ai-field"><label for="aiMonitoringTriggers">Monitoring Trigger</label><textarea id="aiMonitoringTriggers"></textarea></div>
-        <div class="ai-field"><label for="aiRationale">Dasar Analisis</label><textarea id="aiRationale"></textarea></div>
-      </div>
-      <div class="ai-notice" id="aiNotice">AI Draft — wajib direview. Draft ini belum disimpan dan tidak otomatis menjadi Management Decision final.</div>
-      <div class="ai-error" id="aiDecisionError"></div>
-      <div class="ai-dialog-actions">
-        <button type="button" id="aiCloseBtn">Tutup</button>
-        <button type="button" id="aiRegenerateBtn">Generate Ulang</button>
-        <button type="button" class="primary" id="aiCopyBtn">Salin Draft</button>
-      </div>
-    </section>
-  </div>
-  {% endif %}
 
   {{ rotation|json_script:"risk-rotation" }}
   <script>
@@ -191,68 +171,6 @@
     function startTV(){const u=new URL(window.location.href);u.searchParams.set('tv','1');window.location.href=u.toString()}
     document.addEventListener('keydown',e=>{if(e.key.toLowerCase()==='f')toggleFullscreen();});
 
-    (function(){
-      const trigger=document.getElementById('aiDecisionBtn');
-      const modal=document.getElementById('aiDecisionModal');
-      if(!trigger || !modal) return;
-      const closeBtn=document.getElementById('aiCloseBtn');
-      const regenBtn=document.getElementById('aiRegenerateBtn');
-      const copyBtn=document.getElementById('aiCopyBtn');
-      const errorBox=document.getElementById('aiDecisionError');
-      const priority=document.getElementById('aiPriority');
-      const fields={
-        executive_summary:document.getElementById('aiExecutiveSummary'),
-        immediate_actions:document.getElementById('aiImmediateActions'),
-        management_direction:document.getElementById('aiManagementDirection'),
-        monitoring_triggers:document.getElementById('aiMonitoringTriggers'),
-        rationale:document.getElementById('aiRationale')
-      };
-      const csrf=document.querySelector('#aiDecisionCsrf input[name=csrfmiddlewaretoken]')?.value||'';
-      const listText=value=>(Array.isArray(value)?value:[]).map((x,i)=>`${i+1}. ${x}`).join('\n');
-      function showError(message){errorBox.textContent=message||'Terjadi kesalahan.';errorBox.style.display='block'}
-      function clearError(){errorBox.textContent='';errorBox.style.display='none'}
-      function setLoading(loading){trigger.disabled=loading;regenBtn.disabled=loading;trigger.textContent=loading?'Menganalisis...':'✨ Buat Rekomendasi dengan AI';regenBtn.textContent=loading?'Menganalisis...':'Generate Ulang'}
-      async function generate(){
-        clearError();setLoading(true);
-        try{
-          const response=await fetch(trigger.dataset.url,{method:'POST',headers:{'X-CSRFToken':csrf,'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
-          let data={};try{data=await response.json()}catch(_e){}
-          if(!response.ok || !data.ok) throw new Error(data.error||`AI request gagal (${response.status})`);
-          const d=data.draft||{};
-          fields.executive_summary.value=d.executive_summary||'';
-          fields.immediate_actions.value=listText(d.immediate_actions);
-          fields.management_direction.value=listText(d.management_direction);
-          fields.monitoring_triggers.value=listText(d.monitoring_triggers);
-          fields.rationale.value=listText(d.rationale);
-          priority.textContent=`${d.priority||'MEDIUM'} · AI DRAFT`;
-          modal.hidden=false;modal.setAttribute('aria-hidden','false');
-        }catch(err){showError(err.message);modal.hidden=false;modal.setAttribute('aria-hidden','false')}finally{setLoading(false)}
-      }
-      function close(){modal.hidden=true;modal.setAttribute('aria-hidden','true');clearError()}
-      function draftText(){
-        return [
-          'AI MANAGEMENT DECISION — DRAFT',
-          '',
-          'Ringkasan Eksekutif:',fields.executive_summary.value,
-          '',
-          'Immediate Action:',fields.immediate_actions.value,
-          '',
-          'Management Direction:',fields.management_direction.value,
-          '',
-          'Monitoring Trigger:',fields.monitoring_triggers.value,
-          '',
-          'Dasar Analisis:',fields.rationale.value,
-          '',
-          'Catatan: Draft AI wajib direview sebelum ditetapkan sebagai keputusan manajemen.'
-        ].join('\n');
-      }
-      trigger.addEventListener('click',generate);regenBtn.addEventListener('click',generate);closeBtn.addEventListener('click',close);
-      modal.addEventListener('click',e=>{if(e.target===modal)close()});
-      copyBtn.addEventListener('click',async()=>{
-        try{await navigator.clipboard.writeText(draftText());copyBtn.textContent='Tersalin';setTimeout(()=>copyBtn.textContent='Salin Draft',1400)}catch(_e){showError('Browser tidak mengizinkan clipboard. Salin teks secara manual.')}
-      });
-      document.addEventListener('keydown',e=>{if(e.key==='Escape' && !modal.hidden)close()});
-    })();
 
     {% if tv_mode and risk_card %}
     (function(){

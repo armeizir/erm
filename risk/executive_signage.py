@@ -549,6 +549,27 @@ def _management_decisions(risk):
     return decisions
 
 
+def _ai_insight_management_draft(monte_carlo_result_id):
+    """V4.11 — read Management Decision draft from the same saved AI Insight."""
+    if not monte_carlo_result_id:
+        return ""
+    try:
+        from corporate_risk.models import MultiMetricAIInsightKorporat
+
+        insight = (
+            MultiMetricAIInsightKorporat.objects
+            .filter(multi_metric_result_id=monte_carlo_result_id)
+            .only("management_decision_draft")
+            .first()
+        )
+    except Exception:
+        return ""
+
+    if not insight:
+        return ""
+    return (insight.management_decision_draft or "").strip()
+
+
 def _ai_decision_context(risk, year, card):
     """Build the minimum decision-support context sent to the configured AI provider."""
     causes = []
@@ -810,6 +831,9 @@ def _build_risk_card(risk, year):
             else ("Internal Forecast" if fallback_mc else "")
         ),
         "monte_carlo_result_id": outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None),
+        "ai_management_draft": _ai_insight_management_draft(
+            outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None)
+        ),
         "decisions": _management_decisions(risk),
     }
 

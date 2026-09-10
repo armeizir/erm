@@ -914,7 +914,7 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
 
     def generate_ai_button(self, obj):
         url = reverse(f"{self.admin_site.name}:corporate_risk_generate_ai_insight", args=[obj.pk])
-        return format_html('<a class="button" href="{}">Generate AI Insight</a>', url)
+        return format_html('<a class="button" href="{}">Atur Konteks & Generate AI Insight</a>', url)
     generate_ai_button.short_description = "AI Insight"
 
     def generate_ai_insight_view(self, request, result_id, *args, **kwargs):
@@ -1702,27 +1702,64 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         )
 
     def generate_ai_insight_multi_metric_view(self, request, result_id, *args, **kwargs):
+        # V4.11 — prompt/context before single AI generation.
         result = get_object_or_404(MultiMetricMonteCarloResult, pk=result_id)
+        change_url = reverse(
+            f"{self.admin_site.name}:corporate_risk_multimetricmontecarloresult_change",
+            args=[result.pk],
+        )
+        existing_insight = MultiMetricAIInsightKorporat.objects.filter(
+            multi_metric_result=result
+        ).first()
 
-        try:
-            insight = generate_rule_based_ai_insight_for_multi_metric_result(result)
-            self.message_user(
-                request,
-                f"AI Insight Multi Metric berhasil dibuat. Insight ID: {insight.pk}",
-                level=messages.SUCCESS,
-            )
-        except Exception as exc:
-            self.message_user(
-                request,
-                f"Gagal generate AI Insight Multi Metric: {exc}",
-                level=messages.ERROR,
+        if request.method == "POST":
+            user_context = (request.POST.get("user_context") or "").strip()[:5000]
+            try:
+                insight = generate_rule_based_ai_insight_for_multi_metric_result(
+                    result,
+                    user_context=user_context,
+                )
+                self.message_user(
+                    request,
+                    (
+                        "AI Insight Multi Metric berhasil dibuat dari satu proses AI. "
+                        f"Insight ID: {insight.pk}. Draft Management Decision ikut diperbarui "
+                        "dari insight yang sama."
+                    ),
+                    level=messages.SUCCESS,
+                )
+                return redirect(change_url)
+            except Exception as exc:
+                self.message_user(
+                    request,
+                    f"Gagal generate AI Insight Multi Metric: {exc}",
+                    level=messages.ERROR,
+                )
+                existing_context = user_context
+        else:
+            existing_context = (
+                (existing_insight.user_context or "")
+                if existing_insight
+                else ""
             )
 
-        return redirect(
-            reverse(
-                f"{self.admin_site.name}:corporate_risk_multimetricmontecarloresult_change",
-                args=[result.pk],
-            )
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Generate AI Insight Multi Metric",
+            "opts": self.model._meta,
+            "original": result,
+            "result": result,
+            "existing_context": existing_context,
+            "cancel_url": change_url,
+            "has_existing_insight": bool(existing_insight),
+        }
+        return TemplateResponse(
+            request,
+            (
+                "admin/corporate_risk/multimetricmontecarloresult/"
+                "generate_ai_insight.html"
+            ),
+            context,
         )
 
 
@@ -3389,20 +3426,46 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         if not insight:
             return mark_safe(
                 '<div style="padding:12px; background:#fff8e1; border:1px solid #f0d98a; border-radius:8px;">'
-                'AI Insight Multi Metric belum dibuat. Klik tombol <strong>Generate AI Insight</strong> pada daftar hasil.'
+                'AI Insight Multi Metric belum dibuat. Klik tombol '
+                '<strong>Atur Konteks & Generate AI Insight</strong> untuk menambahkan konteks bisnis sebelum analisis.'
                 '</div>'
             )
 
+        executive_summary = escape(insight.executive_summary or "-").replace("\n", "<br>")
+        key_findings = escape(insight.key_findings or "-").replace("\n", "<br>")
+        recommended_actions = escape(insight.recommended_actions or "-").replace("\n", "<br>")
+        user_context = escape(insight.user_context or "-").replace("\n", "<br>")
+        management_draft = escape(
+            insight.management_decision_draft or "-"
+        ).replace("\n", "<br>")
+
         html = f"""
         <div style="padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #ddd;">
-            <h3>Executive Summary</h3>
-            <p>{insight.executive_summary.replace(chr(10), '<br>')}</p>
+            <div style="padding:12px; background:#eef6ff; border:1px solid #bfdbfe; border-radius:8px;">
+                <strong>Konteks Tambahan User</strong>
+                <div style="margin-top:6px;">{user_context}</div>
+                <div style="margin-top:6px;font-size:12px;color:#64748b;">
+                    Konteks ini memperkaya analisis, tetapi tidak mengubah fakta sistem seperti target,
+                    polaritas, P5/P50/P95, probabilitas, dan validasi model.
+                </div>
+            </div>
+
+            <h3 style="margin-top:15px;">Executive Summary</h3>
+            <p>{executive_summary}</p>
 
             <h3 style="margin-top:15px;">Key Findings</h3>
-            <p>{insight.key_findings.replace(chr(10), '<br>')}</p>
+            <p>{key_findings}</p>
 
             <h3 style="margin-top:15px;">Recommended Actions</h3>
-            <p>{insight.recommended_actions.replace(chr(10), '<br>')}</p>
+            <p>{recommended_actions}</p>
+
+            <h3 style="margin-top:15px;">Draft Management Decision dari AI Insight yang sama</h3>
+            <div style="padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;">
+                {management_draft}
+                <div style="margin-top:8px;font-size:12px;color:#9a3412;font-weight:700;">
+                    AI Draft — belum merupakan keputusan final manajemen.
+                </div>
+            </div>
         </div>
         """
         return mark_safe(html)
@@ -3429,11 +3492,15 @@ class MultiMetricAIInsightKorporatAdmin(admin.ModelAdmin):
         "executive_summary",
         "key_findings",
         "recommended_actions",
+        "user_context",
+        "management_decision_draft",
     )
     autocomplete_fields = (
         "multi_metric_result",
     )
     readonly_fields = (
+        "user_context",
+        "management_decision_draft",
         "created_at",
     )
 

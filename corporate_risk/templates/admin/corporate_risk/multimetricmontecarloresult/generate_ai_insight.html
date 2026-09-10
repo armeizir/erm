@@ -1,0 +1,48 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div style="max-width:980px;">
+  <div style="padding:18px 20px;background:#f8fafc;border:1px solid #dbe4ef;border-radius:10px;">
+    <h2 style="margin-top:0;">AI Insight Multi Metric</h2>
+    <p><strong>Result:</strong> {{ result }}</p>
+
+    <div style="padding:12px 14px;background:#eef6ff;border:1px solid #bfdbfe;border-radius:8px;margin-bottom:16px;">
+      <strong>Fakta model tetap dikunci oleh sistem.</strong><br>
+      Konteks tambahan hanya memperkaya analisis AI dan tidak boleh mengubah Target RKAP,
+      polaritas metric, P5/P50/P95, probabilitas, hasil Monte Carlo, atau status validasi.
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <label for="id_user_context" style="font-weight:800;display:block;margin-bottom:6px;">
+        Konteks Tambahan untuk AI (Opsional)
+      </label>
+      <textarea
+        id="id_user_context"
+        name="user_context"
+        maxlength="5000"
+        rows="10"
+        style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:8px;"
+        placeholder="Contoh: pertimbangkan kondisi kontrak gas, keterbatasan pasokan, kebijakan HGBT, rencana dispatch pembangkit, kendala pengadaan, atau fokus analisis yang diinginkan manajemen."
+      >{{ existing_context }}</textarea>
+
+      <p style="color:#64748b;font-size:12px;">
+        Contoh konteks: kondisi operasional, regulasi/kontrak, mitigasi yang sedang berjalan,
+        kendala anggaran/sumber daya, keputusan terbaru, atau fokus analisis Direksi.
+      </p>
+
+      {% if has_existing_insight %}
+      <div style="padding:9px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;margin:12px 0;">
+        AI Insight sudah pernah dibuat. Generate ulang akan memperbarui insight dan Draft Management Decision
+        untuk result yang sama.
+      </div>
+      {% endif %}
+
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <a href="{{ cancel_url }}" class="button">Batal</a>
+        <button type="submit" class="button default">✨ Generate AI Insight</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
