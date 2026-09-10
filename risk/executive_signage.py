@@ -280,6 +280,56 @@ def _sum_actuals(metric, year):
         "date": values[latest_month]["date"],
     }
 
+def _executive_metric_actuals(metric, year):
+    """V4.11.8 — Executive Risk Metric YTD actuals."""
+    if not metric:
+        return None
+
+    if metric.aggregation_type == RiskMetric.AGGREGATION_RATIO:
+        ratio = _linked_ratio_actuals(metric, year)
+        if ratio:
+            return {
+                "current": ratio.get("current"),
+                "previous": ratio.get("previous"),
+                "ytd": ratio.get("ytd"),
+                "month": ratio.get("month"),
+                "date": ratio.get("date"),
+            }
+
+    if metric.aggregation_type == RiskMetric.AGGREGATION_RATE:
+        rate = _rate_actuals(metric, year)
+        if rate:
+            return {
+                "current": rate.get("current"),
+                "previous": rate.get("previous"),
+                "ytd": rate.get("ytd"),
+                "month": rate.get("month"),
+                "date": rate.get("date"),
+            }
+
+    values = _metric_month_values(metric, year)
+    months = sorted(values)
+    if not months:
+        return None
+
+    latest_month = months[-1]
+    previous_month = months[-2] if len(months) > 1 else None
+    monthly_values = [values[m]["value"] for m in months]
+
+    if metric.aggregation_type == RiskMetric.AGGREGATION_SUM:
+        ytd = sum(monthly_values, Decimal("0"))
+    else:
+        ytd = values[latest_month]["value"]
+
+    return {
+        "current": values[latest_month]["value"],
+        "previous": values[previous_month]["value"] if previous_month else None,
+        "ytd": ytd,
+        "month": latest_month,
+        "date": values[latest_month]["date"],
+    }
+
+
 def _metric_rows(risk, year):
     metrics = list(
         RiskMetric.objects.filter(corporate_risk_item=risk, is_active=True)
@@ -303,16 +353,37 @@ def _metric_rows(risk, year):
         if latest and latest.target_value is not None:
             target = latest.target_value
 
-        ratio_actuals = _linked_ratio_actuals(metric, year)
-        actual_value = ratio_actuals["current"] if ratio_actuals else (latest.metric_value if latest else None)
-        previous_actual = ratio_actuals["previous"] if ratio_actuals else (previous.metric_value if previous else None)
-        actual_date = ratio_actuals["date"] if ratio_actuals else (latest.tanggal_data if latest else None)
-        actual_month = ratio_actuals["month"] if ratio_actuals else (latest.tanggal_data.month if latest else None)
+        executive_actuals = _executive_metric_actuals(metric, year)
+        current_actual = (
+            executive_actuals["current"]
+            if executive_actuals
+            else (latest.metric_value if latest else None)
+        )
+        previous_actual = (
+            executive_actuals["previous"]
+            if executive_actuals
+            else (previous.metric_value if previous else None)
+        )
+        ytd_actual = (
+            executive_actuals["ytd"]
+            if executive_actuals
+            else current_actual
+        )
+        actual_date = (
+            executive_actuals["date"]
+            if executive_actuals
+            else (latest.tanggal_data if latest else None)
+        )
+        actual_month = (
+            executive_actuals["month"]
+            if executive_actuals
+            else (latest.tanggal_data.month if latest else None)
+        )
 
         status, status_class = _risk_status(
             risk,
             metric=metric,
-            actual=actual_value,
+            actual=current_actual,
             target=target,
         )
         row = {
@@ -320,10 +391,12 @@ def _metric_rows(risk, year):
             "unit": metric.unit or "",
             "target": _format_value(target, metric.unit),
             "target_raw": _num(target),
-            "actual": _format_value(actual_value, metric.unit),
-            "actual_raw": _num(actual_value),
+            "actual": _format_value(ytd_actual, metric.unit),
+            "actual_raw": _num(ytd_actual),
+            "current_actual": _format_value(current_actual, metric.unit),
+            "current_actual_raw": _num(current_actual),
             "previous_raw": _num(previous_actual),
-            "trend": _trend(actual_value, previous_actual, metric.direction),
+            "trend": _trend(current_actual, previous_actual, metric.direction),
             "status": status,
             "status_class": status_class,
             "date": actual_date.isoformat() if actual_date else "",

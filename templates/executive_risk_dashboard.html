@@ -98,7 +98,7 @@
         <div class="drivers">
           <div class="drivers-tag">{{ risk_card.rows_source|upper }} — indikator risiko</div>
           <div class="table">
-            <div class="tr header"><div>INDIKATOR</div><div class="target">TARGET / TRIGGER</div><div class="actual">REALISASI TERKINI</div><div>ARAH METRIK</div></div>
+            <div class="tr header"><div>INDIKATOR</div><div class="target">TARGET / TRIGGER</div><div class="actual">REALISASI S.D. {{ risk_card.current_month|upper }} {{ risk_card.year }}</div><div>ARAH METRIK</div></div>
             {% for row in risk_card.rows %}
               <div class="tr">
                 <div class="name">{{ row.name|truncatechars:56 }}</div>
