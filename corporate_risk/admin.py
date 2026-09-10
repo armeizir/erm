@@ -1000,6 +1000,36 @@ class AIInsightKorporatAdmin(admin.ModelAdmin):
 
 @admin.register(RiskMetric)
 class RiskMetricAdmin(MonteCarloWorkspaceMixin, admin.ModelAdmin):
+
+    # V4.9.1-r2 — business polarity selector
+    def formfield_for_choice_field(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_choice_field(
+            db_field,
+            request,
+            **kwargs,
+        )
+
+        if db_field.name == "direction":
+            formfield.label = "Polaritas Metric"
+            formfield.choices = [
+                (
+                    RiskMetric.DIRECTION_DECREASE,
+                    "Positif — semakin tinggi semakin baik",
+                ),
+                (
+                    RiskMetric.DIRECTION_INCREASE,
+                    "Negatif — semakin rendah semakin baik",
+                ),
+            ]
+            formfield.help_text = (
+                "Positif: target tercapai jika realisasi ≥ target; "
+                "Worst Case=P5 dan Best Case=P95. "
+                "Negatif: target tercapai jika realisasi ≤ target; "
+                "Worst Case=P95 dan Best Case=P5."
+            )
+
+        return formfield
+
     list_display = (
         "corporate_risk_item_display",
         "name",
@@ -1728,14 +1758,28 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             tails = "Worst Case = P5 · Best Case = P95"
             accent, bg = "#067647", "#f0fdf4"
 
+        edit_url = reverse(
+            f"{self.admin_site.name}:corporate_risk_riskmetric_change",
+            args=[metric.pk],
+        )
+        edit_button = format_html(
+            '<a href="{}" style="display:inline-block;margin-top:10px;'
+            'padding:7px 11px;border-radius:7px;background:#1d4ed8;'
+            'color:#fff;text-decoration:none;font-size:12px;font-weight:800;">'
+            'Ubah Polaritas Target Metric'
+            '</a>',
+            edit_url,
+        )
+
         return format_html(
             '<div style="padding:14px 16px;border:1px solid {};border-left:5px solid {};'
             'border-radius:10px;background:{};">'
             '<div style="font-size:13px;font-weight:800;color:{};">POLARITAS {}</div>'
             '<div style="margin-top:5px;color:#334155;">{} · {}</div>'
             '<div style="margin-top:4px;font-size:12px;color:#64748b;">Target metric: {}</div>'
+            '{}'
             '</div>',
-            accent, accent, bg, accent, title, rule, tails, metric.name,
+            accent, accent, bg, accent, title, rule, tails, metric.name, edit_button,
         )
 
     def _fmt(self, value, digits=2):
