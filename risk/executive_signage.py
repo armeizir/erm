@@ -725,6 +725,21 @@ def _build_risk_card(risk, year):
     potential_loss = outlook.get("potential_impact") if outlook else (fallback_mc.potential_loss if fallback_mc else None)
     forecast_period = outlook.get("forecast_period") if outlook else (str(fallback_mc.forecast_periode) if fallback_mc else "Belum tersedia")
 
+    # V4.9.4 — if Executive displays an internal/manual Monte Carlo forecast,
+    # its status must be calculated from that same forecast, not from current actual.
+    if (
+        not outlook
+        and fallback_mc is not None
+        and primary is not None
+        and primary_target is not None
+    ):
+        status_label, status_class = _forecast_status(
+            primary,
+            forecast_value,
+            primary_target,
+            fallback_mc.probability_not_achieve_target,
+        )
+
     if outlook and outlook.get("probability_not_achieve") is not None:
         probability = _decimal(outlook.get("probability_not_achieve"))
         probability_text = f"{probability:.2f}%".replace(".", ",") if probability is not None else "–"
@@ -738,6 +753,18 @@ def _build_risk_card(risk, year):
             f"Monte Carlo tervalidasi; target ERM tetap digunakan untuk penilaian status."
         )
         probability_text = "–"
+    elif fallback_mc:
+        probability = _decimal(fallback_mc.probability_not_achieve_target)
+        probability_text = (
+            f"{probability:.2f}%".replace(".", ",")
+            if probability is not None
+            else "–"
+        )
+        simulation_mode = mc_snapshot.get("simulation_mode") or "internal"
+        status_note = (
+            f"Forecast internal ({simulation_mode}): status dihitung dari forecast P50 terhadap target "
+            f"sesuai polaritas metric. Model belum tervalidasi eksternal."
+        )
     else:
         status_note = _explanation(status_label, current_value, primary_target, MONTH_NAMES.get(period_month, "periode"))
         probability_text = "–"
@@ -777,7 +804,11 @@ def _build_risk_card(risk, year):
         "potential_loss": _format_value(potential_loss, "Rp") if potential_loss not in (None, 0, Decimal("0")) else "–",
         "probability_not_achieve": probability_text,
         "model_validation": outlook.get("validation_status") if outlook else "",
-        "model_source": outlook.get("validation_source") if outlook else "",
+        "model_source": (
+            outlook.get("validation_source")
+            if outlook
+            else ("Internal Forecast" if fallback_mc else "")
+        ),
         "monte_carlo_result_id": outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None),
         "decisions": _management_decisions(risk),
     }
