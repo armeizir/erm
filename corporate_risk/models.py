@@ -156,6 +156,16 @@ class RiskMetric(models.Model):
     DIRECTION_INCREASE = "increase"
     DIRECTION_DECREASE = "decrease"
 
+    AGGREGATION_SUM = "sum"
+    AGGREGATION_RATE = "rate"
+    AGGREGATION_RATIO = "ratio"
+
+    AGGREGATION_CHOICES = (
+        (AGGREGATION_SUM, "SUM - dijumlahkan antar periode"),
+        (AGGREGATION_RATE, "RATE - nilai tingkat/rate, tidak dijumlahkan"),
+        (AGGREGATION_RATIO, "RATIO - hasil pembagian numerator/denominator"),
+    )
+
     DIRECTION_CHOICES = (
         (DIRECTION_INCREASE, "Semakin besar semakin berisiko"),
         (DIRECTION_DECREASE, "Semakin kecil semakin berisiko"),
@@ -176,6 +186,34 @@ class RiskMetric(models.Model):
         blank=True,
         default="",
         verbose_name="Satuan",
+    )
+    aggregation_type = models.CharField(
+        max_length=20,
+        choices=AGGREGATION_CHOICES,
+        default=AGGREGATION_SUM,
+        verbose_name="Semantik Agregasi",
+        help_text=(
+            "SUM untuk volume/nilai tahunan yang dijumlahkan per bulan. "
+            "RATE/RATIO tidak boleh dijumlahkan antar bulan."
+        ),
+    )
+    ratio_numerator_metric = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="ratio_numerator_for",
+        verbose_name="Metric Pembilang Ratio",
+        help_text="Wajib untuk aggregation RATIO. Dapat menunjuk metric pada risiko korporat lain.",
+    )
+    ratio_denominator_metric = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="ratio_denominator_for",
+        verbose_name="Metric Penyebut Ratio",
+        help_text="Wajib untuk aggregation RATIO. Nilai ratio = pembilang / penyebut.",
     )
     direction = models.CharField(
         max_length=20,
@@ -277,6 +315,23 @@ class RiskMetric(models.Model):
             errors["risk_appetite_threshold"] = "Risk appetite probabilitas harus berada antara 0 sampai 100."
         if self.risk_appetite_value is not None and self.risk_appetite_value < 0:
             errors["risk_appetite_value"] = "Risk appetite nilai kerugian tidak boleh negatif."
+        if self.aggregation_type == self.AGGREGATION_RATIO:
+            if not self.ratio_numerator_metric_id:
+                errors["ratio_numerator_metric"] = "Metric pembilang wajib untuk aggregation RATIO."
+            if not self.ratio_denominator_metric_id:
+                errors["ratio_denominator_metric"] = "Metric penyebut wajib untuk aggregation RATIO."
+            if (
+                self.ratio_numerator_metric_id
+                and self.ratio_denominator_metric_id
+                and self.ratio_numerator_metric_id == self.ratio_denominator_metric_id
+            ):
+                errors["ratio_denominator_metric"] = "Pembilang dan penyebut RATIO tidak boleh metric yang sama."
+            if self.pk and self.ratio_numerator_metric_id == self.pk:
+                errors["ratio_numerator_metric"] = "Metric RATIO tidak boleh memakai dirinya sendiri sebagai pembilang."
+            if self.pk and self.ratio_denominator_metric_id == self.pk:
+                errors["ratio_denominator_metric"] = "Metric RATIO tidak boleh memakai dirinya sendiri sebagai penyebut."
+        elif self.ratio_numerator_metric_id or self.ratio_denominator_metric_id:
+            errors["aggregation_type"] = "Relasi pembilang/penyebut hanya digunakan untuk aggregation RATIO."
         if errors:
             raise ValidationError(errors)
     
@@ -382,6 +437,58 @@ class MonteCarloMetricHistory(models.Model):
 
     def __str__(self):
         return f"{self.metric} - {self.periode} = {self.metric_value}"
+
+
+class MonteCarloForecastAssumption(models.Model):
+    SOURCE_CRYSTAL_BALL = "crystal_ball"
+    SOURCE_MANUAL = "manual"
+    SOURCE_CHOICES = (
+        (SOURCE_CRYSTAL_BALL, "Crystal Ball Import"),
+        (SOURCE_MANUAL, "Manual"),
+    )
+
+    metric = models.ForeignKey(
+        "corporate_risk.RiskMetric",
+        on_delete=models.CASCADE,
+        related_name="forecast_assumptions",
+        verbose_name="Risk Metric",
+    )
+    forecast_date = models.DateField(verbose_name="Bulan Forecast")
+    distribution_type = models.CharField(
+        max_length=20,
+        choices=MonteCarloKorporatConfig.DISTRIBUTION_CHOICES,
+        default="normal",
+        verbose_name="Distribusi",
+    )
+    mean_value = models.DecimalField(max_digits=24, decimal_places=4, verbose_name="Mean / P50")
+    stddev_value = models.DecimalField(max_digits=24, decimal_places=4, verbose_name="Standard Deviation")
+    p15_value = models.DecimalField(
+        max_digits=24, decimal_places=4, null=True, blank=True, verbose_name="P15.865254 Referensi"
+    )
+    source_type = models.CharField(
+        max_length=20, choices=SOURCE_CHOICES, default=SOURCE_CRYSTAL_BALL, verbose_name="Sumber"
+    )
+    source_file = models.CharField(max_length=255, blank=True, default="", verbose_name="Nama File Sumber")
+    source_sha256 = models.CharField(max_length=64, blank=True, default="", db_index=True, verbose_name="SHA256 Sumber")
+    source_sheet = models.CharField(max_length=100, blank=True, default="", verbose_name="Sheet Sumber")
+    source_metadata = models.JSONField(default=dict, blank=True, verbose_name="Metadata Sumber")
+    is_active = models.BooleanField(default=True, verbose_name="Aktif")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Monte Carlo Forecast Assumption"
+        verbose_name_plural = "Monte Carlo Forecast Assumptions"
+        ordering = ("metric", "forecast_date")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("metric", "forecast_date", "source_type", "source_sha256"),
+                name="uniq_mc_assumption_metric_month_source",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.metric} - {self.forecast_date:%Y-%m} ({self.distribution_type})"
 
 
 class MultiMetricMonteCarloResult(models.Model):

@@ -1004,6 +1004,7 @@ class RiskMetricAdmin(MonteCarloWorkspaceMixin, admin.ModelAdmin):
         "corporate_risk_item_display",
         "name",
         "unit",
+        "aggregation_type",
         "direction",
         "weight",
         "is_target_metric",
@@ -1012,13 +1013,18 @@ class RiskMetricAdmin(MonteCarloWorkspaceMixin, admin.ModelAdmin):
         "is_active",
         "input_history_button",
     )
-    list_filter = ("direction", "is_target_metric", "is_active")
+    list_filter = ("aggregation_type", "direction", "is_target_metric", "is_active")
     search_fields = (
         "corporate_risk_item__peristiwa_risiko",
         "name",
         "unit",
     )
-    autocomplete_fields = ("corporate_risk_item", "rkap_item")
+    autocomplete_fields = (
+        "corporate_risk_item",
+        "rkap_item",
+        "ratio_numerator_metric",
+        "ratio_denominator_metric",
+    )
     ordering = ("corporate_risk_item", "name")
 
     fieldsets = (
@@ -1029,6 +1035,7 @@ class RiskMetricAdmin(MonteCarloWorkspaceMixin, admin.ModelAdmin):
             "fields": (
                 "name",
                 "unit",
+                "aggregation_type",
                 "direction",
                 "weight",
                 "is_active",
@@ -1043,6 +1050,16 @@ class RiskMetricAdmin(MonteCarloWorkspaceMixin, admin.ModelAdmin):
                 "risk_appetite_threshold",
                 "risk_appetite_value",
             )
+        }),
+        ("Semantik RATE / RATIO", {
+            "fields": (
+                "ratio_numerator_metric",
+                "ratio_denominator_metric",
+            ),
+            "description": (
+                "Isi pembilang dan penyebut hanya untuk metric RATIO. "
+                "Contoh HJR = Pendapatan Penjualan / Penjualan Tenaga Listrik."
+            ),
         }),
     )
 

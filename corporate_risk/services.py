@@ -18,6 +18,7 @@ from .models import (
     AIInsightKorporat,
     RiskMetric,
     MonteCarloMetricHistory,
+    MonteCarloForecastAssumption,
     MultiMetricMonteCarloResult,
     MultiMetricAIInsightKorporat,
 )
@@ -551,6 +552,232 @@ def _simulate_metric(
     }
 
 
+def _imported_dependency_config(assumptions):
+    """Return a normalized dependency configuration stored in assumption metadata.
+
+    The configuration is deliberately metadata-based so validated external models can
+    express dependency without a schema migration.  V4.3 currently supports an
+    equicorrelated Normal factor model for SUM metrics.
+    """
+    if not assumptions:
+        return {}
+    metadata = getattr(assumptions[0], "source_metadata", None) or {}
+    config = metadata.get("dependency_model") or {}
+    if not isinstance(config, dict):
+        return {}
+    return config
+
+
+def _equicorrelated_normal_draws(*, normalized, rng, rho):
+    count = len(normalized)
+    if count <= 1:
+        return [rng.gauss(mean_value, sigma) for _a, mean_value, sigma in normalized]
+    min_rho = -1.0 / (count - 1)
+    rho = max(min(float(rho), 0.999999), min_rho + 1e-9)
+    if rho < 0:
+        # Negative equicorrelation needs a matrix factorization.  V4.3 intentionally
+        # rejects it rather than silently using the wrong covariance structure.
+        raise ValueError("Equicorrelation negatif belum didukung oleh imported assumptions V4.3.")
+    common = rng.gauss(0.0, 1.0)
+    common_scale = math.sqrt(rho)
+    idio_scale = math.sqrt(1.0 - rho)
+    return [
+        mean_value + sigma * (common_scale * common + idio_scale * rng.gauss(0.0, 1.0))
+        for _a, mean_value, sigma in normalized
+    ]
+
+
+def _simulate_metric_from_imported_assumptions(
+    *,
+    actual_total,
+    assumptions,
+    n_simulations=10000,
+    rng_seed=None,
+):
+    """Simulate annual SUM metric from explicit month-by-month imported assumptions.
+
+    V1 intentionally supports Normal assumptions only because the validated Crystal Ball
+    workbook uses Normal(mean, stddev) for Sep-Dec 2026. This keeps the imported mode
+    auditable and prevents silently applying the legacy SMA model.
+    """
+    if not assumptions:
+        raise ValueError("Imported forecast assumptions tidak tersedia.")
+
+    normalized = []
+    for assumption in assumptions:
+        distribution = (assumption.distribution_type or "normal").lower()
+        if distribution != "normal":
+            raise ValueError(
+                f"Imported assumption V1 hanya mendukung distribusi Normal; "
+                f"ditemukan '{distribution}' pada {assumption.forecast_date}."
+            )
+        mean_value = _safe_float(assumption.mean_value)
+        sigma = abs(_safe_float(assumption.stddev_value))
+        normalized.append((assumption, mean_value, max(sigma, 0.0001)))
+
+    dependency = _imported_dependency_config(assumptions)
+    dependency_type = str(dependency.get("type") or "independent").lower()
+    truncate_at_zero = bool(dependency.get("truncate_at_zero", True))
+    rho = _safe_float(dependency.get("rho")) if dependency_type == "equicorrelation" else 0.0
+
+    rng = random.Random(rng_seed)
+    actual_total = _safe_float(actual_total)
+    simulation_totals = []
+    for _ in range(int(n_simulations)):
+        total = actual_total
+        if dependency_type == "equicorrelation":
+            draws = _equicorrelated_normal_draws(normalized=normalized, rng=rng, rho=rho)
+        elif dependency_type in ("", "independent", "none"):
+            draws = [rng.gauss(mean_value, sigma) for _a, mean_value, sigma in normalized]
+        else:
+            raise ValueError(f"Dependency model imported assumptions belum didukung: {dependency_type}")
+        for sampled in draws:
+            total += max(sampled, 0.0) if truncate_at_zero else sampled
+        simulation_totals.append(total)
+
+    projection_rows = []
+    for idx, (assumption, mean_value, sigma) in enumerate(normalized, start=1):
+        p15 = _safe_float(assumption.p15_value) if assumption.p15_value is not None else mean_value - sigma
+        projection_rows.append({
+            "bulan_index": idx,
+            "forecast_date": assumption.forecast_date.isoformat(),
+            "mean": mean_value,
+            "p15": p15,
+            "p50": mean_value,
+            "p20": mean_value - 0.8416212335729143 * sigma,
+            "p40": mean_value - 0.2533471031357997 * sigma,
+            "p60": mean_value + 0.2533471031357997 * sigma,
+            "p80": mean_value + 0.8416212335729143 * sigma,
+            "stdev_f": sigma,
+            "source": "imported_assumption",
+        })
+
+    future_mean_total = sum(mean_value for _a, mean_value, _s in normalized)
+    return {
+        "actual_total": actual_total,
+        "future_mean_total": future_mean_total,
+        "full_year_expected": actual_total + future_mean_total,
+        "p5_total": _percentile(simulation_totals, 0.05),
+        "p20_total": _percentile(simulation_totals, 0.20),
+        "p40_total": _percentile(simulation_totals, 0.40),
+        "p50_total": _percentile(simulation_totals, 0.50),
+        "p60_total": _percentile(simulation_totals, 0.60),
+        "p80_total": _percentile(simulation_totals, 0.80),
+        "p90_total": _percentile(simulation_totals, 0.90),
+        "p95_total": _percentile(simulation_totals, 0.95),
+        "min_total": min(simulation_totals),
+        "max_total": max(simulation_totals),
+        "distribution_type": "normal",
+        "distribution_label": _distribution_label("normal"),
+        "projection_rows": projection_rows,
+        "simulation_totals": simulation_totals,
+        "descriptive_stats": {
+            "source": "imported_assumptions",
+            "assumption_count": len(normalized),
+            "rng_seed": rng_seed,
+            "dependency_type": dependency_type,
+            "correlation_rho": rho if dependency_type == "equicorrelation" else None,
+            "truncate_at_zero": truncate_at_zero,
+        },
+    }
+
+
+def _simulate_rate_from_imported_assumptions(
+    *,
+    actual_values,
+    assumptions,
+    n_simulations=10000,
+    rng_seed=None,
+):
+    """Simulate a full-year RATE as the arithmetic mean of monthly rates.
+
+    This is intentionally distinct from SUM and RATIO semantics.  It matches the
+    validated Risk #10 gas-price workbook, whose annual figure is
+    ``AVERAGE(monthly_rate_Jan:Dec)``.  Monthly Normal draws are *not* truncated
+    at zero so the stochastic model remains analytically equivalent to the
+    imported Normal assumptions.
+    """
+    if not assumptions:
+        raise ValueError("Imported forecast assumptions tidak tersedia.")
+
+    actual_values = [_safe_float(value) for value in (actual_values or [])]
+    if not actual_values:
+        raise ValueError("RATE membutuhkan actual period values sebelum forecast.")
+
+    normalized = []
+    for assumption in assumptions:
+        distribution = (assumption.distribution_type or "normal").lower()
+        if distribution != "normal":
+            raise ValueError(
+                f"Imported assumption RATE V1 hanya mendukung distribusi Normal; "
+                f"ditemukan '{distribution}' pada {assumption.forecast_date}."
+            )
+        mean_value = _safe_float(assumption.mean_value)
+        sigma = abs(_safe_float(assumption.stddev_value))
+        normalized.append((assumption, mean_value, max(sigma, 0.0000001)))
+
+    actual_sum = sum(actual_values)
+    actual_count = len(actual_values)
+    future_count = len(normalized)
+    total_periods = actual_count + future_count
+    rng = random.Random(rng_seed)
+    simulation_totals = []
+    for _ in range(int(n_simulations)):
+        total_rate = actual_sum
+        for _assumption, mean_value, sigma in normalized:
+            total_rate += rng.gauss(mean_value, sigma)
+        simulation_totals.append(total_rate / total_periods)
+
+    projection_rows = []
+    for idx, (assumption, mean_value, sigma) in enumerate(normalized, start=1):
+        p15 = _safe_float(assumption.p15_value) if assumption.p15_value is not None else mean_value - sigma
+        projection_rows.append({
+            "bulan_index": idx,
+            "forecast_date": assumption.forecast_date.isoformat(),
+            "mean": mean_value,
+            "p15": p15,
+            "p50": mean_value,
+            "p20": mean_value - 0.8416212335729143 * sigma,
+            "p40": mean_value - 0.2533471031357997 * sigma,
+            "p60": mean_value + 0.2533471031357997 * sigma,
+            "p80": mean_value + 0.8416212335729143 * sigma,
+            "stdev_f": sigma,
+            "source": "imported_assumption_rate",
+        })
+
+    annual_expected = (actual_sum + sum(mean_value for _a, mean_value, _s in normalized)) / total_periods
+    future_mean = sum(mean_value for _a, mean_value, _s in normalized) / future_count
+    actual_mean = actual_sum / actual_count
+    return {
+        "actual_total": actual_mean,
+        "future_mean_total": future_mean,
+        "full_year_expected": annual_expected,
+        "p5_total": _percentile(simulation_totals, 0.05),
+        "p20_total": _percentile(simulation_totals, 0.20),
+        "p40_total": _percentile(simulation_totals, 0.40),
+        "p50_total": _percentile(simulation_totals, 0.50),
+        "p60_total": _percentile(simulation_totals, 0.60),
+        "p80_total": _percentile(simulation_totals, 0.80),
+        "p90_total": _percentile(simulation_totals, 0.90),
+        "p95_total": _percentile(simulation_totals, 0.95),
+        "min_total": min(simulation_totals),
+        "max_total": max(simulation_totals),
+        "distribution_type": "normal",
+        "distribution_label": _distribution_label("normal"),
+        "projection_rows": projection_rows,
+        "simulation_totals": simulation_totals,
+        "descriptive_stats": {
+            "source": "imported_assumptions_rate",
+            "aggregation_method": "arithmetic_mean_monthly",
+            "assumption_count": future_count,
+            "actual_count": actual_count,
+            "actual_sum": actual_sum,
+            "actual_mean": actual_mean,
+            "rng_seed": rng_seed,
+        },
+    }
+
+
 def _latest_target_from_histories(histories):
     for history in reversed(histories):
         if history.target_value not in (None, ""):
@@ -565,7 +792,16 @@ def _build_target_analysis(
     average_selling_price=0,
     risk_appetite_threshold=20,
     risk_appetite_value=None,
+    direction=RiskMetric.DIRECTION_DECREASE,
 ):
+    """Build target/risk analysis using the metric risk direction.
+
+    ``decrease`` means a value below target is adverse, therefore P5 is the
+    worst case. ``increase`` means a value above target is adverse, therefore
+    P95 is the worst case.  The legacy default remains ``decrease`` so callers
+    outside multi-metric Monte Carlo keep their historical semantics unless
+    they explicitly pass a direction.
+    """
     if not simulation_totals or target_value in (None, ""):
         return {}
 
@@ -575,22 +811,37 @@ def _build_target_analysis(
     selling_price = _safe_float(average_selling_price)
     threshold = _safe_float(risk_appetite_threshold)
     appetite_value = None if risk_appetite_value in (None, "") else _safe_float(risk_appetite_value)
+    is_increase_risk = direction == RiskMetric.DIRECTION_INCREASE
 
-    achieved_count = sum(1 for value in totals if value >= target)
+    if is_increase_risk:
+        achieved_count = sum(1 for value in totals if value <= target)
+    else:
+        achieved_count = sum(1 for value in totals if value >= target)
     not_achieved_count = len(totals) - achieved_count
     probability_achieve = achieved_count / len(totals) * 100
     probability_not_achieve = not_achieved_count / len(totals) * 100
 
-    worst_case = _percentile(totals, 0.05)
+    p5 = _percentile(totals, 0.05)
     baseline = _percentile(totals, 0.50)
-    best_case = _percentile(totals, 0.95)
+    p95 = _percentile(totals, 0.95)
+    worst_case = p95 if is_increase_risk else p5
+    best_case = p5 if is_increase_risk else p95
+    worst_case_percentile = "P95" if is_increase_risk else "P5"
+    best_case_percentile = "P5" if is_increase_risk else "P95"
     forecast_total = baseline
-    target_gap = max(target - forecast_total, 0)
-    potential_loss = target_gap * selling_price
-    var_95 = max(target - worst_case, 0)
 
-    target_status = "Tercapai" if forecast_total >= target else "Tidak Tercapai"
-    risk_status = "Aman" if forecast_total >= target else "Berisiko"
+    if is_increase_risk:
+        target_gap = max(forecast_total - target, 0)
+        var_95 = max(worst_case - target, 0)
+        target_ok = forecast_total <= target
+    else:
+        target_gap = max(target - forecast_total, 0)
+        var_95 = max(target - worst_case, 0)
+        target_ok = forecast_total >= target
+
+    potential_loss = target_gap * selling_price
+    target_status = "Tercapai" if target_ok else "Tidak Tercapai"
+    risk_status = "Aman" if target_ok else "Berisiko"
     requires_mitigation = probability_not_achieve >= threshold
     if appetite_value is not None and potential_loss > appetite_value:
         requires_mitigation = True
@@ -613,8 +864,12 @@ def _build_target_analysis(
         "target_status": target_status,
         "risk_status": risk_status,
         "worst_case_value": worst_case,
+        "worst_case_percentile": worst_case_percentile,
         "baseline_value": baseline,
         "best_case_value": best_case,
+        "best_case_percentile": best_case_percentile,
+        "p5_value": p5,
+        "p95_value": p95,
         "var_95": var_95,
         "requires_mitigation": requires_mitigation,
         "risk_appetite_threshold": threshold,
@@ -807,6 +1062,415 @@ def _select_descriptive_metric(metric_results, target_metric_row=None):
     return target_metric_row or (metric_results[0] if metric_results else None)
 
 
+
+def _relative_diff_pct(value, benchmark):
+    benchmark = _safe_float(benchmark)
+    if benchmark == 0:
+        return 0.0 if _safe_float(value) == 0 else None
+    return (_safe_float(value) - benchmark) / benchmark * 100.0
+
+
+def _validation_status(diff_pct, tolerance_pct):
+    if diff_pct is None:
+        return "INFO"
+    return "PASS" if abs(diff_pct) <= float(tolerance_pct) else "REVIEW"
+
+
+def _analytical_normal_sum_percentiles(*, actual_total, assumptions):
+    """Analytical FY P5/P50/P95 for imported monthly Normal SUM assumptions.
+
+    Independent assumptions keep the original V4.1 zero-floor safeguard.  A validated
+    equicorrelation dependency model may explicitly disable zero truncation; in that
+    case the annual sum is still Normal with covariance included analytically.
+    """
+    if not assumptions:
+        return None
+
+    dependency = _imported_dependency_config(assumptions)
+    dependency_type = str(dependency.get("type") or "independent").lower()
+    truncate_at_zero = bool(dependency.get("truncate_at_zero", True))
+    rho = _safe_float(dependency.get("rho")) if dependency_type == "equicorrelation" else 0.0
+
+    means = []
+    sigmas = []
+    for assumption in assumptions:
+        distribution = (assumption.distribution_type or "normal").lower()
+        if distribution != "normal":
+            return None
+        mean_value = _safe_float(assumption.mean_value)
+        sigma = abs(_safe_float(assumption.stddev_value))
+        if truncate_at_zero and sigma > 0 and mean_value / sigma < 5.0:
+            return None
+        means.append(mean_value)
+        sigmas.append(sigma)
+
+    mu = _safe_float(actual_total) + sum(means)
+    variance = sum(value * value for value in sigmas)
+    if dependency_type == "equicorrelation":
+        if rho < 0:
+            return None
+        covariance_sum = sum(
+            sigmas[i] * sigmas[j]
+            for i in range(len(sigmas))
+            for j in range(i + 1, len(sigmas))
+        )
+        variance += 2.0 * rho * covariance_sum
+    elif dependency_type not in ("", "independent", "none"):
+        return None
+
+    sigma_total = math.sqrt(max(variance, 0.0))
+    z95 = 1.6448536269514722
+    return {
+        "p5": mu - z95 * sigma_total,
+        "p50": mu,
+        "p95": mu + z95 * sigma_total,
+        "mean": mu,
+        "sigma": sigma_total,
+        "floor_at_zero_material": bool(truncate_at_zero and any(
+            sigma > 0 and mean / sigma < 5.0 for mean, sigma in zip(means, sigmas)
+        )),
+        "dependency_type": dependency_type,
+        "correlation_rho": rho if dependency_type == "equicorrelation" else None,
+        "truncate_at_zero": truncate_at_zero,
+        "validation_basis": (
+            "analytical_correlated_normal_sum"
+            if dependency_type == "equicorrelation"
+            else "analytical_normal_sum"
+        ),
+    }
+
+
+def _analytical_normal_rate_percentiles(*, actual_sum, actual_count, assumptions):
+    """Analytical P5/P50/P95 for a monthly arithmetic-mean RATE.
+
+    Actual months are fixed and forecast months are independent Normal variables.
+    The full-year rate is ``(sum(actual) + sum(forecast)) / total_months``.
+    """
+    if not assumptions or not actual_count:
+        return None
+
+    means = []
+    sigmas = []
+    for assumption in assumptions:
+        distribution = (assumption.distribution_type or "normal").lower()
+        if distribution != "normal":
+            return None
+        means.append(_safe_float(assumption.mean_value))
+        sigmas.append(abs(_safe_float(assumption.stddev_value)))
+
+    total_count = int(actual_count) + len(means)
+    if total_count <= 0:
+        return None
+    mu = (_safe_float(actual_sum) + sum(means)) / total_count
+    sigma_total = math.sqrt(sum(value * value for value in sigmas)) / total_count
+    z95 = 1.6448536269514722
+    return {
+        "p5": mu - z95 * sigma_total,
+        "p50": mu,
+        "p95": mu + z95 * sigma_total,
+        "mean": mu,
+        "sigma": sigma_total,
+        "aggregation_method": "arithmetic_mean_monthly",
+    }
+
+
+def _analytical_normal_probability_risk(*, analytical, target_value, direction):
+    if not analytical or target_value in (None, ""):
+        return None
+    mu = _safe_float(analytical.get("mean"))
+    sigma = abs(_safe_float(analytical.get("sigma")))
+    target = _safe_float(target_value)
+    if sigma <= 0:
+        if direction == RiskMetric.DIRECTION_INCREASE:
+            return 100.0 if mu > target else 0.0
+        return 100.0 if mu < target else 0.0
+    z = (target - mu) / sigma
+    cdf = 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+    if direction == RiskMetric.DIRECTION_INCREASE:
+        return (1.0 - cdf) * 100.0
+    return cdf * 100.0
+
+
+def _build_imported_assumption_validation(metric_results, forecast_year, tolerance_pct=0.05):
+    """Build auditable Crystal Ball comparison metadata from imported assumptions.
+
+    The external benchmark is reference-only. ERM still calculates its own Monte Carlo
+    result and stores the differences so Executive Risk can distinguish a validated
+    imported model from the legacy history/SMA engine.
+    """
+    if not metric_results or not forecast_year:
+        return {}, {}
+
+    rows_by_id = {row.get("metric_id"): row for row in metric_results if row.get("metric_id")}
+    metric_validations = []
+    source_files = set()
+    source_hashes = set()
+    workbook_benchmark = {}
+    checked_statuses = []
+
+    for row in metric_results:
+        metric_id = row.get("metric_id")
+        assumptions = list(
+            MonteCarloForecastAssumption.objects.filter(
+                metric_id=metric_id,
+                is_active=True,
+                forecast_date__year=forecast_year,
+            ).order_by("forecast_date", "id")
+        )
+        if not assumptions:
+            continue
+        assumption = assumptions[0]
+
+        metadata = assumption.source_metadata or {}
+        benchmark = metadata.get("benchmark") or {}
+        metric_tolerance_pct = _safe_float(metadata.get("validation_tolerance_pct") or tolerance_pct)
+        if metadata.get("workbook_benchmark"):
+            workbook_benchmark = metadata.get("workbook_benchmark") or workbook_benchmark
+        if assumption.source_file:
+            source_files.add(assumption.source_file)
+        if assumption.source_sha256:
+            source_hashes.add(assumption.source_sha256)
+
+        analytical = None
+        validation_basis = "stochastic_run"
+        if row.get("aggregation_type") == RiskMetric.AGGREGATION_SUM:
+            analytical = _analytical_normal_sum_percentiles(
+                actual_total=row.get("actual_total"),
+                assumptions=assumptions,
+            )
+            if analytical is not None:
+                validation_basis = analytical.get("validation_basis") or "analytical_normal_sum"
+        elif row.get("aggregation_type") == RiskMetric.AGGREGATION_RATE:
+            stats = row.get("descriptive_stats") or {}
+            analytical = _analytical_normal_rate_percentiles(
+                actual_sum=stats.get("actual_sum"),
+                actual_count=stats.get("actual_count"),
+                assumptions=assumptions,
+            )
+            if analytical is not None:
+                validation_basis = "analytical_normal_rate"
+
+        percentile_rows = []
+        analytical_rows = []
+        for result_key, benchmark_key, label in (
+            ("p5_total", "p5", "P5"),
+            ("p50_total", "p50", "P50"),
+            ("p95_total", "p95", "P95"),
+        ):
+            benchmark_value = benchmark.get(benchmark_key)
+            if benchmark_value in (None, ""):
+                continue
+            erm_value = _safe_float(row.get(result_key))
+            cb_value = _safe_float(benchmark_value)
+            diff_pct = _relative_diff_pct(erm_value, cb_value)
+            sampling_status = _validation_status(diff_pct, metric_tolerance_pct)
+
+            # Model-form validation takes precedence when the assumptions form an
+            # analytically equivalent independent Normal SUM and zero-floor is
+            # immaterial. The stochastic 10k result remains visible as a diagnostic.
+            validation_status = sampling_status
+            analytical_value = None
+            analytical_diff_pct = None
+            if analytical is not None:
+                analytical_value = _safe_float(analytical[benchmark_key])
+                analytical_diff_pct = _relative_diff_pct(analytical_value, cb_value)
+                validation_status = _validation_status(analytical_diff_pct, metric_tolerance_pct)
+                analytical_rows.append({
+                    "percentile": label,
+                    "analytical_value": analytical_value,
+                    "benchmark_value": cb_value,
+                    "diff_pct": analytical_diff_pct,
+                    "status": validation_status,
+                })
+
+            checked_statuses.append(validation_status)
+            percentile_rows.append({
+                "percentile": label,
+                "erm_value": erm_value,
+                "benchmark_value": cb_value,
+                "diff_pct": diff_pct,
+                "status": validation_status,
+                "sampling_status": sampling_status,
+                "analytical_value": analytical_value,
+                "analytical_diff_pct": analytical_diff_pct,
+                "validation_basis": validation_basis,
+            })
+
+        probability_validation = None
+        probability_benchmark = benchmark.get("probability_risk")
+        probability_target = benchmark.get("target")
+        if (
+            analytical is not None
+            and probability_benchmark not in (None, "")
+            and probability_target not in (None, "")
+        ):
+            analytical_probability = _analytical_normal_probability_risk(
+                analytical=analytical,
+                target_value=probability_target,
+                direction=row.get("direction") or RiskMetric.DIRECTION_INCREASE,
+            )
+            benchmark_probability = _safe_float(probability_benchmark)
+            diff_pp = analytical_probability - benchmark_probability
+            probability_status = "PASS" if abs(diff_pp) <= 0.10 else "REVIEW"
+            checked_statuses.append(probability_status)
+            probability_validation = {
+                "analytical_probability_risk": analytical_probability,
+                "benchmark_probability_risk": benchmark_probability,
+                "benchmark_target": _safe_float(probability_target),
+                "diff_percentage_point": diff_pp,
+                "tolerance_percentage_point": 0.10,
+                "status": probability_status,
+            }
+
+        metric_validations.append({
+            "metric_id": metric_id,
+            "metric_name": row.get("metric_name"),
+            "unit": row.get("unit") or "",
+            "source_type": assumption.source_type,
+            "source_file": assumption.source_file,
+            "source_sha256": assumption.source_sha256,
+            "validation_basis": validation_basis,
+            "validation_tolerance_pct": metric_tolerance_pct,
+            "dependency_model": metadata.get("dependency_model") or {},
+            "analytical": analytical,
+            "percentiles": percentile_rows,
+            "analytical_percentiles": analytical_rows,
+            "probability_validation": probability_validation,
+        })
+
+    derived_ratios = []
+    ratio_metrics = RiskMetric.objects.filter(
+        aggregation_type=RiskMetric.AGGREGATION_RATIO,
+        ratio_numerator_metric_id__in=rows_by_id.keys(),
+        ratio_denominator_metric_id__in=rows_by_id.keys(),
+        is_active=True,
+    ).select_related("ratio_numerator_metric", "ratio_denominator_metric", "corporate_risk_item")
+
+    hjr_benchmark = workbook_benchmark.get("hjr") or {}
+    for ratio_metric in ratio_metrics:
+        numerator = rows_by_id.get(ratio_metric.ratio_numerator_metric_id)
+        denominator = rows_by_id.get(ratio_metric.ratio_denominator_metric_id)
+        if not numerator or not denominator:
+            continue
+
+        percentile_rows = []
+        for key, benchmark_key, label in (
+            ("p5_total", "p5", "P5"),
+            ("p50_total", "p50", "P50"),
+            ("p95_total", "p95", "P95"),
+        ):
+            den = _safe_float(denominator.get(key))
+            erm_value = _safe_float(numerator.get(key)) / den if den else None
+            benchmark_value = hjr_benchmark.get(benchmark_key)
+            diff_pct = None
+            status = "INFO"
+            if erm_value is not None and benchmark_value not in (None, ""):
+                diff_pct = _relative_diff_pct(erm_value, benchmark_value)
+                status = _validation_status(diff_pct, tolerance_pct)
+                checked_statuses.append(status)
+            percentile_rows.append({
+                "percentile": label,
+                "erm_value": erm_value,
+                "benchmark_value": _safe_float(benchmark_value) if benchmark_value not in (None, "") else None,
+                "diff_pct": diff_pct,
+                "status": status,
+            })
+
+        erm_target = ratio_metric.effective_target_value
+        cb_target = hjr_benchmark.get("target")
+        target_note = ""
+        if erm_target not in (None, "") and cb_target not in (None, ""):
+            if abs(_safe_float(erm_target) - _safe_float(cb_target)) > 1e-9:
+                target_note = (
+                    "Target ERM dipertahankan dan berbeda dari target referensi workbook; "
+                    "perbedaan target tidak mengubah validasi percentile model."
+                )
+
+        derived_ratios.append({
+            "metric_id": ratio_metric.id,
+            "metric_name": ratio_metric.name,
+            "corporate_risk_item_id": ratio_metric.corporate_risk_item_id,
+            "aggregation_type": ratio_metric.aggregation_type,
+            "numerator_metric_id": ratio_metric.ratio_numerator_metric_id,
+            "denominator_metric_id": ratio_metric.ratio_denominator_metric_id,
+            "target_erm": _safe_float(erm_target) if erm_target not in (None, "") else None,
+            "target_benchmark": _safe_float(cb_target) if cb_target not in (None, "") else None,
+            "target_note": target_note,
+            "percentiles": percentile_rows,
+        })
+
+    if not checked_statuses:
+        overall_status = "NOT_AVAILABLE"
+    elif any(status == "REVIEW" for status in checked_statuses):
+        overall_status = "REVIEW"
+    else:
+        overall_status = "PASS"
+
+    validation = {
+        "type": "external_benchmark_validation",
+        "source": "Crystal Ball",
+        "status": overall_status,
+        "tolerance_pct": float(tolerance_pct),
+        "method_note": (
+            "For supported imported Normal models, deterministic analytical validation is used "
+            "when model-form equivalence is available. SUM supports independent Normal assumptions "
+            "and validated equicorrelation dependency metadata; RATE uses the arithmetic mean of "
+            "fixed actual months plus independent Normal forecast months. The 10,000-trial Monte "
+            "Carlo percentiles remain visible as sampling diagnostics and may differ by RNG seed. "
+            "Per-metric validation tolerance may be supplied by audited source metadata for sampled "
+            "external tail benchmarks."
+        ),
+        "source_files": sorted(source_files),
+        "source_sha256": sorted(source_hashes),
+        "metric_validations": metric_validations,
+        "derived_ratios": derived_ratios,
+    }
+
+    # Executive impact is deliberately derived from a monetary SUM metric when available.
+    # Do not overwrite legacy potential_loss; keep this explicit in simulation metadata.
+    monetary_row = next(
+        (
+            row for row in metric_results
+            if (row.get("unit") or "").strip().lower().startswith("rp")
+            and row.get("target_value") not in (None, "")
+            and row.get("aggregation_type") == RiskMetric.AGGREGATION_SUM
+        ),
+        None,
+    )
+    executive = {
+        "validation_status": overall_status,
+        "probability_not_achieve_target": None,
+        "impact_metric_id": None,
+        "impact_metric_name": "",
+        "impact_worst_case": None,
+        "impact_baseline": None,
+        "impact_best_case": None,
+    }
+    if monetary_row:
+        target = _safe_float(monetary_row.get("target_value"))
+        direction = monetary_row.get("direction")
+
+        def impact(projected):
+            projected = _safe_float(projected)
+            if direction == RiskMetric.DIRECTION_INCREASE:
+                return max(projected - target, 0.0)
+            return max(target - projected, 0.0)
+
+        worst_key = "p95_total" if direction == RiskMetric.DIRECTION_INCREASE else "p5_total"
+        best_key = "p5_total" if direction == RiskMetric.DIRECTION_INCREASE else "p95_total"
+        executive.update({
+            "impact_metric_id": monetary_row.get("metric_id"),
+            "impact_metric_name": monetary_row.get("metric_name"),
+            "impact_direction": direction,
+            "impact_worst_case_percentile": "P95" if direction == RiskMetric.DIRECTION_INCREASE else "P5",
+            "impact_worst_case": impact(monetary_row.get(worst_key)),
+            "impact_baseline": impact(monetary_row.get("p50_total")),
+            "impact_best_case": impact(monetary_row.get(best_key)),
+        })
+
+    return validation, executive
+
+
 def run_multi_metric_monte_carlo_for_korporat_item(
     item,
     forecast_periode,
@@ -815,6 +1479,8 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     scenario_percentile=80,
     distribution_type="normal",
     selected_distribution_justification="",
+    simulation_mode="history_sma",
+    rng_seed=None,
 ):
     n_simulations = int(n_simulations or 10000)
     if n_simulations < 1000:
@@ -830,6 +1496,29 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     if not metrics:
         raise ValueError("Belum ada Risk Metric aktif untuk risiko ini.")
 
+    imported_excluded_metrics = []
+    if simulation_mode == "imported_assumptions":
+        imported_year = (
+            forecast_periode.tanggal_mulai.year
+            if getattr(forecast_periode, "tanggal_mulai", None)
+            else None
+        )
+        assumption_metric_ids = set(
+            MonteCarloForecastAssumption.objects.filter(
+                metric__corporate_risk_item=item,
+                is_active=True,
+                forecast_date__year=imported_year,
+            ).values_list("metric_id", flat=True)
+        )
+        imported_excluded_metrics = [
+            {"metric_id": metric.id, "metric_name": metric.name}
+            for metric in metrics
+            if metric.id not in assumption_metric_ids
+        ]
+        metrics = [metric for metric in metrics if metric.id in assumption_metric_ids]
+        if not metrics:
+            raise ValueError("Belum ada Risk Metric aktif yang memiliki imported forecast assumptions.")
+
     metric_results = []
     total_weight = sum([_safe_float(m.weight) for m in metrics])
     target_analysis = {}
@@ -837,7 +1526,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     if total_weight <= 0:
         total_weight = len(metrics)
 
-    for metric in metrics:
+    for metric_index, metric in enumerate(metrics):
         histories = list(
             MonteCarloMetricHistory.objects.filter(
                 metric=metric,
@@ -865,27 +1554,67 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             if getattr(forecast_periode, "tanggal_mulai", None)
             else None
         )
-        actual_ytd_total = sum(
+        actual_ytd_values = [
             _safe_float(h.metric_value)
             for h in histories
             if h.tanggal_data
             and forecast_year
             and h.tanggal_data.year == forecast_year
             and h.tanggal_data <= forecast_periode.tanggal_selesai
-        )
+        ]
+        actual_ytd_total = sum(actual_ytd_values)
         # Bug 3: fallback salah — jangan menjumlahkan seluruh histori
         if actual_ytd_total <= 0:
             actual_ytd_total = _safe_float(values[-1]) if values else 0.0
 
-        # Excel reference uses SMA+Normal (not growth-rate)
-        simulation = _simulate_metric(
-            values=values,
-            months_ahead=months_ahead,
-            n_simulations=n_simulations,
-            actual_total=actual_ytd_total,
-            distribution_type=distribution_type,
-            sma_window=3,
-        )
+        if simulation_mode == "imported_assumptions":
+            if metric.aggregation_type not in (
+                RiskMetric.AGGREGATION_SUM,
+                RiskMetric.AGGREGATION_RATE,
+            ):
+                raise ValueError(
+                    f"Imported assumptions mendukung metric SUM dan RATE; "
+                    f"Metric '{metric.name}' bertipe {metric.aggregation_type}."
+                )
+            last_history_date = histories[-1].tanggal_data
+            assumptions = list(
+                MonteCarloForecastAssumption.objects.filter(
+                    metric=metric,
+                    is_active=True,
+                    forecast_date__gt=last_history_date,
+                    forecast_date__year=forecast_year,
+                ).order_by("forecast_date", "id")
+            )
+            if not assumptions:
+                raise ValueError(
+                    f"Imported forecast assumptions untuk metric '{metric.name}' tidak ditemukan "
+                    f"setelah {last_history_date}."
+                )
+            metric_seed = None if rng_seed is None else int(rng_seed) + metric_index
+            if metric.aggregation_type == RiskMetric.AGGREGATION_RATE:
+                simulation = _simulate_rate_from_imported_assumptions(
+                    actual_values=actual_ytd_values,
+                    assumptions=assumptions,
+                    n_simulations=n_simulations,
+                    rng_seed=metric_seed,
+                )
+            else:
+                simulation = _simulate_metric_from_imported_assumptions(
+                    actual_total=actual_ytd_total,
+                    assumptions=assumptions,
+                    n_simulations=n_simulations,
+                    rng_seed=metric_seed,
+                )
+        else:
+            # Legacy/default mode remains unchanged.
+            simulation = _simulate_metric(
+                values=values,
+                months_ahead=months_ahead,
+                n_simulations=n_simulations,
+                actual_total=actual_ytd_total,
+                distribution_type=distribution_type,
+                sma_window=3,
+            )
 
         weight = _safe_float(metric.weight)
         weight_ratio = weight / total_weight if total_weight else 0
@@ -958,6 +1687,8 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "metric_name": metric.name,
             "unit": metric.unit,
             "direction": metric.direction,
+            "aggregation_type": metric.aggregation_type,
+            "simulation_mode": simulation_mode,
             "weight": weight,
             "weight_ratio": weight_ratio,
             "is_target_metric": metric.is_target_metric,
@@ -1027,6 +1758,11 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 average_selling_price=metric.average_selling_price,
                 risk_appetite_threshold=metric.risk_appetite_threshold,
                 risk_appetite_value=metric.risk_appetite_value,
+                direction=(
+                    metric.direction
+                    if simulation_mode == "imported_assumptions"
+                    else RiskMetric.DIRECTION_DECREASE
+                ),
             )
 
     if not target_analysis:
@@ -1044,14 +1780,45 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                     .order_by("tanggal_data", "id")
                 )
 
-                simulation = _simulate_metric(
-                    values=[_safe_float(h.metric_value) for h in histories],
-                    months_ahead=months_ahead,
-                    n_simulations=n_simulations,
-                    actual_total=metric_row.get("actual_total"),
-                    distribution_type=distribution_type,
-                    sma_window=3,
-                )
+                if simulation_mode == "imported_assumptions":
+                    assumptions = list(
+                        MonteCarloForecastAssumption.objects.filter(
+                            metric=metric_obj,
+                            is_active=True,
+                            forecast_date__gt=histories[-1].tanggal_data,
+                            forecast_date__year=forecast_year,
+                        ).order_by("forecast_date", "id")
+                    )
+                    if metric_obj.aggregation_type == RiskMetric.AGGREGATION_RATE:
+                        actual_rate_values = [
+                            _safe_float(h.metric_value)
+                            for h in histories
+                            if h.tanggal_data
+                            and h.tanggal_data.year == forecast_year
+                            and h.tanggal_data <= forecast_periode.tanggal_selesai
+                        ]
+                        simulation = _simulate_rate_from_imported_assumptions(
+                            actual_values=actual_rate_values,
+                            assumptions=assumptions,
+                            n_simulations=n_simulations,
+                            rng_seed=rng_seed,
+                        )
+                    else:
+                        simulation = _simulate_metric_from_imported_assumptions(
+                            actual_total=metric_row.get("actual_total"),
+                            assumptions=assumptions,
+                            n_simulations=n_simulations,
+                            rng_seed=rng_seed,
+                        )
+                else:
+                    simulation = _simulate_metric(
+                        values=[_safe_float(h.metric_value) for h in histories],
+                        months_ahead=months_ahead,
+                        n_simulations=n_simulations,
+                        actual_total=metric_row.get("actual_total"),
+                        distribution_type=distribution_type,
+                        sma_window=3,
+                    )
                 target_analysis = _build_target_analysis(
                     simulation_totals=simulation["simulation_totals"],
                     target_value=metric_row.get("target_value"),
@@ -1059,6 +1826,11 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                     average_selling_price=metric_row.get("average_selling_price"),
                     risk_appetite_threshold=metric_row.get("risk_appetite_threshold"),
                     risk_appetite_value=metric_row.get("risk_appetite_value"),
+                    direction=(
+                        (metric_row.get("direction") or RiskMetric.DIRECTION_DECREASE)
+                        if simulation_mode == "imported_assumptions"
+                        else RiskMetric.DIRECTION_DECREASE
+                    ),
                 )
                 break
 
@@ -1256,18 +2028,52 @@ def run_multi_metric_monte_carlo_for_korporat_item(
         chart_series["target_value"] = target_analysis.get("target_value")
         chart_series["target_monthly_projection"] = target_projection_rows
 
-    # Dampak Excel: Target - (Best/Base/Worst)
-    # Best  = P95 total
-    # Base  = P50 total
-    # Worst = P5 total
+    # Dampak mengikuti arah risiko target metric:
+    # decrease -> shortfall = target - projected (worst P5)
+    # increase -> excess    = projected - target (worst P95)
     dampak_best_case = None
     dampak_base_case = None
     dampak_worst_case = None
     if target_analysis:
         target_val = _safe_float(target_analysis.get("target_value"))
-        dampak_best_case = target_val - _safe_float(target_analysis.get("best_case_value"))
-        dampak_base_case = target_val - _safe_float(target_analysis.get("baseline_value"))
-        dampak_worst_case = target_val - _safe_float(target_analysis.get("worst_case_value"))
+        target_direction = RiskMetric.DIRECTION_DECREASE
+        if simulation_mode == "imported_assumptions":
+            target_direction = (target_metric_row or {}).get("direction") or RiskMetric.DIRECTION_DECREASE
+
+        def target_impact(projected):
+            projected = _safe_float(projected)
+            if target_direction == RiskMetric.DIRECTION_INCREASE:
+                return max(projected - target_val, 0.0)
+            return max(target_val - projected, 0.0)
+
+        dampak_best_case = target_impact(target_analysis.get("best_case_value"))
+        dampak_base_case = target_impact(target_analysis.get("baseline_value"))
+        dampak_worst_case = target_impact(target_analysis.get("worst_case_value"))
+
+    imported_validation = {}
+    executive_risk_metadata = {}
+    if simulation_mode == "imported_assumptions":
+        imported_validation, executive_risk_metadata = _build_imported_assumption_validation(
+            metric_results=metric_results,
+            forecast_year=forecast_year,
+            tolerance_pct=0.05,
+        )
+        executive_risk_metadata.update({
+            "probability_achieve_target": target_analysis.get("probability_achieve_target"),
+            "probability_not_achieve_target": target_analysis.get("probability_not_achieve_target"),
+            "headline_target_metric_id": target_metric_row.get("metric_id") if target_metric_row else None,
+            "headline_target_metric_name": target_metric_row.get("metric_name") if target_metric_row else "",
+            "headline_forecast_p50": target_metric_row.get("p50_total") if target_metric_row else None,
+            # Keep legacy explicit percentile fields for backward compatibility.
+            "headline_worst_case_p5": target_metric_row.get("p5_total") if target_metric_row else None,
+            "headline_best_case_p95": target_metric_row.get("p95_total") if target_metric_row else None,
+            # Direction-aware fields used by Executive Risk V4+.
+            "headline_direction": target_metric_row.get("direction") if target_metric_row else None,
+            "headline_worst_case": target_analysis.get("worst_case_value"),
+            "headline_worst_case_percentile": target_analysis.get("worst_case_percentile"),
+            "headline_best_case": target_analysis.get("best_case_value"),
+            "headline_best_case_percentile": target_analysis.get("best_case_percentile"),
+        })
 
     status_hasil = _status_from_score(scenario_score)
 
@@ -1314,6 +2120,8 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "simulation_snapshot": {
                 "months_ahead": months_ahead,
                 "n_simulations": n_simulations,
+                "simulation_mode": simulation_mode,
+                "rng_seed": rng_seed,
                 "scenario_percentile": scenario_percentile,
                 "distribution_type": distribution_type,
                 "recommended_distribution": recommended_distribution,
@@ -1336,6 +2144,9 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 "status_hasil": status_hasil,
                 "target_analysis": target_analysis,
                 "target_projection_rows": target_projection_rows,
+                "external_validation": imported_validation,
+                "executive_risk": executive_risk_metadata,
+                "excluded_metrics_without_imported_assumptions": imported_excluded_metrics,
                 # Tahap 1
                 "history_rows": multi_metric_history_rows,
                 # Tahap 2
