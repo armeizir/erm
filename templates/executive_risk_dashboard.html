@@ -124,32 +124,66 @@
           </div>
         </aside>
       </section>
-      <footer class="decision">
-        <div style="font-size:28px;font-weight:900;line-height:1.05;color:#174a7c;min-width:250px;">
-          Management<br>Decision
-        </div>
-        <div style="flex:1;padding-left:28px;border-left:3px solid #3b82f6;">
+      {# V4.11.4 — compact Executive Management Decision presentation #}
+      <footer class="decision" style="display:block;padding:0;overflow:hidden;border-radius:22px;background:#fff;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 24px;border-bottom:1px solid #e6edf5;background:#f8fbff;">
+          <div>
+            <div style="font-size:11px;font-weight:900;letter-spacing:.08em;color:#6b7f99;text-transform:uppercase;">Executive Action</div>
+            <div style="margin-top:3px;font-size:25px;font-weight:900;line-height:1.1;color:#174a7c;">Management Decision</div>
+          </div>
           {% if risk_card.decisions %}
-            <div style="font-size:12px;color:#64748b;font-weight:800;margin-bottom:6px;">
-              KEPUTUSAN / RENCANA PERLAKUAN FORMAL
+            <span style="padding:7px 11px;border-radius:999px;background:#e8f5ee;color:#17603a;font-size:11px;font-weight:900;">KEPUTUSAN FORMAL</span>
+          {% elif risk_card.ai_management_decision %}
+            <span style="padding:7px 11px;border-radius:999px;background:#fff4df;color:#9a5a00;font-size:11px;font-weight:900;">AI DRAFT</span>
+          {% endif %}
+        </div>
+
+        <div style="padding:18px 24px 22px;">
+          {% if risk_card.decisions %}
+            <div style="padding:15px 17px;border:1px solid #dce9e2;border-radius:13px;background:#f8fcfa;">
+              <div style="margin-bottom:9px;font-size:11px;font-weight:900;color:#17603a;text-transform:uppercase;">Keputusan / Rencana Perlakuan Formal</div>
+              {% for decision in risk_card.decisions %}
+                <div style="margin:6px 0;font-size:15px;font-weight:700;line-height:1.45;color:#263b31;">{{ decision }}</div>
+              {% endfor %}
             </div>
-            {% for decision in risk_card.decisions %}
-              <div style="margin:4px 0;font-weight:700;">{{ decision }}</div>
-            {% endfor %}
-          {% elif risk_card.ai_management_draft %}
-            <div style="font-size:12px;color:#b45309;font-weight:900;margin-bottom:7px;">
-              DRAFT REKOMENDASI DARI AI INSIGHT
-            </div>
-            <div style="white-space:pre-line;line-height:1.5;color:#334155;">
-              {{ risk_card.ai_management_draft }}
-            </div>
-            <div style="margin-top:8px;font-size:11px;color:#9a3412;font-weight:800;">
-              AI Draft — wajib direview. Keputusan final tetap ditetapkan oleh manajemen.
-            </div>
+
+          {% elif risk_card.ai_management_decision %}
+            {% with md=risk_card.ai_management_decision %}
+              <div style="display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:12px;margin-bottom:12px;">
+                <div style="padding:13px 15px;border:1px solid #dfe8f2;border-radius:12px;background:#f8fbff;">
+                  <div style="margin-bottom:5px;font-size:11px;font-weight:900;color:#6b7f99;text-transform:uppercase;">Posisi Risiko</div>
+                  <div style="font-size:14px;font-weight:800;line-height:1.4;color:#243b53;">{{ md.position|default:"-" }}</div>
+                </div>
+                <div style="padding:13px 15px;border:1px solid #d9e8fb;border-radius:12px;background:#f4f9ff;">
+                  <div style="margin-bottom:5px;font-size:11px;font-weight:900;color:#2e67a0;text-transform:uppercase;">Arah Keputusan</div>
+                  <div style="font-size:14px;font-weight:700;line-height:1.4;color:#243b53;">{{ md.direction|default:"-" }}</div>
+                </div>
+              </div>
+
+              <div style="padding:14px 16px;border:1px solid #e7ebf0;border-radius:12px;background:#fff;">
+                <div style="margin-bottom:8px;font-size:11px;font-weight:900;color:#52657d;text-transform:uppercase;">Tindakan Prioritas</div>
+                {% if md.actions %}
+                  <div style="display:grid;gap:7px;">
+                    {% for action in md.actions %}
+                      <div style="display:grid;grid-template-columns:26px minmax(0,1fr);gap:9px;align-items:start;padding:8px 9px;border-radius:9px;background:#f8fafc;">
+                        <div style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:#e8f1fb;color:#245f96;font-size:12px;font-weight:900;">{{ forloop.counter }}</div>
+                        <div style="padding-top:2px;font-size:14px;line-height:1.4;color:#334155;">{{ action }}</div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div style="font-size:14px;color:#64748b;">Belum ada tindakan prioritas pada draft.</div>
+                {% endif %}
+              </div>
+
+              <div style="margin-top:10px;padding-top:9px;border-top:1px dashed #e5e7eb;font-size:11px;font-weight:800;color:#a24b16;">
+                AI Draft — wajib direview. Keputusan final tetap ditetapkan oleh manajemen.
+              </div>
+            {% endwith %}
+
           {% else %}
-            <div style="color:#64748b;">
+            <div style="padding:14px 16px;border:1px dashed #d8e1eb;border-radius:12px;background:#f8fafc;color:#64748b;font-size:14px;line-height:1.45;">
               Belum ada Management Decision formal dan belum ada AI Insight untuk hasil Monte Carlo ini.
-              Generate AI Insight pada modul Multi Metric Monte Carlo untuk membuat draft rekomendasi.
             </div>
           {% endif %}
         </div>

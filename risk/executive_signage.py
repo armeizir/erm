@@ -20,6 +20,7 @@ from risk.services.ai_management_decision import (
 )
 from risk.services.permissions import get_accessible_corporate_risk_items
 from monthly_report.models import MonthlyRiskReportItem
+import re
 
 
 MONTH_NAMES = {
@@ -549,6 +550,57 @@ def _management_decisions(risk):
     return decisions
 
 
+def _parse_ai_management_decision(text):
+    """V4.11.4 — compact Executive Management Decision presentation."""
+    value = str(text or "").strip()
+    if not value:
+        return {}
+
+    result = {"position": "", "direction": "", "actions": []}
+    mode = None
+
+    for raw_line in value.splitlines():
+        line = " ".join(str(raw_line or "").split()).strip()
+        if not line:
+            continue
+
+        lower = line.lower()
+        if lower.startswith("posisi risiko:"):
+            result["position"] = line.split(":", 1)[1].strip()
+            mode = None
+            continue
+        if lower.startswith("arah keputusan:"):
+            result["direction"] = line.split(":", 1)[1].strip()
+            mode = None
+            continue
+        if lower.startswith("tindakan prioritas"):
+            mode = "actions"
+            continue
+        if lower.startswith("status: ai draft") or lower.startswith("ai draft"):
+            continue
+
+        if mode == "actions":
+            cleaned = re.sub(r"^\d+[\.\)]\s*", "", line).strip()
+            if cleaned:
+                result["actions"].append(cleaned)
+
+    def compact(item, limit):
+        item = " ".join(str(item or "").split()).strip()
+        if len(item) <= limit:
+            return item
+        shortened = item[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        return f"{shortened}…"
+
+    result["position"] = compact(result["position"], 220)
+    result["direction"] = compact(result["direction"], 220)
+    result["actions"] = [compact(x, 210) for x in result["actions"][:2] if x]
+
+    if not any((result["position"], result["direction"], result["actions"])):
+        result["direction"] = compact(value, 360)
+
+    return result
+
+
 def _ai_insight_management_draft(monte_carlo_result_id):
     """V4.11 — read Management Decision draft from the same saved AI Insight."""
     if not monte_carlo_result_id:
@@ -833,6 +885,11 @@ def _build_risk_card(risk, year):
         "monte_carlo_result_id": outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None),
         "ai_management_draft": _ai_insight_management_draft(
             outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None)
+        ),
+        "ai_management_decision": _parse_ai_management_decision(
+            _ai_insight_management_draft(
+                outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None)
+            )
         ),
         "decisions": _management_decisions(risk),
     }
