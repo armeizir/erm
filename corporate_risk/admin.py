@@ -3419,15 +3419,29 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     metric_snapshot_html.short_description = "Detail Metric"
 
     def multi_metric_ai_insight_html(self, obj):
+        # V4.11.1-r3 — detail-page AI Insight action button.
+        generate_url = reverse(
+            f"{self.admin_site.name}:corporate_risk_generate_ai_insight_multi_metric",
+            args=[obj.pk],
+        )
+        action_button = format_html(
+            '<div style="margin-bottom:12px;">'
+            '<a class="button" href="{}" style="font-weight:700;">'
+            '✨ Atur Konteks &amp; Generate AI Insight'
+            '</a></div>',
+            generate_url,
+        )
+
         insight = MultiMetricAIInsightKorporat.objects.filter(
             multi_metric_result=obj
         ).first()
 
         if not insight:
             return mark_safe(
-                '<div style="padding:12px; background:#fff8e1; border:1px solid #f0d98a; border-radius:8px;">'
-                'AI Insight Multi Metric belum dibuat. Klik tombol '
-                '<strong>Atur Konteks & Generate AI Insight</strong> untuk menambahkan konteks bisnis sebelum analisis.'
+                str(action_button)
+                + '<div style="padding:12px; background:#fff8e1; border:1px solid #f0d98a; border-radius:8px;">'
+                'AI Insight Multi Metric belum dibuat. Klik tombol di atas untuk menambahkan '
+                'konteks bisnis sebelum analisis.'
                 '</div>'
             )
 
@@ -3440,6 +3454,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         ).replace("\n", "<br>")
 
         html = f"""
+        {action_button}
         <div style="padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #ddd;">
             <div style="padding:12px; background:#eef6ff; border:1px solid #bfdbfe; border-radius:8px;">
                 <strong>Konteks Tambahan User</strong>
