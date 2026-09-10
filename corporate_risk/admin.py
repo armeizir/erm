@@ -2603,6 +2603,164 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         target_rows = snapshot.get("target_projection_rows", [])
         rows = snapshot.get("projection_rows", [])
 
+        # V4.8.1 — imported models must display the exact frozen
+        # month-by-month assumptions used by the Monte Carlo result.
+        # Do not display legacy/SMA target_projection_rows for this mode.
+        if snapshot.get("simulation_mode") == "imported_assumptions":
+            metric_snapshot = obj.metric_snapshot or {}
+            metric_rows = metric_snapshot.get("metrics", []) or []
+
+            selected_metric = next(
+                (
+                    metric_row
+                    for metric_row in metric_rows
+                    if metric_row.get("is_target_metric")
+                ),
+                None,
+            )
+
+            if selected_metric is None:
+                headline_metric_id = (
+                    (snapshot.get("executive_risk") or {})
+                    .get("headline_target_metric_id")
+                )
+                if headline_metric_id is not None:
+                    selected_metric = next(
+                        (
+                            metric_row
+                            for metric_row in metric_rows
+                            if metric_row.get("metric_id") == headline_metric_id
+                        ),
+                        None,
+                    )
+
+            imported_rows = (
+                (selected_metric or {}).get("projection_rows", []) or []
+            )
+
+            if not imported_rows:
+                return mark_safe(
+                    "<div style='padding:12px;background:#fff3cd;"
+                    "border:1px solid #ffeeba;border-radius:6px;'>"
+                    "<strong>Imported assumptions aktif, tetapi snapshot "
+                    "proyeksi bulanan tidak tersedia.</strong><br>"
+                    "Forecast SMA/legacy sengaja tidak ditampilkan agar tidak "
+                    "berbeda dari model imported_assumptions."
+                    "</div>"
+                )
+
+            metric_name = (selected_metric or {}).get("metric_name") or "-"
+            unit = (selected_metric or {}).get("unit") or ""
+            validation = snapshot.get("external_validation") or {}
+            source_name = validation.get("source") or "Imported Assumptions"
+            validation_status = validation.get("status") or "-"
+
+            month_names = [
+                "Januari", "Februari", "Maret", "April",
+                "Mei", "Juni", "Juli", "Agustus",
+                "September", "Oktober", "November", "Desember",
+            ]
+
+            imported_table_rows = []
+
+            for idx, row in enumerate(imported_rows):
+                forecast_date = str(row.get("forecast_date") or "")
+                try:
+                    year, month, *_ = forecast_date.split("-")
+                    bulan = f"{month_names[int(month) - 1]} {year}"
+                except Exception:
+                    bulan = (
+                        row.get("bulan")
+                        or f"Bulan-{idx + 1}"
+                    )
+
+                p50 = row.get("p50")
+                if p50 is None:
+                    p50 = row.get("mean")
+
+                stdev = row.get("stdev_f")
+                if stdev is None:
+                    stdev = row.get("std_dev")
+                if stdev is None:
+                    stdev = row.get("stddev")
+
+                row_source = row.get("source") or "imported_assumption"
+
+                imported_table_rows.append(f"""
+                    <tr>
+                        <td style="padding:8px;border:1px solid #ddd;">
+                            {bulan}
+                        </td>
+                        <td style="padding:8px;border:1px solid #ddd;
+                                   text-align:right;font-weight:bold;">
+                            {self._fmt(p50, 2)}
+                        </td>
+                        <td style="padding:8px;border:1px solid #ddd;
+                                   text-align:right;">
+                            {self._fmt(stdev, 2)}
+                        </td>
+                        <td style="padding:8px;border:1px solid #ddd;">
+                            {escape(metric_name)}
+                        </td>
+                        <td style="padding:8px;border:1px solid #ddd;">
+                            {escape(str(row_source))}
+                        </td>
+                    </tr>
+                """)
+
+            unit_html = (
+                f" &middot; Unit: <strong>{escape(unit)}</strong>"
+                if unit else ""
+            )
+
+            return mark_safe(f"""
+                <div style="padding:10px 12px;margin-bottom:10px;
+                            background:#eef7fb;border:1px solid #cfe3ec;
+                            border-radius:6px;color:#24586a;">
+                    Sumber Model:
+                    <strong>{escape(str(source_name))}</strong>
+                    &middot; Mode:
+                    <strong>imported_assumptions</strong>
+                    &middot; Validasi:
+                    <strong>{escape(str(validation_status))}</strong>
+                    {unit_html}
+                    <br>
+                    <span style="font-size:12px;">
+                        Proyeksi per bulan berasal dari snapshot asumsi
+                        yang benar-benar digunakan dalam simulasi,
+                        bukan forecast SMA/legacy.
+                    </span>
+                </div>
+
+                <table style="border-collapse:collapse;
+                              width:100%;font-size:13px;">
+                    <thead>
+                        <tr style="background:#f3f4f6;">
+                            <th style="padding:8px;border:1px solid #ddd;">
+                                Bulan
+                            </th>
+                            <th style="padding:8px;border:1px solid #ddd;
+                                       text-align:right;">
+                                Forecast / Mean (P50)
+                            </th>
+                            <th style="padding:8px;border:1px solid #ddd;
+                                       text-align:right;">
+                                Std Dev
+                            </th>
+                            <th style="padding:8px;border:1px solid #ddd;">
+                                Metric
+                            </th>
+                            <th style="padding:8px;border:1px solid #ddd;">
+                                Source
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join(imported_table_rows)}
+                    </tbody>
+                </table>
+            """)
+
         if not target_rows and not rows:
             return mark_safe(
                 "<div style='padding:12px;background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;'>"
