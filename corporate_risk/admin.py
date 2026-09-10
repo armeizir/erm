@@ -1371,6 +1371,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         return risk_item_label_html(obj.corporate_risk_item)
 
     readonly_fields = (
+        "target_polarity_html",
         "risk_prediction_flow_html",
         "target_prediction_cards_html",
         "target_prediction_table_html",
@@ -1449,6 +1450,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
         }),
         ("Prediksi Risiko / Target RKAP", {
             "fields": (
+                "target_polarity_html",
                 "risk_prediction_flow_html",
                 "target_prediction_cards_html",
                 "target_prediction_table_html",
@@ -1693,6 +1695,49 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             )
         )
 
+
+    @admin.display(description="Polaritas Target Metric")
+    def target_polarity_html(self, obj):
+        metric = (
+            RiskMetric.objects
+            .filter(
+                corporate_risk_item=obj.corporate_risk_item,
+                is_target_metric=True,
+                is_active=True,
+            )
+            .order_by("id")
+            .first()
+        )
+        if metric is None:
+            return format_html(
+                '<div style="padding:12px 16px;border:1px solid #d1d5db;'
+                'border-radius:10px;background:#f8fafc;color:#475569;font-weight:700;">'
+                'POLARITAS BELUM DITETAPKAN — tentukan Direction pada Risk Metric target utama.'
+                '</div>'
+            )
+
+        negative = metric.direction == RiskMetric.DIRECTION_INCREASE
+        if negative:
+            title = "NEGATIF — semakin rendah semakin baik"
+            rule = "Target tercapai jika hasil ≤ target"
+            tails = "Worst Case = P95 · Best Case = P5"
+            accent, bg = "#b42318", "#fff7ed"
+        else:
+            title = "POSITIF — semakin tinggi semakin baik"
+            rule = "Target tercapai jika hasil ≥ target"
+            tails = "Worst Case = P5 · Best Case = P95"
+            accent, bg = "#067647", "#f0fdf4"
+
+        return format_html(
+            '<div style="padding:14px 16px;border:1px solid {};border-left:5px solid {};'
+            'border-radius:10px;background:{};">'
+            '<div style="font-size:13px;font-weight:800;color:{};">POLARITAS {}</div>'
+            '<div style="margin-top:5px;color:#334155;">{} · {}</div>'
+            '<div style="margin-top:4px;font-size:12px;color:#64748b;">Target metric: {}</div>'
+            '</div>',
+            accent, accent, bg, accent, title, rule, tails, metric.name,
+        )
+
     def _fmt(self, value, digits=2):
         try:
             return f"{float(value):,.{digits}f}"
@@ -1784,9 +1829,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             ("Potential Loss", obj.potential_loss, ""),
             ("Prob. Tercapai", obj.probability_achieve_target, "%"),
             ("Prob. Tidak Tercapai", obj.probability_not_achieve_target, "%"),
-            ("Worst Case P5", obj.worst_case_value, ""),
+            ("Worst Case", obj.worst_case_value, ""),
             ("Baseline P50", obj.baseline_value, ""),
-            ("Best Case P95", obj.best_case_value, ""),
+            ("Best Case", obj.best_case_value, ""),
             ("VaR 95%", obj.var_95, ""),
             ("Dampak Best (T-Best)", obj.dampak_best_case, ""),
             ("Dampak Base (T-Base)", obj.dampak_base_case, ""),
@@ -1829,7 +1874,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             ("Target RKAP", obj.target_value, "Target total akhir tahun."),
             ("Realisasi YTD", analysis.get("actual_total"), "Total realisasi historis yang sudah masuk simulasi."),
             ("Forecast total sampai akhir tahun", obj.forecast_total, "Median/P50 dari seluruh hasil simulasi."),
-            ("Gap terhadap target", obj.target_gap, "max(Target RKAP - Forecast total, 0)."),
+            ("Gap terhadap target", obj.target_gap, "Polaritas positif=max(Target-Forecast,0); negatif=max(Forecast-Target,0)."),
             ("Harga jual rata-rata", obj.average_selling_price, "Input untuk menghitung potential loss."),
             ("Potential loss", obj.potential_loss, "Gap target x harga jual rata-rata."),
             ("Probabilitas target tercapai", f"{self._fmt(obj.probability_achieve_target, 2)}%", "Jumlah simulasi >= target / total simulasi."),
@@ -1837,7 +1882,7 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
             ("Worst case", obj.worst_case_value, "Percentile 5 dari distribusi output."),
             ("Baseline / median", obj.baseline_value, "Percentile 50 dari distribusi output."),
             ("Best case", obj.best_case_value, "Percentile 95 dari distribusi output."),
-            ("VaR 95%", obj.var_95, "max(Target RKAP - Worst case, 0)."),
+            ("VaR 95%", obj.var_95, "Polaritas positif=max(Target-Worst,0); negatif=max(Worst-Target,0)."),
             ("Status target", obj.target_status, "Tercapai jika forecast_total >= target."),
             ("Status risiko", obj.risk_status, "Aman jika forecast_total >= target; selain itu berisiko."),
             ("Perlu mitigasi", "Ya" if obj.requires_mitigation else "Tidak", "Mengacu risk appetite probabilitas dan/atau potential loss."),

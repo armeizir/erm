@@ -1758,11 +1758,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                 average_selling_price=metric.average_selling_price,
                 risk_appetite_threshold=metric.risk_appetite_threshold,
                 risk_appetite_value=metric.risk_appetite_value,
-                direction=(
-                    metric.direction
-                    if simulation_mode == "imported_assumptions"
-                    else RiskMetric.DIRECTION_DECREASE
-                ),
+                direction=metric.direction or RiskMetric.DIRECTION_DECREASE,
             )
 
     if not target_analysis:
@@ -1826,11 +1822,7 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                     average_selling_price=metric_row.get("average_selling_price"),
                     risk_appetite_threshold=metric_row.get("risk_appetite_threshold"),
                     risk_appetite_value=metric_row.get("risk_appetite_value"),
-                    direction=(
-                        (metric_row.get("direction") or RiskMetric.DIRECTION_DECREASE)
-                        if simulation_mode == "imported_assumptions"
-                        else RiskMetric.DIRECTION_DECREASE
-                    ),
+                    direction=metric_row.get("direction") or RiskMetric.DIRECTION_DECREASE,
                 )
                 break
 
@@ -2036,9 +2028,10 @@ def run_multi_metric_monte_carlo_for_korporat_item(
     dampak_worst_case = None
     if target_analysis:
         target_val = _safe_float(target_analysis.get("target_value"))
-        target_direction = RiskMetric.DIRECTION_DECREASE
-        if simulation_mode == "imported_assumptions":
-            target_direction = (target_metric_row or {}).get("direction") or RiskMetric.DIRECTION_DECREASE
+        target_direction = (
+            (target_metric_row or {}).get("direction")
+            or RiskMetric.DIRECTION_DECREASE
+        )
 
         def target_impact(projected):
             projected = _safe_float(projected)
