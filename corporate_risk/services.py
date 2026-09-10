@@ -2826,53 +2826,119 @@ def generate_rule_based_ai_insight_for_multi_metric_result(result, user_context=
         user_context=user_context,
     )
 
-    # V4.11.3 — compact Management Decision draft.
-    # AI Insight stays detailed; Executive Management Decision is intentionally short.
-    # No second AI call is made here.
-    def _compact_line(value, limit=260):
-        value = re.sub(r"\*\*|__|`", "", str(value or ""))
-        value = re.sub(r"^[-•\s]+", "", value).strip()
-        value = re.sub(r"\s+", " ", value)
+    # V4.11.10 — Executive Decision Summary
+    # Draft Management Decision diringkas secara deterministik dari hasil AI Insight
+    # yang sama: Executive Summary + Key Findings + Recommended Actions.
+    # Tidak ada AI call kedua.
+    def _decision_clean(value):
+        value = str(value or "")
+        value = re.sub(r"\*\*|__|`", "", value)
+        value = re.sub(r"(?m)^\s*[-•]\s*", "", value)
+        value = re.sub(
+            r"(?mi)^\s*(Executive Summary|Key Findings|Recommended Actions)\s*:?\s*",
+            "",
+            value,
+        )
+        value = re.sub(
+            r"(?i)\b(Aksi Jangka Pendek|Aksi Jangka Menengah|Aksi Jangka Panjang)"
+            r"\s*(?:\([^)]*\))?\s*:?\s*",
+            "",
+            value,
+        )
+        value = re.sub(
+            r"(?i)\b(30 Hari|60 Hari|90 Hari(?:\s*&\s*Berkelanjutan)?)\s*:?\s*",
+            "",
+            value,
+        )
+        value = re.sub(
+            r"^(Direksi\s+(?:yang\s+terhormat|Yth\.?)\s*,?\s*)",
+            "",
+            value,
+            flags=re.I,
+        )
+        value = re.sub(r"\s+", " ", value).strip()
+        return value
+
+    def _decision_sentences(value):
+        value = _decision_clean(value)
+        if not value:
+            return []
+        parts = re.split(r"(?<=[.!?])\s+", value)
+        return [
+            part.strip()
+            for part in parts
+            if len(part.strip()) >= 18
+        ]
+
+    def _decision_pick(value):
+        sentences = _decision_sentences(value)
+        return sentences[0] if sentences else ""
+
+    def _decision_compact(value, limit=145):
+        value = _decision_clean(value)
+        if not value:
+            return ""
         if len(value) <= limit:
             return value
         shortened = value[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-")
-        return f"{shortened}…"
+        return shortened + "."
 
-    raw_actions = [
-        _compact_line(line)
-        for line in str(recommended_actions or "").splitlines()
-        if str(line or "").strip()
-    ]
-    action_lines = [line for line in raw_actions if line][:2]
-
-    probability_not_achieve = float(result.probability_not_achieve_target or 0)
-    forecast_total = float(result.forecast_total or 0)
-    target_value = float(result.target_value or 0)
-
-    if result.requires_mitigation:
-        decision_direction = (
-            "Prioritaskan mitigasi pada driver utama dan percepat tindakan yang paling langsung "
-            "menurunkan kemungkinan target tidak tercapai."
-        )
-    else:
-        decision_direction = (
-            "Pertahankan monitoring berkala dan siapkan tindakan korektif jika proyeksi memburuk."
-        )
-
-    action_summary = "\n".join(
-        f"{idx}. {line}"
-        for idx, line in enumerate(action_lines, start=1)
+    summary_part = _decision_compact(
+        _decision_pick(executive_summary),
+        145,
     )
-    if not action_summary:
-        action_summary = f"1. {_compact_line(decision_direction)}"
+    finding_part = _decision_compact(
+        _decision_pick(key_findings),
+        135,
+    )
+    action_part = _decision_compact(
+        _decision_pick(recommended_actions),
+        145,
+    )
 
-    management_decision_draft = (
-        f"Posisi Risiko: {result.target_status or '-'} / {result.risk_status or '-'}; "
-        f"P50 {forecast_total:,.0f} dibanding target {target_value:,.0f}; "
-        f"probabilitas target tidak tercapai {probability_not_achieve:,.2f}%.\n\n"
-        f"Arah Keputusan: {_compact_line(decision_direction)}\n\n"
-        f"Tindakan Prioritas:\n{action_summary}"
-    ).strip()
+    parts = []
+    for candidate in (summary_part, finding_part, action_part):
+        if not candidate:
+            continue
+
+        candidate_norm = re.sub(
+            r"[^a-z0-9]+",
+            " ",
+            candidate.lower(),
+        ).strip()
+
+        is_duplicate = False
+        for existing in parts:
+            existing_norm = re.sub(
+                r"[^a-z0-9]+",
+                " ",
+                existing.lower(),
+            ).strip()
+            a = set(candidate_norm.split())
+            b = set(existing_norm.split())
+            if a and b and len(a & b) / len(a | b) >= 0.72:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            parts.append(candidate)
+
+    management_decision_draft = " ".join(parts[:3]).strip()
+
+    # Hard ceiling agar tetap 2–3 baris pada Executive Dashboard.
+    if len(management_decision_draft) > 430:
+        management_decision_draft = (
+            management_decision_draft[:430]
+            .rsplit(" ", 1)[0]
+            .rstrip(" ,;:-")
+            + "."
+        )
+
+    if not management_decision_draft:
+        management_decision_draft = (
+            "Prioritaskan tindak lanjut atas temuan utama AI Insight dan lakukan "
+            "monitoring berkala; eskalasikan kepada manajemen apabila kondisi tidak membaik."
+        )
 
     insight, _ = MultiMetricAIInsightKorporat.objects.update_or_create(
         multi_metric_result=result,
