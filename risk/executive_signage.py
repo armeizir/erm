@@ -653,8 +653,26 @@ def _build_risk_card(risk, year):
     outlook = None
     if primary and primary.aggregation_type == RiskMetric.AGGREGATION_RATIO:
         outlook = _linked_ratio_outlook(primary, year)
-    else:
-        outlook = _validated_imported_outlook(mc, primary)
+    elif primary:
+        # V4.9.3 — do not let a newer manual/history_sma result mask an older
+        # validated imported-assumption outlook in Executive Risk.
+        candidates = (
+            MultiMetricMonteCarloResult.objects.filter(
+                corporate_risk_item=risk,
+                forecast_periode__tahun_buku__tahun=year,
+            )
+            .select_related("forecast_periode")
+            .order_by(
+                "-forecast_periode__tanggal_mulai",
+                "-created_at",
+                "-id",
+            )
+        )
+        for candidate in candidates:
+            candidate_outlook = _validated_imported_outlook(candidate, primary)
+            if candidate_outlook:
+                outlook = candidate_outlook
+                break
 
     target_analysis = (mc.simulation_snapshot or {}).get("target_analysis", {}) if mc else {}
     if primary and primary.aggregation_type == RiskMetric.AGGREGATION_RATIO and ratio_actuals:
