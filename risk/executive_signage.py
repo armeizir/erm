@@ -511,6 +511,23 @@ def _linked_ratio_outlook(metric, year):
 
 
 def _forecast_status(metric, forecast_value, target_value, probability_not_achieve=None):
+    # V4.9.2 — target achievement is a direction-aware hard gate.
+    forecast = _decimal(forecast_value)
+    target = _decimal(target_value)
+
+    if (
+        metric is not None
+        and forecast is not None
+        and target not in (None, Decimal("0"))
+    ):
+        if metric.direction == RiskMetric.DIRECTION_INCREASE:
+            target_failed = forecast > target
+        else:
+            target_failed = forecast < target
+
+        if target_failed:
+            return "BAHAYA", "danger"
+
     probability = _decimal(probability_not_achieve)
     if probability is not None:
         appetite = _decimal(getattr(metric, "risk_appetite_threshold", None)) or Decimal("20")
@@ -519,6 +536,7 @@ def _forecast_status(metric, forecast_value, target_value, probability_not_achie
         if probability >= appetite:
             return "HATI-HATI", "warning"
         return "TERKENDALI", "safe"
+
     return _risk_status(metric.corporate_risk_item, metric, forecast_value, target_value)
 
 
