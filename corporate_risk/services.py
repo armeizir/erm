@@ -2806,29 +2806,59 @@ def _normalize_ai_user_context(value, max_length=5000):
     return normalized
 
 
-def _polish_multi_metric_insight_context_aware(
-    result,
-    executive_summary,
-    key_findings,
-    recommended_actions,
-    user_context="",
-):
-    # V4.11.2 — context-aware single AI insight.
-    # This wrapper keeps one AI-polish call only.
-    user_context = _normalize_ai_user_context(user_context, max_length=5000)
+# V4.11.13 — context-aware AI synthesis + context-aware fallback.
 
-    if not user_context:
-        return _polish_multi_metric_insight_with_ai(
-            result,
-            executive_summary,
-            key_findings,
-            recommended_actions,
+_AI_CONTEXT_STOPWORDS = {
+    "yang", "dan", "atau", "untuk", "dengan", "dari", "pada", "dalam",
+    "risiko", "risk", "realisasi", "nilai", "target", "metric", "metrik",
+    "periode", "forecast", "status", "utama", "user", "bisnis",
+}
+
+
+def _ai_context_keywords(text):
+    tokens = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    return {
+        token for token in tokens
+        if len(token) >= 4 and token not in _AI_CONTEXT_STOPWORDS
+    }
+
+
+def _ai_context_clean_line(line):
+    line = str(line or "").strip().strip('"').strip("'").strip()
+    return re.sub(r"[ \\t]+", " ", line).strip()
+
+
+def _ai_context_sections(user_context):
+    sections = []
+    current_heading = "KONTEKS BISNIS"
+    heading_markers = (
+        "RISK DRIVER", "ANALISA", "ANALISIS", "PROGRAM", "PERLAKUAN",
+        "MANAGEMENT DECISION", "MANAGEMENT ACTION", "ARAHAN", "KEPUTUSAN",
+        "MITIGASI",
+    )
+
+    for raw in str(user_context or "").splitlines():
+        line = _ai_context_clean_line(raw)
+        if not line:
+            continue
+        upper = line.upper()
+        looks_heading = (
+            len(line) <= 120
+            and (
+                any(marker in upper for marker in heading_markers)
+                or (upper == line and len(line.split()) <= 10)
+            )
         )
+        if looks_heading:
+            current_heading = line
+            continue
+        sections.append((current_heading, line))
+    return sections
 
+
+def _classify_ai_user_context(result, user_context):
     risk_item = result.corporate_risk_item
-    risk_number = getattr(risk_item, "no_item", None)
     risk_title = getattr(risk_item, "peristiwa_risiko", None) or str(risk_item)
-
     metrics = (result.metric_snapshot or {}).get("metrics", [])
     metric_names = [
         str(row.get("metric_name") or "").strip()
@@ -2836,6 +2866,148 @@ def _polish_multi_metric_insight_context_aware(
         if str(row.get("metric_name") or "").strip()
     ]
 
+    reference_tokens = _ai_context_keywords(" ".join([risk_title] + metric_names))
+    strong_tokens = set()
+    for name in metric_names:
+        strong_tokens.update(_ai_context_keywords(name))
+    strong_tokens -= {"biaya", "volume", "harga", "jumlah", "total", "energi"}
+
+    direct, cross = [], []
+    for heading, line in _ai_context_sections(user_context):
+        tokens = _ai_context_keywords(line)
+        overlap = tokens & reference_tokens
+        is_direct = bool(tokens & strong_tokens) or len(overlap) >= 2
+        item = {"heading": heading, "line": line, "overlap": sorted(overlap)}
+        (direct if is_direct else cross).append(item)
+
+    return {
+        "risk_title": risk_title,
+        "metric_names": metric_names,
+        "direct": direct,
+        "cross": cross,
+    }
+
+
+def _compact_context_lines(items, limit=4):
+    lines, seen = [], set()
+    for item in items:
+        text = _ai_context_clean_line(item.get("line"))
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        lines.append(text)
+        if len(lines) >= limit:
+            break
+    return lines
+
+
+def _context_aware_rule_based_fallback(
+    result,
+    executive_summary,
+    key_findings,
+    recommended_actions,
+    user_context,
+):
+    classified = _classify_ai_user_context(result, user_context)
+    direct_lines = _compact_context_lines(classified["direct"], limit=4)
+    cross_lines = _compact_context_lines(classified["cross"], limit=4)
+    metric_names = classified["metric_names"]
+    risk_title = classified["risk_title"]
+
+    if direct_lines:
+        executive_summary = (
+            f"{executive_summary} "
+            "Konteks bisnis user yang memiliki keterkaitan langsung digunakan sebagai "
+            "informasi pendukung dan tidak mengubah angka hasil simulasi."
+        )
+    elif cross_lines:
+        executive_summary = (
+            f"{executive_summary} "
+            "Konteks bisnis user yang tersedia belum memiliki keterkaitan langsung yang "
+            f"cukup dengan {risk_title}; konteks tersebut diperlakukan sebagai "
+            "cross-risk/supporting context dan tidak mengubah hasil simulasi."
+        )
+
+    context_findings = []
+    if direct_lines:
+        context_findings.append("Konteks bisnis user yang relevan langsung:")
+        context_findings.extend(f"- {line}" for line in direct_lines)
+    if cross_lines:
+        context_findings.append(
+            "Cross-risk/supporting context dari user (tidak diperlakukan sebagai driver langsung):"
+        )
+        context_findings.extend(f"- {line}" for line in cross_lines)
+    if context_findings:
+        key_findings = f"{key_findings.rstrip()}\n\n" + "\n".join(context_findings)
+
+    actions = []
+    direct_action_items = [
+        item for item in classified["direct"]
+        if any(
+            marker in str(item.get("heading") or "").upper()
+            for marker in (
+                "MANAGEMENT DECISION", "MANAGEMENT ACTION", "ARAHAN", "KEPUTUSAN",
+                "PROGRAM", "PERLAKUAN", "MITIGASI",
+            )
+        )
+    ]
+    for line in _compact_context_lines(direct_action_items, limit=3):
+        actions.append(f"Tindak lanjuti arahan/program user yang relevan: {line}")
+
+    metric_label = ", ".join(metric_names) if metric_names else "metric risiko terkait"
+    actions.append(
+        f"Monitor {metric_label} secara bulanan dan bandingkan aktual dengan forecast P50 serta target RKAP."
+    )
+
+    p50 = float(getattr(result, "forecast_total", 0) or 0)
+    target = float(getattr(result, "target_value", 0) or 0)
+    p_not = float(getattr(result, "probability_not_achieve_target", 0) or 0)
+    actions.append(
+        f"Gunakan gap forecast P50 ({p50:,.2f}) terhadap target ({target:,.2f}) "
+        f"dan probabilitas tidak tercapai ({p_not:,.2f}%) sebagai trigger eskalasi manajemen."
+    )
+    if cross_lines:
+        actions.append(
+            "Validasi keterkaitan cross-risk/supporting context user dengan risiko ini "
+            "sebelum menjadikannya driver atau mitigasi langsung."
+        )
+
+    recommended_actions = "\n".join(
+        f"{idx}. {text}" for idx, text in enumerate(actions[:5], start=1)
+    )
+
+    logger.warning(
+        "AI Insight CONTEXT-AWARE FALLBACK result=%s direct_context=%s cross_context=%s",
+        getattr(result, "pk", "-"), len(direct_lines), len(cross_lines),
+    )
+    return executive_summary, key_findings, recommended_actions
+
+
+def _polish_multi_metric_insight_context_aware(
+    result,
+    executive_summary,
+    key_findings,
+    recommended_actions,
+    user_context="",
+):
+    """One context-aware AI call; deterministic context-aware fallback on failure."""
+    user_context = _normalize_ai_user_context(user_context, max_length=5000)
+
+    if not user_context:
+        return _polish_multi_metric_insight_with_ai(
+            result, executive_summary, key_findings, recommended_actions,
+        )
+
+    setting = AppSetting.get_solo()
+    risk_item = result.corporate_risk_item
+    risk_number = getattr(risk_item, "no_item", None)
+    risk_title = getattr(risk_item, "peristiwa_risiko", None) or str(risk_item)
+    metrics = (result.metric_snapshot or {}).get("metrics", [])
+    metric_names = [
+        str(row.get("metric_name") or "").strip()
+        for row in metrics if str(row.get("metric_name") or "").strip()
+    ]
     direction_rows = []
     for row in metrics:
         name = str(row.get("metric_name") or "-").strip()
@@ -2843,79 +3015,122 @@ def _polish_multi_metric_insight_context_aware(
         if direction:
             direction_rows.append(f"{name}: {direction}")
 
+    classified = _classify_ai_user_context(result, user_context)
+    direct_preview = _compact_context_lines(classified["direct"], limit=8)
+    cross_preview = _compact_context_lines(classified["cross"], limit=8)
+
     system_facts = (
-        f"Risk #: {risk_number or '-'}; "
-        f"Peristiwa risiko: {risk_title}; "
-        f"Periode forecast: {result.forecast_periode}; "
-        f"Status target: {result.target_status or '-'}; "
-        f"Status risiko: {result.risk_status or '-'}; "
-        f"Target RKAP: {float(result.target_value or 0):,.4f}; "
-        f"Forecast P50: {float(result.forecast_total or 0):,.4f}; "
-        f"Gap target: {float(result.target_gap or 0):,.4f}; "
-        f"Probabilitas target tercapai: {float(result.probability_achieve_target or 0):,.2f}%; "
-        f"Probabilitas target tidak tercapai: {float(result.probability_not_achieve_target or 0):,.2f}%; "
-        f"VaR 95%: {float(result.var_95 or 0):,.4f}; "
-        f"Metric: {', '.join(metric_names) or '-'}; "
-        f"Direction: {', '.join(direction_rows) or '-'}."
+        f"Risk #: {risk_number or '-'}\n"
+        f"Peristiwa risiko: {risk_title}\n"
+        f"Periode forecast: {result.forecast_periode}\n"
+        f"Status target: {result.target_status or '-'}\n"
+        f"Status risiko: {result.risk_status or '-'}\n"
+        f"Target RKAP: {float(result.target_value or 0):,.4f}\n"
+        f"Forecast P50: {float(result.forecast_total or 0):,.4f}\n"
+        f"Gap target: {float(result.target_gap or 0):,.4f}\n"
+        f"Probabilitas target tercapai: {float(result.probability_achieve_target or 0):,.2f}%\n"
+        f"Probabilitas target tidak tercapai: {float(result.probability_not_achieve_target or 0):,.2f}%\n"
+        f"VaR 95%: {float(result.var_95 or 0):,.4f}\n"
+        f"Metric: {', '.join(metric_names) or '-'}\n"
+        f"Direction: {', '.join(direction_rows) or '-'}"
     )
 
-    guidance = f"\n".join([
-        "[INTERNAL CONTEXT SYNTHESIS RULES — DO NOT REPEAT THIS BLOCK IN THE OUTPUT]",
-        "",
-        "HIERARCHY OF SOURCES",
-        "1. SYSTEM / MONTE CARLO FACTS below are authoritative and MUST NOT be changed.",
-        "2. USER BUSINESS CONTEXT is supporting context only.",
-        "3. If user context conflicts with system facts, keep the system fact and explain the discrepancy carefully.",
-        "   Never overwrite target, polarity/direction, P5/P50/P95, probability, VaR, validation status, or Monte Carlo result.",
-        "",
-        "RELEVANCE RULES",
-        f"- Use only user context materially relevant to Risk #{risk_number or '-'}: {risk_title}.",
-        f"- Current metrics: {', '.join(metric_names) or '-'}.",
-        "- Do NOT force unrelated context into this risk.",
-        "- If an item is related only indirectly, label it as cross-risk/supporting context.",
-        "- Do not invent causality merely because items appear in the same user prompt.",
-        "- Do not invent new numbers, dates, contracts, regulations, or facts.",
-        "- User-entered management actions are proposals/context, not approved decisions.",
-        "",
-        "HOW TO SYNTHESIZE",
-        "- Executive Summary: lead with system facts, then integrate only the most relevant context.",
-        "- Key Findings: connect relevant user context to the Monte Carlo result.",
-        "- Recommended Actions: prioritize relevant user-proposed treatments first, then add focused AI recommendations.",
-        "- Keep the analysis detailed but management-readable.",
-        "",
-        "AUTHORITATIVE SYSTEM FACTS:",
-        system_facts,
-        "",
-        "USER BUSINESS CONTEXT / ANALYSIS DIRECTION:",
-        user_context,
-        "",
-        "[END INTERNAL CONTEXT SYNTHESIS RULES]",
-    ])
+    direct_hint = "\n".join("- " + x for x in direct_preview) or "- Tidak ada kandidat direct yang kuat."
+    cross_hint = "\n".join("- " + x for x in cross_preview) or "- Tidak ada."
 
-    # The existing AI polisher receives all three draft sections in one call.
-    # Put the context/rules in one section only to avoid tripling prompt size.
-    enriched_summary = executive_summary
-    enriched_findings = (
-        f"{key_findings}\n\n{guidance}\n\n"
-        "Apply these synthesis rules to ALL output sections: Executive Summary, "
-        "Key Findings, and Recommended Actions."
+    prompt = f"""
+Anda adalah konsultan Enterprise Risk Management untuk Direksi PLN Batam.
+
+TUJUAN
+Gabungkan fakta hasil Monte Carlo dengan Konteks Bisnis & Arahan Analisis dari user
+menjadi insight manajemen yang spesifik, singkat, dan dapat ditindaklanjuti.
+
+HIERARKI SUMBER
+1. SYSTEM / MONTE CARLO FACTS authoritative dan tidak boleh diubah.
+2. USER BUSINESS CONTEXT adalah supporting context.
+3. Bila user context bertentangan dengan fakta sistem, pertahankan fakta sistem.
+4. Jangan mengubah target, direction/polarity, P5/P50/P95, probability, VaR,
+   validation status, atau hasil Monte Carlo.
+
+RELEVANSI
+- Hanya gunakan konteks user yang material terhadap Risk #{risk_number or '-'}: {risk_title}.
+- Metric risiko: {', '.join(metric_names) or '-'}.
+- Jangan memaksa konteks tidak relevan menjadi driver risiko.
+- Konteks tidak langsung harus disebut cross-risk/supporting context.
+- Arahan/program user menjadi recommended action hanya bila relevan langsung.
+
+SYSTEM / MONTE CARLO FACTS
+{system_facts}
+
+RULE-BASED BASELINE
+Executive Summary:
+{executive_summary}
+
+Key Findings:
+{key_findings}
+
+Recommended Actions:
+{recommended_actions}
+
+USER BUSINESS CONTEXT — RAW
+{user_context}
+
+PRE-CLASSIFICATION HINT
+Direct candidates:
+{direct_hint}
+
+Cross-risk/supporting candidates:
+{cross_hint}
+
+OUTPUT
+Kembalikan JSON valid saja dengan key executive_summary, key_findings, recommended_actions.
+- executive_summary: 1-2 paragraf pendek; mulai dari implikasi manajemen utama.
+- key_findings: 3-5 poin/baris; gabungkan sinyal Monte Carlo dan konteks user relevan.
+- recommended_actions: 3-5 aksi spesifik; gunakan program/management action user yang relevan.
+- Jangan gunakan daftar generik tanpa menjelaskan aksi spesifik.
+"""
+
+    provider = (setting.ai_provider or "").strip().lower()
+    if (
+        not setting.ai_aktif
+        or not setting.runtime_ai_api_key
+        or provider not in {AppSetting.AI_PROVIDER_GEMINI, AppSetting.AI_PROVIDER_OPENAI}
+    ):
+        return _context_aware_rule_based_fallback(
+            result, executive_summary, key_findings, recommended_actions, user_context,
+        )
+
+    try:
+        data = _generate_management_language(setting, prompt)
+    except Exception as exc:
+        logger.exception(
+            "External AI context-aware polish failed provider=%s model=%s result=%s: %s",
+            provider, setting.ai_model, getattr(result, "pk", "-"), exc,
+        )
+        return _context_aware_rule_based_fallback(
+            result, executive_summary, key_findings, recommended_actions, user_context,
+        )
+
+    if not data:
+        logger.warning(
+            "External AI context-aware polish returned empty response provider=%s model=%s result=%s",
+            provider, setting.ai_model, getattr(result, "pk", "-"),
+        )
+        return _context_aware_rule_based_fallback(
+            result, executive_summary, key_findings, recommended_actions, user_context,
+        )
+
+    polished = (
+        _coerce_ai_text(data.get("executive_summary"), executive_summary),
+        _coerce_ai_text(data.get("key_findings"), key_findings),
+        _coerce_ai_text(data.get("recommended_actions"), recommended_actions),
     )
-    enriched_actions = recommended_actions
-
-    polished = _polish_multi_metric_insight_with_ai(
-        result,
-        enriched_summary,
-        enriched_findings,
-        enriched_actions,
+    logger.info(
+        "AI Insight CONTEXT-AWARE SUCCESS provider=%s model=%s result=%s direct_candidates=%s cross_candidates=%s",
+        provider, setting.ai_model, getattr(result, "pk", "-"),
+        len(direct_preview), len(cross_preview),
     )
-
-    cleaned = []
-    for value in polished:
-        value = str(value or "")
-        if "[INTERNAL CONTEXT SYNTHESIS RULES" in value:
-            value = value.split("[INTERNAL CONTEXT SYNTHESIS RULES", 1)[0].rstrip()
-        cleaned.append(value)
-    return tuple(cleaned)
+    return polished
 
 
 def generate_rule_based_ai_insight_for_multi_metric_result(result, user_context=""):
