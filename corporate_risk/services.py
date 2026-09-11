@@ -453,40 +453,74 @@ def _simulate_metric(
     sma_window: int | None = None,
 ):
     """
-    Excel reference (KK Risiko Cyber):
-    - SMA untuk f_p50 (median forecast)
-    - P15 (percentile 0.15) dari histori untuk menghitung Std Dev per bulan: StdDev = P50 - P15
-    - Sampling langsung dari Normal(mu=f_p50, sigma=StdDev) per bulan
-    - Total percentiles (P5/P50/P95) HARUS dari distribution total (simulation_totals)
+    V4.12 — Rolling SMA monthly forecast for internal/history_sma models.
+
+    Method:
+    - P50 bulan pertama = SMA histori terakhir.
+    - P50 bulan berikutnya = rolling/recursive SMA yang memasukkan P50 bulan
+      forecast sebelumnya ke dalam window.
+    - Ketidakpastian bulanan tetap menggunakan sigma histori yang sama agar
+      perubahan V4.12 berfokus pada baseline bulanan, bukan mengganti kalibrasi
+      volatilitas model.
+    - P5/P50/P95 tahunan tetap dihitung dari distribusi TOTAL simulation_totals.
+    - Imported assumptions / Crystal Ball memakai simulator terpisah dan tidak
+      melewati fungsi ini.
     """
     if len(values) < 3:
         raise ValueError("Data histori metric belum cukup. Minimal 3 periode.")
 
     values = [_safe_float(v) for v in values]
     values = [v for v in values if math.isfinite(v)]
+
     if not values:
         raise ValueError("Data histori metric kosong/invalid.")
 
     window = int(sma_window or min(len(values), 3))
-    window = max(1, window)
+    window = max(1, min(window, len(values)))
 
-    f_p50 = mean(values[-window:])
-    f_p15 = _percentile(values, 0.15)
-    std_dev = f_p50 - f_p15
+    # Existing uncertainty calibration is retained.
+    initial_p50 = mean(values[-window:])
+    historical_p15 = _percentile(values, 0.15)
+    std_dev = initial_p50 - historical_p15
     sigma = max(abs(std_dev), 0.0001)
 
-    actual_total = _safe_float(actual_total) if actual_total is not None else sum(values)
+    actual_total = (
+        _safe_float(actual_total)
+        if actual_total is not None
+        else sum(values)
+    )
 
+    # ------------------------------------------------------------------
+    # V4.12 — deterministic recursive monthly P50 baseline.
+    #
+    # Example SMA-3:
+    # Sep = mean(Jun, Jul, Aug)
+    # Oct = mean(Jul, Aug, Sep_P50)
+    # Nov = mean(Aug, Sep_P50, Oct_P50)
+    # Dec = mean(Sep_P50, Oct_P50, Nov_P50)
+    # ------------------------------------------------------------------
+    rolling_values = list(values)
+    rolling_p50 = []
+
+    for _month_idx in range(int(months_ahead)):
+        month_p50 = mean(rolling_values[-window:])
+        rolling_p50.append(month_p50)
+        rolling_values.append(month_p50)
+
+    # Monte Carlo annual totals use the SAME month-specific baseline path.
     simulation_totals: list[float] = []
-    for _ in range(n_simulations):
+
+    for _ in range(int(n_simulations)):
         total = float(actual_total)
-        for _month_idx in range(months_ahead):
-            sampled = random.gauss(f_p50, sigma)
+
+        for month_p50 in rolling_p50:
+            sampled = random.gauss(month_p50, sigma)
             sampled = max(sampled, 0.0)
             total += sampled
+
         simulation_totals.append(total)
 
-    # Percentile total dari distribusi total (bukan penjumlahan per-bulan)
+    # Percentile total dari distribusi total, bukan penjumlahan percentile bulanan.
     p5_total = _percentile(simulation_totals, 0.05)
     p20_total = _percentile(simulation_totals, 0.20)
     p40_total = _percentile(simulation_totals, 0.40)
@@ -496,30 +530,32 @@ def _simulate_metric(
     p90_total = _percentile(simulation_totals, 0.90)
     p95_total = _percentile(simulation_totals, 0.95)
 
-    future_mean_total = months_ahead * f_p50
+    future_mean_total = sum(rolling_p50)
     full_year_expected = float(actual_total) + future_mean_total
 
-    # Projection rows untuk UI (P15 + Std Dev per bulan; P50/Mean konstan mengikuti SMA)
+    # Projection rows UI now expose a distinct P50 for every forecast month.
     projection_rows = []
-    for idx in range(months_ahead):
-        projection_rows.append({
-            "bulan_index": idx + 1,
-            "mean": f_p50,
-            "p15": f_p15,
-            "p50": f_p50,
-            "p20": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.20),
-            "p40": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.40),
-            "p60": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.60),
-            "p80": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.80),
-            "stdev_f": abs(f_p50 - f_p15),
-        })
 
-    # safeguard: jika spread simulasi/sampling terlalu sempit sehingga stdev_f jadi 0,
-    # gunakan fallback stdev histori (atau minimal epsilon)
-    fallback_sigma = max(_stdev(values), 0.0001)
-    if abs(f_p50 - f_p15) == 0:
-        for row in projection_rows:
-            row["stdev_f"] = fallback_sigma
+    for idx, month_p50 in enumerate(rolling_p50, start=1):
+        month_p15 = max(month_p50 - sigma, 0.0)
+
+        monthly_draws = [
+            max(random.gauss(month_p50, sigma), 0.0)
+            for _ in range(2000)
+        ]
+
+        projection_rows.append({
+            "bulan_index": idx,
+            "mean": month_p50,
+            "p15": month_p15,
+            "p50": month_p50,
+            "p20": _percentile(monthly_draws, 0.20),
+            "p40": _percentile(monthly_draws, 0.40),
+            "p60": _percentile(monthly_draws, 0.60),
+            "p80": _percentile(monthly_draws, 0.80),
+            "stdev_f": sigma,
+            "source": "history_rolling_sma",
+        })
 
     return {
         "actual_total": float(actual_total),
@@ -533,8 +569,12 @@ def _simulate_metric(
         "p80_total": float(p80_total),
         "p90_total": float(p90_total),
         "p95_total": float(p95_total),
-        "min_total": float(min(simulation_totals) if simulation_totals else 0.0),
-        "max_total": float(max(simulation_totals) if simulation_totals else 0.0),
+        "min_total": float(
+            min(simulation_totals) if simulation_totals else 0.0
+        ),
+        "max_total": float(
+            max(simulation_totals) if simulation_totals else 0.0
+        ),
         "distribution_type": distribution_type,
         "distribution_label": _distribution_label(distribution_type),
         "projection_rows": projection_rows,
@@ -546,9 +586,11 @@ def _simulate_metric(
             "max": float(max(values)),
             "skewness": float(_skewness(values)),
             "sma_window": window,
-            "f_p50": float(f_p50),
-            "f_p15": float(f_p15),
+            "f_p50": float(initial_p50),
+            "f_p15": float(historical_p15),
             "std_dev": float(std_dev),
+            "forecast_method": "rolling_sma_recursive_baseline",
+            "rolling_p50": [float(value) for value in rolling_p50],
         },
     }
 
