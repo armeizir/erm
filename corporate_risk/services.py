@@ -167,6 +167,142 @@ def _gemini_generate_management_language(setting: AppSetting, prompt: str) -> di
     return _extract_json_object(text)
 
 
+def _openai_response_output_text(payload) -> str:
+    # V4.11.12-r2 — extract text from raw OpenAI Responses API payload.
+    if not isinstance(payload, dict):
+        return ""
+
+    direct = payload.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    texts = []
+    for item in payload.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content") or []:
+            if not isinstance(content, dict):
+                continue
+            text = content.get("text")
+            if isinstance(text, str) and text.strip():
+                texts.append(text.strip())
+
+    return "\n".join(texts).strip()
+
+
+def _openai_generate_management_language(setting: AppSetting, prompt: str) -> dict[str, str]:
+    # V4.11.12-r2 — OpenAI Responses API adapter for Multi Metric AI Insight.
+    model_name = (setting.ai_model or "gpt-5.6-sol").strip()
+    if model_name.startswith("gemini"):
+        model_name = "gpt-5.6-sol"
+
+    base_url = (setting.ai_base_url or "https://api.openai.com/v1").rstrip("/")
+    if "generativelanguage.googleapis.com" in base_url:
+        base_url = "https://api.openai.com/v1"
+
+    url = base_url if base_url.endswith("/responses") else f"{base_url}/responses"
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "executive_summary": {"type": "string"},
+            "key_findings": {"type": "string"},
+            "recommended_actions": {"type": "string"},
+        },
+        "required": ["executive_summary", "key_findings", "recommended_actions"],
+        "additionalProperties": False,
+    }
+
+    request_payload = {
+        "model": model_name,
+        "input": [
+            {
+                "role": "system",
+                "content": (
+                    "Anda adalah konsultan Enterprise Risk Management untuk Direksi PLN Batam. "
+                    "Gunakan hanya fakta yang diberikan. Jangan mengubah angka Monte Carlo. "
+                    "Keluarkan JSON sesuai schema."
+                ),
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        "max_output_tokens": 4096,
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "erm_multi_metric_ai_insight",
+                "strict": True,
+                "schema": schema,
+            }
+        },
+        "temperature": float(setting.ai_temperature or 0.2),
+    }
+
+    headers = {
+        "Authorization": f"Bearer {setting.runtime_ai_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    response = httpx.post(
+        url,
+        headers=headers,
+        json=request_payload,
+        timeout=60,
+    )
+
+    # Retry once without temperature if the selected model/config rejects it.
+    if response.status_code == 400:
+        response_text = (response.text or "").lower()
+        if "temperature" in response_text and (
+            "unsupported" in response_text
+            or "not supported" in response_text
+            or "invalid" in response_text
+        ):
+            request_payload.pop("temperature", None)
+            response = httpx.post(
+                url,
+                headers=headers,
+                json=request_payload,
+                timeout=60,
+            )
+
+    response.raise_for_status()
+
+    payload = response.json()
+    text = _openai_response_output_text(payload)
+    data = _extract_json_object(text)
+
+    if not data:
+        raise ValueError(
+            "OpenAI Responses API tidak menghasilkan JSON AI Insight yang dapat diparsing."
+        )
+
+    logger.info(
+        "OpenAI AI Insight SUCCESS provider=openai model=%s request_id=%s",
+        model_name,
+        response.headers.get("x-request-id", "-"),
+    )
+    return data
+
+
+def _generate_management_language(setting: AppSetting, prompt: str) -> dict[str, str]:
+    # V4.11.12-r2 — dispatch Multi Metric AI Insight to configured provider.
+    provider = (setting.ai_provider or "").strip().lower()
+
+    if provider == AppSetting.AI_PROVIDER_GEMINI:
+        return _gemini_generate_management_language(setting, prompt)
+
+    if provider == AppSetting.AI_PROVIDER_OPENAI:
+        return _openai_generate_management_language(setting, prompt)
+
+    raise ValueError(
+        f"Provider AI '{provider or '-'}' belum didukung untuk Multi Metric AI Insight."
+    )
+
+
 def _coerce_ai_text(value, fallback: str) -> str:
     if isinstance(value, str):
         cleaned = value.strip()
@@ -186,7 +322,11 @@ def _polish_multi_metric_insight_with_ai(
     setting = AppSetting.get_solo()
     if not setting.ai_aktif or not setting.runtime_ai_api_key:
         return executive_summary, key_findings, recommended_actions
-    if setting.ai_provider != AppSetting.AI_PROVIDER_GEMINI:
+    provider = (setting.ai_provider or "").strip().lower()
+    if provider not in {
+        AppSetting.AI_PROVIDER_GEMINI,
+        AppSetting.AI_PROVIDER_OPENAI,
+    }:
         return executive_summary, key_findings, recommended_actions
 
     prompt = f"""
@@ -223,13 +363,13 @@ Teks awal:
 """
 
     try:
-        data = _gemini_generate_management_language(setting, prompt)
+        data = _generate_management_language(setting, prompt)
     except Exception as exc:
-        logger.exception("Gemini AI polish failed for multi metric result %s: %s", result.pk, exc)
+        logger.exception("External AI polish failed provider=%s model=%s result=%s: %s", provider, setting.ai_model, result.pk, exc)
         return executive_summary, key_findings, recommended_actions
 
     if not data:
-        logger.warning("Gemini AI polish returned empty response for multi metric result %s", result.pk)
+        logger.warning("External AI polish returned empty response provider=%s model=%s result=%s", provider, setting.ai_model, result.pk)
         return executive_summary, key_findings, recommended_actions
 
     return (
