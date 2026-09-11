@@ -2648,6 +2648,24 @@ def map_risk_appetite(probability_percent):
         return 60
     
 
+def _normalize_ai_user_context(value, max_length=5000):
+    # V4.11.11 — preserve AI user context line breaks.
+    value = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+
+    normalized_lines = []
+    for line in value.split("\n"):
+        line = re.sub(r"[ \t]+", " ", line).strip()
+        normalized_lines.append(line)
+
+    normalized = "\n".join(normalized_lines)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+
+    if len(normalized) > max_length:
+        normalized = normalized[:max_length].rstrip()
+
+    return normalized
+
+
 def _polish_multi_metric_insight_context_aware(
     result,
     executive_summary,
@@ -2657,7 +2675,7 @@ def _polish_multi_metric_insight_context_aware(
 ):
     # V4.11.2 — context-aware single AI insight.
     # This wrapper keeps one AI-polish call only.
-    user_context = " ".join(str(user_context or "").split()).strip()[:5000]
+    user_context = _normalize_ai_user_context(user_context, max_length=5000)
 
     if not user_context:
         return _polish_multi_metric_insight_with_ai(
@@ -2772,7 +2790,7 @@ def generate_rule_based_ai_insight_for_multi_metric_result(result, user_context=
     snapshot = result.simulation_snapshot or {}
     projection_rows = snapshot.get("projection_rows", [])
     target_analysis = snapshot.get("target_analysis") or {}
-    user_context = " ".join(str(user_context or "").split()).strip()[:5000]
+    user_context = _normalize_ai_user_context(user_context, max_length=5000)
 
     if not metrics:
         raise ValueError("Metric snapshot belum tersedia.")
