@@ -126,4 +126,3 @@ class AIInsightContextAwareV4112Test(AIInsightSingleFlowV411Test):
         self.assertEqual(defaults["executive_summary"], "AI SUMMARY TERPADU")
         self.assertEqual(defaults["key_findings"], "AI FINDINGS TERPADU")
         self.assertIn("ACTION TERPADU", defaults["management_decision_draft"])
-
