@@ -386,6 +386,17 @@ def _metric_rows(risk, year):
             actual=current_actual,
             target=target,
         )
+        # V4.11.9 — pct terhadap RKAP
+        pct_rkap = None
+        target_dec = _decimal(target)
+        ytd_dec = _decimal(ytd_actual)
+
+        if (
+            target_dec not in (None, Decimal("0"))
+            and ytd_dec is not None
+        ):
+            pct_rkap = (ytd_dec / target_dec) * Decimal("100")
+
         row = {
             "name": metric.name,
             "unit": metric.unit or "",
@@ -393,6 +404,12 @@ def _metric_rows(risk, year):
             "target_raw": _num(target),
             "actual": _format_value(ytd_actual, metric.unit),
             "actual_raw": _num(ytd_actual),
+            "pct_rkap": (
+                f"{pct_rkap:.0f}%"
+                if pct_rkap is not None
+                else "–"
+            ),
+            "pct_rkap_raw": _num(pct_rkap),
             "current_actual": _format_value(current_actual, metric.unit),
             "current_actual_raw": _num(current_actual),
             "previous_raw": _num(previous_actual),

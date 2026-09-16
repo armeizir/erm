@@ -74,7 +74,11 @@ def monthly_report_admin_url(report, request=None, base_url=None):
 
 
 def _pairing_officer_for_report(report):
-    if not report.reassessment_id or not report.reassessment.unit_bisnis_id:
+    reassessment = getattr(report, "reassessment", None)
+    if (
+        not getattr(report, "reassessment_id", None)
+        or not getattr(reassessment, "unit_bisnis_id", None)
+    ):
         return None
     assignment = (
         PenugasanUnitBisnis.objects.filter(
@@ -91,7 +95,11 @@ def _pairing_officer_for_report(report):
 
 
 def _risk_officers_for_report(report):
-    if not report.reassessment_id or not report.reassessment.unit_bisnis_id:
+    reassessment = getattr(report, "reassessment", None)
+    if (
+        not getattr(report, "reassessment_id", None)
+        or not getattr(reassessment, "unit_bisnis_id", None)
+    ):
         return []
     return [
         assignment.user
@@ -221,11 +229,32 @@ def _workflow_cc_emails(report):
 
 
 def _notification_kpmr(report):
-    if report.status not in {
+    """KPMR email hanya dihitung pada snapshot penutup triwulan.
+
+    Snapshot resmi:
+    - Maret     -> TW1
+    - Juni      -> TW2
+    - September -> TW3
+    - Desember  -> TW4
+
+    Bulan selain penutup triwulan tetap menjadi monitoring risiko,
+    tetapi tidak menghasilkan skor KPMR sementara.
+    """
+    normalized_status = (report.status or "").strip().lower()
+    if normalized_status not in {
         "submitted",
         "under_review",
         "approved",
     }:
+        return None
+
+    periode = getattr(report, "periode", None)
+    tanggal_mulai = getattr(periode, "tanggal_mulai", None)
+    if (
+        not getattr(report, "periode_id", None)
+        or not tanggal_mulai
+        or tanggal_mulai.month not in {3, 6, 9, 12}
+    ):
         return None
 
     return calculate_kpmr_for_report(report)
@@ -350,11 +379,15 @@ def resolve_monthly_report_notification_recipients(
     stage_recipient = stage.get("recipient")
     pairing = stage.get("bcc_recipient")
 
-    prepared_users = (
-        stage_recipients
-        if stage_recipients
-        else ([prepared_by] if prepared_by is not None else [])
-    )
+    # Prepared by pada tampilan mewakili seluruh Risk Officer aktif
+    # pada unit laporan. Gunakan sumber yang sama untuk routing email agar
+    # Submitted/Under Review tidak hanya menyalin satu report.prepared_by.
+    risk_officer_users = _risk_officers_for_report(report)
+    prepared_users = unique_users([
+        *stage_recipients,
+        *risk_officer_users,
+        *([prepared_by] if prepared_by is not None else []),
+    ])
 
     if reviewed_by is None and status == "submitted":
         reviewed_by = stage_recipient
@@ -544,8 +577,35 @@ def send_monthly_report_notification(
         test_email_override=test_email_override,
     )
     app_setting = AppSetting.get_solo()
+
     show_kpmr = normalized_status in {"submitted", "under_review", "approved"}
-    kpmr = calculate_kpmr_for_report(report) if show_kpmr else None
+
+    kpmr_month = (
+        report.periode.tanggal_mulai.month
+        if report.periode_id and report.periode.tanggal_mulai
+        else None
+    )
+    kpmr_quarter = (
+        ((kpmr_month - 1) // 3) + 1
+        if kpmr_month
+        else None
+    )
+    kpmr_is_quarter_snapshot = (
+        kpmr_month in {3, 6, 9, 12}
+        if kpmr_month
+        else False
+    )
+    kpmr_closing_month_name = {
+        1: "Maret",
+        2: "Juni",
+        3: "September",
+        4: "Desember",
+    }.get(kpmr_quarter)
+
+    # Sama dengan III.C:
+    # bulan non-penutup triwulan tidak menghitung skor KPMR.
+    kpmr = _notification_kpmr(report) if show_kpmr else None
+
     context = {
         "report": report,
         "stage": stage,
@@ -563,8 +623,16 @@ def send_monthly_report_notification(
         ),
         "app_setting": app_setting,
         "show_kpmr": show_kpmr,
-        "kpmr_is_preview": show_kpmr and normalized_status != "approved",
-        "kpmr": _notification_kpmr(report),
+        "kpmr_is_preview": (
+            show_kpmr
+            and kpmr_is_quarter_snapshot
+            and normalized_status != "approved"
+        ),
+        "kpmr": kpmr,
+        "kpmr_month": kpmr_month,
+        "kpmr_quarter": kpmr_quarter,
+        "kpmr_is_quarter_snapshot": kpmr_is_quarter_snapshot,
+        "kpmr_closing_month_name": kpmr_closing_month_name,
         "correction_note": correction_note,
         "tutorial": monthly_report_email_tutorial(),
     }

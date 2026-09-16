@@ -193,6 +193,12 @@ def display_value(item, key, value):
 class RiskTreatmentChangeRequestAdmin(
     admin.ModelAdmin
 ):
+    # HIDE_TREATMENT_CHANGE_MENU_V1
+    # Workflow dan histori tetap aktif, tetapi model tidak ditampilkan
+    # sebagai menu terpisah karena perubahan sudah dicatat melalui III.D.
+    def get_model_perms(self, request):
+        return {}
+
     change_list_template = (
         "admin/risk/treatment_change/"
         "change_list.html"

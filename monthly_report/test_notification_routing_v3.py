@@ -1,3 +1,4 @@
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -44,12 +45,16 @@ class MonthlyNotificationRoutingV3Tests(SimpleTestCase):
             monthly_report_notification_test_email="",
         )
 
-    def report(self, status):
+    def report(self, status, month=9):
         return SimpleNamespace(
             status=status,
             prepared_by=self.prepared,
             reviewed_by=self.reviewed,
             approved_by=self.approved,
+            periode_id=1,
+            periode=SimpleNamespace(
+                tanggal_mulai=date(2026, month, 1),
+            ),
         )
 
     def stage(self, status):
@@ -204,6 +209,16 @@ class MonthlyNotificationRoutingV3Tests(SimpleTestCase):
             self.assertEqual(
                 _notification_kpmr(self.report(status)),
                 "KPMR",
+            )
+
+        # Bulan non-penutup triwulan tidak menghasilkan KPMR sementara.
+        for status in (
+            "submitted",
+            "under_review",
+            "approved",
+        ):
+            self.assertIsNone(
+                _notification_kpmr(self.report(status, month=8))
             )
 
         self.assertEqual(calculate_mock.call_count, 3)
