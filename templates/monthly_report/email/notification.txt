@@ -13,12 +13,20 @@ Periode: {{ report.periode.nama_periode }}
 Status: {{ report.get_status_display }}
 {% if deadline_text %}Batas waktu: {{ deadline_text }}{% endif %}
 
-{% if show_kpmr and kpmr %}KPMR Bulan {{ report.periode.nama_periode }}
-{% if kpmr_is_preview %}Hasil sementara: nilai KPMR dihitung berdasarkan data bulan berjalan dan masih dapat berubah sampai laporan selesai direview dan disetujui.
+{% if show_kpmr %}
+{% if not kpmr_is_quarter_snapshot %}KPMR TW{{ kpmr_quarter }} Belum Dinilai
+Penilaian KPMR resmi dilakukan pada posisi akhir {{ kpmr_closing_month_name }} {{ report.reassessment.tahun }}.
+Data {{ report.periode.nama_periode }} tetap digunakan sebagai monitoring risiko dan bahan evaluasi sampai penutupan TW{{ kpmr_quarter }}.
+Status KPMR: Belum Dinilai
+Periode Penilaian: {{ kpmr_closing_month_name }} {{ report.reassessment.tahun }}
+
+{% elif kpmr %}KPMR TW{{ kpmr_quarter }} — {{ report.periode.nama_periode }}
+{% if kpmr_is_preview %}Hasil sementara: nilai KPMR pada posisi akhir triwulan masih dapat berubah sampai laporan selesai direview dan disetujui.
 {% endif %}{% for indicator in kpmr.indicators %}{{ indicator.kode }} - {{ indicator.nama }}: hasil {{ indicator.hasil|default:"-" }}, skor {{ indicator.skor }}
 {% endfor %}Total KPMR{% if kpmr_is_preview %} Sementara{% endif %}: {{ kpmr.score_total }} ({{ kpmr.rating }})
-{% endif %}
 
+{% endif %}
+{% endif %}
 Buka laporan:
 {{ report_url }}
 

@@ -20,6 +20,7 @@ from risk.services.ai_management_decision import (
 )
 from risk.services.permissions import get_accessible_corporate_risk_items
 from monthly_report.models import MonthlyRiskReportItem
+import re
 
 
 MONTH_NAMES = {
@@ -279,6 +280,56 @@ def _sum_actuals(metric, year):
         "date": values[latest_month]["date"],
     }
 
+def _executive_metric_actuals(metric, year):
+    """V4.11.8 — Executive Risk Metric YTD actuals."""
+    if not metric:
+        return None
+
+    if metric.aggregation_type == RiskMetric.AGGREGATION_RATIO:
+        ratio = _linked_ratio_actuals(metric, year)
+        if ratio:
+            return {
+                "current": ratio.get("current"),
+                "previous": ratio.get("previous"),
+                "ytd": ratio.get("ytd"),
+                "month": ratio.get("month"),
+                "date": ratio.get("date"),
+            }
+
+    if metric.aggregation_type == RiskMetric.AGGREGATION_RATE:
+        rate = _rate_actuals(metric, year)
+        if rate:
+            return {
+                "current": rate.get("current"),
+                "previous": rate.get("previous"),
+                "ytd": rate.get("ytd"),
+                "month": rate.get("month"),
+                "date": rate.get("date"),
+            }
+
+    values = _metric_month_values(metric, year)
+    months = sorted(values)
+    if not months:
+        return None
+
+    latest_month = months[-1]
+    previous_month = months[-2] if len(months) > 1 else None
+    monthly_values = [values[m]["value"] for m in months]
+
+    if metric.aggregation_type == RiskMetric.AGGREGATION_SUM:
+        ytd = sum(monthly_values, Decimal("0"))
+    else:
+        ytd = values[latest_month]["value"]
+
+    return {
+        "current": values[latest_month]["value"],
+        "previous": values[previous_month]["value"] if previous_month else None,
+        "ytd": ytd,
+        "month": latest_month,
+        "date": values[latest_month]["date"],
+    }
+
+
 def _metric_rows(risk, year):
     metrics = list(
         RiskMetric.objects.filter(corporate_risk_item=risk, is_active=True)
@@ -302,27 +353,67 @@ def _metric_rows(risk, year):
         if latest and latest.target_value is not None:
             target = latest.target_value
 
-        ratio_actuals = _linked_ratio_actuals(metric, year)
-        actual_value = ratio_actuals["current"] if ratio_actuals else (latest.metric_value if latest else None)
-        previous_actual = ratio_actuals["previous"] if ratio_actuals else (previous.metric_value if previous else None)
-        actual_date = ratio_actuals["date"] if ratio_actuals else (latest.tanggal_data if latest else None)
-        actual_month = ratio_actuals["month"] if ratio_actuals else (latest.tanggal_data.month if latest else None)
+        executive_actuals = _executive_metric_actuals(metric, year)
+        current_actual = (
+            executive_actuals["current"]
+            if executive_actuals
+            else (latest.metric_value if latest else None)
+        )
+        previous_actual = (
+            executive_actuals["previous"]
+            if executive_actuals
+            else (previous.metric_value if previous else None)
+        )
+        ytd_actual = (
+            executive_actuals["ytd"]
+            if executive_actuals
+            else current_actual
+        )
+        actual_date = (
+            executive_actuals["date"]
+            if executive_actuals
+            else (latest.tanggal_data if latest else None)
+        )
+        actual_month = (
+            executive_actuals["month"]
+            if executive_actuals
+            else (latest.tanggal_data.month if latest else None)
+        )
 
         status, status_class = _risk_status(
             risk,
             metric=metric,
-            actual=actual_value,
+            actual=current_actual,
             target=target,
         )
+        # V4.11.9 — pct terhadap RKAP
+        pct_rkap = None
+        target_dec = _decimal(target)
+        ytd_dec = _decimal(ytd_actual)
+
+        if (
+            target_dec not in (None, Decimal("0"))
+            and ytd_dec is not None
+        ):
+            pct_rkap = (ytd_dec / target_dec) * Decimal("100")
+
         row = {
             "name": metric.name,
             "unit": metric.unit or "",
             "target": _format_value(target, metric.unit),
             "target_raw": _num(target),
-            "actual": _format_value(actual_value, metric.unit),
-            "actual_raw": _num(actual_value),
+            "actual": _format_value(ytd_actual, metric.unit),
+            "actual_raw": _num(ytd_actual),
+            "pct_rkap": (
+                f"{pct_rkap:.0f}%"
+                if pct_rkap is not None
+                else "–"
+            ),
+            "pct_rkap_raw": _num(pct_rkap),
+            "current_actual": _format_value(current_actual, metric.unit),
+            "current_actual_raw": _num(current_actual),
             "previous_raw": _num(previous_actual),
-            "trend": _trend(actual_value, previous_actual, metric.direction),
+            "trend": _trend(current_actual, previous_actual, metric.direction),
             "status": status,
             "status_class": status_class,
             "date": actual_date.isoformat() if actual_date else "",
@@ -511,6 +602,23 @@ def _linked_ratio_outlook(metric, year):
 
 
 def _forecast_status(metric, forecast_value, target_value, probability_not_achieve=None):
+    # V4.9.2 — target achievement is a direction-aware hard gate.
+    forecast = _decimal(forecast_value)
+    target = _decimal(target_value)
+
+    if (
+        metric is not None
+        and forecast is not None
+        and target not in (None, Decimal("0"))
+    ):
+        if metric.direction == RiskMetric.DIRECTION_INCREASE:
+            target_failed = forecast > target
+        else:
+            target_failed = forecast < target
+
+        if target_failed:
+            return "BAHAYA", "danger"
+
     probability = _decimal(probability_not_achieve)
     if probability is not None:
         appetite = _decimal(getattr(metric, "risk_appetite_threshold", None)) or Decimal("20")
@@ -519,6 +627,7 @@ def _forecast_status(metric, forecast_value, target_value, probability_not_achie
         if probability >= appetite:
             return "HATI-HATI", "warning"
         return "TERKENDALI", "safe"
+
     return _risk_status(metric.corporate_risk_item, metric, forecast_value, target_value)
 
 
@@ -529,6 +638,78 @@ def _management_decisions(risk):
         if text:
             decisions.append(text)
     return decisions
+
+
+def _parse_ai_management_decision(text):
+    """V4.11.4 — compact Executive Management Decision presentation."""
+    value = str(text or "").strip()
+    if not value:
+        return {}
+
+    result = {"position": "", "direction": "", "actions": []}
+    mode = None
+
+    for raw_line in value.splitlines():
+        line = " ".join(str(raw_line or "").split()).strip()
+        if not line:
+            continue
+
+        lower = line.lower()
+        if lower.startswith("posisi risiko:"):
+            result["position"] = line.split(":", 1)[1].strip()
+            mode = None
+            continue
+        if lower.startswith("arah keputusan:"):
+            result["direction"] = line.split(":", 1)[1].strip()
+            mode = None
+            continue
+        if lower.startswith("tindakan prioritas"):
+            mode = "actions"
+            continue
+        if lower.startswith("status: ai draft") or lower.startswith("ai draft"):
+            continue
+
+        if mode == "actions":
+            cleaned = re.sub(r"^\d+[\.\)]\s*", "", line).strip()
+            if cleaned:
+                result["actions"].append(cleaned)
+
+    def compact(item, limit):
+        item = " ".join(str(item or "").split()).strip()
+        if len(item) <= limit:
+            return item
+        shortened = item[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        return f"{shortened}…"
+
+    result["position"] = compact(result["position"], 220)
+    result["direction"] = compact(result["direction"], 220)
+    result["actions"] = [compact(x, 210) for x in result["actions"][:2] if x]
+
+    if not any((result["position"], result["direction"], result["actions"])):
+        result["direction"] = compact(value, 360)
+
+    return result
+
+
+def _ai_insight_management_draft(monte_carlo_result_id):
+    """V4.11 — read Management Decision draft from the same saved AI Insight."""
+    if not monte_carlo_result_id:
+        return ""
+    try:
+        from corporate_risk.models import MultiMetricAIInsightKorporat
+
+        insight = (
+            MultiMetricAIInsightKorporat.objects
+            .filter(multi_metric_result_id=monte_carlo_result_id)
+            .only("management_decision_draft")
+            .first()
+        )
+    except Exception:
+        return ""
+
+    if not insight:
+        return ""
+    return (insight.management_decision_draft or "").strip()
 
 
 def _ai_decision_context(risk, year, card):
@@ -635,8 +816,26 @@ def _build_risk_card(risk, year):
     outlook = None
     if primary and primary.aggregation_type == RiskMetric.AGGREGATION_RATIO:
         outlook = _linked_ratio_outlook(primary, year)
-    else:
-        outlook = _validated_imported_outlook(mc, primary)
+    elif primary:
+        # V4.9.3 — do not let a newer manual/history_sma result mask an older
+        # validated imported-assumption outlook in Executive Risk.
+        candidates = (
+            MultiMetricMonteCarloResult.objects.filter(
+                corporate_risk_item=risk,
+                forecast_periode__tahun_buku__tahun=year,
+            )
+            .select_related("forecast_periode")
+            .order_by(
+                "-forecast_periode__tanggal_mulai",
+                "-created_at",
+                "-id",
+            )
+        )
+        for candidate in candidates:
+            candidate_outlook = _validated_imported_outlook(candidate, primary)
+            if candidate_outlook:
+                outlook = candidate_outlook
+                break
 
     target_analysis = (mc.simulation_snapshot or {}).get("target_analysis", {}) if mc else {}
     if primary and primary.aggregation_type == RiskMetric.AGGREGATION_RATIO and ratio_actuals:
@@ -689,6 +888,21 @@ def _build_risk_card(risk, year):
     potential_loss = outlook.get("potential_impact") if outlook else (fallback_mc.potential_loss if fallback_mc else None)
     forecast_period = outlook.get("forecast_period") if outlook else (str(fallback_mc.forecast_periode) if fallback_mc else "Belum tersedia")
 
+    # V4.9.4 — if Executive displays an internal/manual Monte Carlo forecast,
+    # its status must be calculated from that same forecast, not from current actual.
+    if (
+        not outlook
+        and fallback_mc is not None
+        and primary is not None
+        and primary_target is not None
+    ):
+        status_label, status_class = _forecast_status(
+            primary,
+            forecast_value,
+            primary_target,
+            fallback_mc.probability_not_achieve_target,
+        )
+
     if outlook and outlook.get("probability_not_achieve") is not None:
         probability = _decimal(outlook.get("probability_not_achieve"))
         probability_text = f"{probability:.2f}%".replace(".", ",") if probability is not None else "–"
@@ -702,6 +916,18 @@ def _build_risk_card(risk, year):
             f"Monte Carlo tervalidasi; target ERM tetap digunakan untuk penilaian status."
         )
         probability_text = "–"
+    elif fallback_mc:
+        probability = _decimal(fallback_mc.probability_not_achieve_target)
+        probability_text = (
+            f"{probability:.2f}%".replace(".", ",")
+            if probability is not None
+            else "–"
+        )
+        simulation_mode = mc_snapshot.get("simulation_mode") or "internal"
+        status_note = (
+            f"Forecast internal ({simulation_mode}): status dihitung dari forecast P50 terhadap target "
+            f"sesuai polaritas metric. Model belum tervalidasi eksternal."
+        )
     else:
         status_note = _explanation(status_label, current_value, primary_target, MONTH_NAMES.get(period_month, "periode"))
         probability_text = "–"
@@ -741,8 +967,20 @@ def _build_risk_card(risk, year):
         "potential_loss": _format_value(potential_loss, "Rp") if potential_loss not in (None, 0, Decimal("0")) else "–",
         "probability_not_achieve": probability_text,
         "model_validation": outlook.get("validation_status") if outlook else "",
-        "model_source": outlook.get("validation_source") if outlook else "",
+        "model_source": (
+            outlook.get("validation_source")
+            if outlook
+            else ("Internal Forecast" if fallback_mc else "")
+        ),
         "monte_carlo_result_id": outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None),
+        "ai_management_draft": _ai_insight_management_draft(
+            outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None)
+        ),
+        "ai_management_decision": _parse_ai_management_decision(
+            _ai_insight_management_draft(
+                outlook.get("result_id") if outlook else (fallback_mc.id if fallback_mc else None)
+            )
+        ),
         "decisions": _management_decisions(risk),
     }
 

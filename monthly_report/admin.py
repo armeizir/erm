@@ -473,12 +473,19 @@ def _users_for_unit_group(unit):
 
 
 def _monthly_risk_item_key(item):
-    """Canonical grouping key for one business risk in monthly monitoring.
+    """Canonical grouping key untuk satu risiko utama pada monitoring bulanan.
 
-    no_risiko is the parent/business-risk identifier.  no_item is only the
-    technical/source row and may repeat one business risk across causes.
-    Fall back to event text only for legacy data where no_risiko is absent.
+    no_item adalah nomor risiko utama pada Profil Risiko.
+    Beberapa row dapat mempunyai no_item yang sama karena memiliki
+    treatment/penyebab yang berbeda.
+
+    no_risiko hanya digunakan sebagai fallback untuk data lama yang
+    tidak mempunyai no_item.
     """
+    item_number = getattr(item, "no_item", None)
+    if item_number not in (None, ""):
+        return f"item:{item_number}"
+
     risk_number = getattr(item, "no_risiko", None)
     if risk_number not in (None, ""):
         return f"risk:{risk_number}"
@@ -486,7 +493,8 @@ def _monthly_risk_item_key(item):
     risk_event = (item.peristiwa_risiko or "").strip().casefold()
     if risk_event:
         return f"event:{risk_event}"
-    return f"item:{item.pk}"
+
+    return f"pk:{item.pk}"
 
 
 def _monthly_risk_item_number_map(items):
@@ -510,8 +518,8 @@ def _monthly_report_pairing_owner_items(report, *, for_update=False):
         "risk_event__summary",
         "risk_event__summary__unit_bisnis",
     ).order_by(
-        "risk_event__no_risiko",
         "risk_event__no_item",
+        "risk_event__no_risiko",
         "risk_event__no_penyebab_risiko",
         "pk",
     )
@@ -1145,8 +1153,8 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                 "risk_event__summary__unit_bisnis",
             )
             .order_by(
-                "risk_event__no_risiko",
                 "risk_event__no_item",
+                "risk_event__no_risiko",
                 "risk_event__no_penyebab_risiko",
                 "pk",
             )
@@ -1426,9 +1434,9 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             .get_queryset(request)
             .select_related("risk_event")
             .order_by(
+                "risk_event__no_item",
                 "risk_event__no_risiko",
                 "risk_event__no_penyebab_risiko",
-                "risk_event__no_item",
                 "pk",
             )
         )

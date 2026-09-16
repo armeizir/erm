@@ -24,6 +24,7 @@ from .models import (
 )
 from .distribution_analysis import analyze_distribution_recommendation
 from risk.models import AppSetting
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,142 @@ def _gemini_generate_management_language(setting: AppSetting, prompt: str) -> di
     return _extract_json_object(text)
 
 
+def _openai_response_output_text(payload) -> str:
+    # V4.11.12-r2 — extract text from raw OpenAI Responses API payload.
+    if not isinstance(payload, dict):
+        return ""
+
+    direct = payload.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    texts = []
+    for item in payload.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content") or []:
+            if not isinstance(content, dict):
+                continue
+            text = content.get("text")
+            if isinstance(text, str) and text.strip():
+                texts.append(text.strip())
+
+    return "\n".join(texts).strip()
+
+
+def _openai_generate_management_language(setting: AppSetting, prompt: str) -> dict[str, str]:
+    # V4.11.12-r2 — OpenAI Responses API adapter for Multi Metric AI Insight.
+    model_name = (setting.ai_model or "gpt-5.6-sol").strip()
+    if model_name.startswith("gemini"):
+        model_name = "gpt-5.6-sol"
+
+    base_url = (setting.ai_base_url or "https://api.openai.com/v1").rstrip("/")
+    if "generativelanguage.googleapis.com" in base_url:
+        base_url = "https://api.openai.com/v1"
+
+    url = base_url if base_url.endswith("/responses") else f"{base_url}/responses"
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "executive_summary": {"type": "string"},
+            "key_findings": {"type": "string"},
+            "recommended_actions": {"type": "string"},
+        },
+        "required": ["executive_summary", "key_findings", "recommended_actions"],
+        "additionalProperties": False,
+    }
+
+    request_payload = {
+        "model": model_name,
+        "input": [
+            {
+                "role": "system",
+                "content": (
+                    "Anda adalah konsultan Enterprise Risk Management untuk Direksi PLN Batam. "
+                    "Gunakan hanya fakta yang diberikan. Jangan mengubah angka Monte Carlo. "
+                    "Keluarkan JSON sesuai schema."
+                ),
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        "max_output_tokens": 4096,
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "erm_multi_metric_ai_insight",
+                "strict": True,
+                "schema": schema,
+            }
+        },
+        "temperature": float(setting.ai_temperature or 0.2),
+    }
+
+    headers = {
+        "Authorization": f"Bearer {setting.runtime_ai_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    response = httpx.post(
+        url,
+        headers=headers,
+        json=request_payload,
+        timeout=60,
+    )
+
+    # Retry once without temperature if the selected model/config rejects it.
+    if response.status_code == 400:
+        response_text = (response.text or "").lower()
+        if "temperature" in response_text and (
+            "unsupported" in response_text
+            or "not supported" in response_text
+            or "invalid" in response_text
+        ):
+            request_payload.pop("temperature", None)
+            response = httpx.post(
+                url,
+                headers=headers,
+                json=request_payload,
+                timeout=60,
+            )
+
+    response.raise_for_status()
+
+    payload = response.json()
+    text = _openai_response_output_text(payload)
+    data = _extract_json_object(text)
+
+    if not data:
+        raise ValueError(
+            "OpenAI Responses API tidak menghasilkan JSON AI Insight yang dapat diparsing."
+        )
+
+    logger.info(
+        "OpenAI AI Insight SUCCESS provider=openai model=%s request_id=%s",
+        model_name,
+        response.headers.get("x-request-id", "-"),
+    )
+    return data
+
+
+def _generate_management_language(setting: AppSetting, prompt: str) -> dict[str, str]:
+    # V4.11.12-r2 — dispatch Multi Metric AI Insight to configured provider.
+    provider = (setting.ai_provider or "").strip().lower()
+
+    if provider == AppSetting.AI_PROVIDER_GEMINI:
+        return _gemini_generate_management_language(setting, prompt)
+
+    if provider == AppSetting.AI_PROVIDER_OPENAI:
+        return _openai_generate_management_language(setting, prompt)
+
+    raise ValueError(
+        f"Provider AI '{provider or '-'}' belum didukung untuk Multi Metric AI Insight."
+    )
+
+
 def _coerce_ai_text(value, fallback: str) -> str:
     if isinstance(value, str):
         cleaned = value.strip()
@@ -185,7 +322,11 @@ def _polish_multi_metric_insight_with_ai(
     setting = AppSetting.get_solo()
     if not setting.ai_aktif or not setting.runtime_ai_api_key:
         return executive_summary, key_findings, recommended_actions
-    if setting.ai_provider != AppSetting.AI_PROVIDER_GEMINI:
+    provider = (setting.ai_provider or "").strip().lower()
+    if provider not in {
+        AppSetting.AI_PROVIDER_GEMINI,
+        AppSetting.AI_PROVIDER_OPENAI,
+    }:
         return executive_summary, key_findings, recommended_actions
 
     prompt = f"""
@@ -222,13 +363,13 @@ Teks awal:
 """
 
     try:
-        data = _gemini_generate_management_language(setting, prompt)
+        data = _generate_management_language(setting, prompt)
     except Exception as exc:
-        logger.exception("Gemini AI polish failed for multi metric result %s: %s", result.pk, exc)
+        logger.exception("External AI polish failed provider=%s model=%s result=%s: %s", provider, setting.ai_model, result.pk, exc)
         return executive_summary, key_findings, recommended_actions
 
     if not data:
-        logger.warning("Gemini AI polish returned empty response for multi metric result %s", result.pk)
+        logger.warning("External AI polish returned empty response provider=%s model=%s result=%s", provider, setting.ai_model, result.pk)
         return executive_summary, key_findings, recommended_actions
 
     return (
@@ -452,40 +593,74 @@ def _simulate_metric(
     sma_window: int | None = None,
 ):
     """
-    Excel reference (KK Risiko Cyber):
-    - SMA untuk f_p50 (median forecast)
-    - P15 (percentile 0.15) dari histori untuk menghitung Std Dev per bulan: StdDev = P50 - P15
-    - Sampling langsung dari Normal(mu=f_p50, sigma=StdDev) per bulan
-    - Total percentiles (P5/P50/P95) HARUS dari distribution total (simulation_totals)
+    V4.12 — Rolling SMA monthly forecast for internal/history_sma models.
+
+    Method:
+    - P50 bulan pertama = SMA histori terakhir.
+    - P50 bulan berikutnya = rolling/recursive SMA yang memasukkan P50 bulan
+      forecast sebelumnya ke dalam window.
+    - Ketidakpastian bulanan tetap menggunakan sigma histori yang sama agar
+      perubahan V4.12 berfokus pada baseline bulanan, bukan mengganti kalibrasi
+      volatilitas model.
+    - P5/P50/P95 tahunan tetap dihitung dari distribusi TOTAL simulation_totals.
+    - Imported assumptions / Crystal Ball memakai simulator terpisah dan tidak
+      melewati fungsi ini.
     """
     if len(values) < 3:
         raise ValueError("Data histori metric belum cukup. Minimal 3 periode.")
 
     values = [_safe_float(v) for v in values]
     values = [v for v in values if math.isfinite(v)]
+
     if not values:
         raise ValueError("Data histori metric kosong/invalid.")
 
     window = int(sma_window or min(len(values), 3))
-    window = max(1, window)
+    window = max(1, min(window, len(values)))
 
-    f_p50 = mean(values[-window:])
-    f_p15 = _percentile(values, 0.15)
-    std_dev = f_p50 - f_p15
+    # Existing uncertainty calibration is retained.
+    initial_p50 = mean(values[-window:])
+    historical_p15 = _percentile(values, 0.15)
+    std_dev = initial_p50 - historical_p15
     sigma = max(abs(std_dev), 0.0001)
 
-    actual_total = _safe_float(actual_total) if actual_total is not None else sum(values)
+    actual_total = (
+        _safe_float(actual_total)
+        if actual_total is not None
+        else sum(values)
+    )
 
+    # ------------------------------------------------------------------
+    # V4.12 — deterministic recursive monthly P50 baseline.
+    #
+    # Example SMA-3:
+    # Sep = mean(Jun, Jul, Aug)
+    # Oct = mean(Jul, Aug, Sep_P50)
+    # Nov = mean(Aug, Sep_P50, Oct_P50)
+    # Dec = mean(Sep_P50, Oct_P50, Nov_P50)
+    # ------------------------------------------------------------------
+    rolling_values = list(values)
+    rolling_p50 = []
+
+    for _month_idx in range(int(months_ahead)):
+        month_p50 = mean(rolling_values[-window:])
+        rolling_p50.append(month_p50)
+        rolling_values.append(month_p50)
+
+    # Monte Carlo annual totals use the SAME month-specific baseline path.
     simulation_totals: list[float] = []
-    for _ in range(n_simulations):
+
+    for _ in range(int(n_simulations)):
         total = float(actual_total)
-        for _month_idx in range(months_ahead):
-            sampled = random.gauss(f_p50, sigma)
+
+        for month_p50 in rolling_p50:
+            sampled = random.gauss(month_p50, sigma)
             sampled = max(sampled, 0.0)
             total += sampled
+
         simulation_totals.append(total)
 
-    # Percentile total dari distribusi total (bukan penjumlahan per-bulan)
+    # Percentile total dari distribusi total, bukan penjumlahan percentile bulanan.
     p5_total = _percentile(simulation_totals, 0.05)
     p20_total = _percentile(simulation_totals, 0.20)
     p40_total = _percentile(simulation_totals, 0.40)
@@ -495,30 +670,32 @@ def _simulate_metric(
     p90_total = _percentile(simulation_totals, 0.90)
     p95_total = _percentile(simulation_totals, 0.95)
 
-    future_mean_total = months_ahead * f_p50
+    future_mean_total = sum(rolling_p50)
     full_year_expected = float(actual_total) + future_mean_total
 
-    # Projection rows untuk UI (P15 + Std Dev per bulan; P50/Mean konstan mengikuti SMA)
+    # Projection rows UI now expose a distinct P50 for every forecast month.
     projection_rows = []
-    for idx in range(months_ahead):
-        projection_rows.append({
-            "bulan_index": idx + 1,
-            "mean": f_p50,
-            "p15": f_p15,
-            "p50": f_p50,
-            "p20": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.20),
-            "p40": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.40),
-            "p60": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.60),
-            "p80": _percentile([max(random.gauss(f_p50, sigma), 0.0) for _ in range(2000)], 0.80),
-            "stdev_f": abs(f_p50 - f_p15),
-        })
 
-    # safeguard: jika spread simulasi/sampling terlalu sempit sehingga stdev_f jadi 0,
-    # gunakan fallback stdev histori (atau minimal epsilon)
-    fallback_sigma = max(_stdev(values), 0.0001)
-    if abs(f_p50 - f_p15) == 0:
-        for row in projection_rows:
-            row["stdev_f"] = fallback_sigma
+    for idx, month_p50 in enumerate(rolling_p50, start=1):
+        month_p15 = max(month_p50 - sigma, 0.0)
+
+        monthly_draws = [
+            max(random.gauss(month_p50, sigma), 0.0)
+            for _ in range(2000)
+        ]
+
+        projection_rows.append({
+            "bulan_index": idx,
+            "mean": month_p50,
+            "p15": month_p15,
+            "p50": month_p50,
+            "p20": _percentile(monthly_draws, 0.20),
+            "p40": _percentile(monthly_draws, 0.40),
+            "p60": _percentile(monthly_draws, 0.60),
+            "p80": _percentile(monthly_draws, 0.80),
+            "stdev_f": sigma,
+            "source": "history_rolling_sma",
+        })
 
     return {
         "actual_total": float(actual_total),
@@ -532,8 +709,12 @@ def _simulate_metric(
         "p80_total": float(p80_total),
         "p90_total": float(p90_total),
         "p95_total": float(p95_total),
-        "min_total": float(min(simulation_totals) if simulation_totals else 0.0),
-        "max_total": float(max(simulation_totals) if simulation_totals else 0.0),
+        "min_total": float(
+            min(simulation_totals) if simulation_totals else 0.0
+        ),
+        "max_total": float(
+            max(simulation_totals) if simulation_totals else 0.0
+        ),
         "distribution_type": distribution_type,
         "distribution_label": _distribution_label(distribution_type),
         "projection_rows": projection_rows,
@@ -545,9 +726,11 @@ def _simulate_metric(
             "max": float(max(values)),
             "skewness": float(_skewness(values)),
             "sma_window": window,
-            "f_p50": float(f_p50),
-            "f_p15": float(f_p15),
+            "f_p50": float(initial_p50),
+            "f_p15": float(historical_p15),
             "std_dev": float(std_dev),
+            "forecast_method": "rolling_sma_recursive_baseline",
+            "rolling_p50": [float(value) for value in rolling_p50],
         },
     }
 
@@ -2605,11 +2788,364 @@ def map_risk_appetite(probability_percent):
         return 60
     
 
-def generate_rule_based_ai_insight_for_multi_metric_result(result):
+def _normalize_ai_user_context(value, max_length=5000):
+    # V4.11.11 — preserve AI user context line breaks.
+    value = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+
+    normalized_lines = []
+    for line in value.split("\n"):
+        line = re.sub(r"[ \t]+", " ", line).strip()
+        normalized_lines.append(line)
+
+    normalized = "\n".join(normalized_lines)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+
+    if len(normalized) > max_length:
+        normalized = normalized[:max_length].rstrip()
+
+    return normalized
+
+
+# V4.11.13 — context-aware AI synthesis + context-aware fallback.
+
+_AI_CONTEXT_STOPWORDS = {
+    "yang", "dan", "atau", "untuk", "dengan", "dari", "pada", "dalam",
+    "risiko", "risk", "realisasi", "nilai", "target", "metric", "metrik",
+    "periode", "forecast", "status", "utama", "user", "bisnis",
+}
+
+
+def _ai_context_keywords(text):
+    tokens = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    return {
+        token for token in tokens
+        if len(token) >= 4 and token not in _AI_CONTEXT_STOPWORDS
+    }
+
+
+def _ai_context_clean_line(line):
+    line = str(line or "").strip().strip('"').strip("'").strip()
+    return re.sub(r"[ \\t]+", " ", line).strip()
+
+
+def _ai_context_sections(user_context):
+    sections = []
+    current_heading = "KONTEKS BISNIS"
+    heading_markers = (
+        "RISK DRIVER", "ANALISA", "ANALISIS", "PROGRAM", "PERLAKUAN",
+        "MANAGEMENT DECISION", "MANAGEMENT ACTION", "ARAHAN", "KEPUTUSAN",
+        "MITIGASI",
+    )
+
+    for raw in str(user_context or "").splitlines():
+        line = _ai_context_clean_line(raw)
+        if not line:
+            continue
+        upper = line.upper()
+        looks_heading = (
+            len(line) <= 120
+            and (
+                any(marker in upper for marker in heading_markers)
+                or (upper == line and len(line.split()) <= 10)
+            )
+        )
+        if looks_heading:
+            current_heading = line
+            continue
+        sections.append((current_heading, line))
+    return sections
+
+
+def _classify_ai_user_context(result, user_context):
+    risk_item = result.corporate_risk_item
+    risk_title = getattr(risk_item, "peristiwa_risiko", None) or str(risk_item)
+    metrics = (result.metric_snapshot or {}).get("metrics", [])
+    metric_names = [
+        str(row.get("metric_name") or "").strip()
+        for row in metrics
+        if str(row.get("metric_name") or "").strip()
+    ]
+
+    reference_tokens = _ai_context_keywords(" ".join([risk_title] + metric_names))
+    strong_tokens = set()
+    for name in metric_names:
+        strong_tokens.update(_ai_context_keywords(name))
+    strong_tokens -= {"biaya", "volume", "harga", "jumlah", "total", "energi"}
+
+    direct, cross = [], []
+    for heading, line in _ai_context_sections(user_context):
+        tokens = _ai_context_keywords(line)
+        overlap = tokens & reference_tokens
+        is_direct = bool(tokens & strong_tokens) or len(overlap) >= 2
+        item = {"heading": heading, "line": line, "overlap": sorted(overlap)}
+        (direct if is_direct else cross).append(item)
+
+    return {
+        "risk_title": risk_title,
+        "metric_names": metric_names,
+        "direct": direct,
+        "cross": cross,
+    }
+
+
+def _compact_context_lines(items, limit=4):
+    lines, seen = [], set()
+    for item in items:
+        text = _ai_context_clean_line(item.get("line"))
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        lines.append(text)
+        if len(lines) >= limit:
+            break
+    return lines
+
+
+def _context_aware_rule_based_fallback(
+    result,
+    executive_summary,
+    key_findings,
+    recommended_actions,
+    user_context,
+):
+    classified = _classify_ai_user_context(result, user_context)
+    direct_lines = _compact_context_lines(classified["direct"], limit=4)
+    cross_lines = _compact_context_lines(classified["cross"], limit=4)
+    metric_names = classified["metric_names"]
+    risk_title = classified["risk_title"]
+
+    if direct_lines:
+        executive_summary = (
+            f"{executive_summary} "
+            "Konteks bisnis user yang memiliki keterkaitan langsung digunakan sebagai "
+            "informasi pendukung dan tidak mengubah angka hasil simulasi."
+        )
+    elif cross_lines:
+        executive_summary = (
+            f"{executive_summary} "
+            "Konteks bisnis user yang tersedia belum memiliki keterkaitan langsung yang "
+            f"cukup dengan {risk_title}; konteks tersebut diperlakukan sebagai "
+            "cross-risk/supporting context dan tidak mengubah hasil simulasi."
+        )
+
+    context_findings = []
+    if direct_lines:
+        context_findings.append("Konteks bisnis user yang relevan langsung:")
+        context_findings.extend(f"- {line}" for line in direct_lines)
+    if cross_lines:
+        context_findings.append(
+            "Cross-risk/supporting context dari user (tidak diperlakukan sebagai driver langsung):"
+        )
+        context_findings.extend(f"- {line}" for line in cross_lines)
+    if context_findings:
+        key_findings = f"{key_findings.rstrip()}\n\n" + "\n".join(context_findings)
+
+    actions = []
+    direct_action_items = [
+        item for item in classified["direct"]
+        if any(
+            marker in str(item.get("heading") or "").upper()
+            for marker in (
+                "MANAGEMENT DECISION", "MANAGEMENT ACTION", "ARAHAN", "KEPUTUSAN",
+                "PROGRAM", "PERLAKUAN", "MITIGASI",
+            )
+        )
+    ]
+    for line in _compact_context_lines(direct_action_items, limit=3):
+        actions.append(f"Tindak lanjuti arahan/program user yang relevan: {line}")
+
+    metric_label = ", ".join(metric_names) if metric_names else "metric risiko terkait"
+    actions.append(
+        f"Monitor {metric_label} secara bulanan dan bandingkan aktual dengan forecast P50 serta target RKAP."
+    )
+
+    p50 = float(getattr(result, "forecast_total", 0) or 0)
+    target = float(getattr(result, "target_value", 0) or 0)
+    p_not = float(getattr(result, "probability_not_achieve_target", 0) or 0)
+    actions.append(
+        f"Gunakan gap forecast P50 ({p50:,.2f}) terhadap target ({target:,.2f}) "
+        f"dan probabilitas tidak tercapai ({p_not:,.2f}%) sebagai trigger eskalasi manajemen."
+    )
+    if cross_lines:
+        actions.append(
+            "Validasi keterkaitan cross-risk/supporting context user dengan risiko ini "
+            "sebelum menjadikannya driver atau mitigasi langsung."
+        )
+
+    recommended_actions = "\n".join(
+        f"{idx}. {text}" for idx, text in enumerate(actions[:5], start=1)
+    )
+
+    logger.warning(
+        "AI Insight CONTEXT-AWARE FALLBACK result=%s direct_context=%s cross_context=%s",
+        getattr(result, "pk", "-"), len(direct_lines), len(cross_lines),
+    )
+    return executive_summary, key_findings, recommended_actions
+
+
+def _polish_multi_metric_insight_context_aware(
+    result,
+    executive_summary,
+    key_findings,
+    recommended_actions,
+    user_context="",
+):
+    """One context-aware AI call; deterministic context-aware fallback on failure."""
+    user_context = _normalize_ai_user_context(user_context, max_length=5000)
+
+    if not user_context:
+        return _polish_multi_metric_insight_with_ai(
+            result, executive_summary, key_findings, recommended_actions,
+        )
+
+    setting = AppSetting.get_solo()
+    risk_item = result.corporate_risk_item
+    risk_number = getattr(risk_item, "no_item", None)
+    risk_title = getattr(risk_item, "peristiwa_risiko", None) or str(risk_item)
+    metrics = (result.metric_snapshot or {}).get("metrics", [])
+    metric_names = [
+        str(row.get("metric_name") or "").strip()
+        for row in metrics if str(row.get("metric_name") or "").strip()
+    ]
+    direction_rows = []
+    for row in metrics:
+        name = str(row.get("metric_name") or "-").strip()
+        direction = str(row.get("direction") or "").strip()
+        if direction:
+            direction_rows.append(f"{name}: {direction}")
+
+    classified = _classify_ai_user_context(result, user_context)
+    direct_preview = _compact_context_lines(classified["direct"], limit=8)
+    cross_preview = _compact_context_lines(classified["cross"], limit=8)
+
+    system_facts = (
+        f"Risk #: {risk_number or '-'}\n"
+        f"Peristiwa risiko: {risk_title}\n"
+        f"Periode forecast: {result.forecast_periode}\n"
+        f"Status target: {result.target_status or '-'}\n"
+        f"Status risiko: {result.risk_status or '-'}\n"
+        f"Target RKAP: {float(result.target_value or 0):,.4f}\n"
+        f"Forecast P50: {float(result.forecast_total or 0):,.4f}\n"
+        f"Gap target: {float(result.target_gap or 0):,.4f}\n"
+        f"Probabilitas target tercapai: {float(result.probability_achieve_target or 0):,.2f}%\n"
+        f"Probabilitas target tidak tercapai: {float(result.probability_not_achieve_target or 0):,.2f}%\n"
+        f"VaR 95%: {float(result.var_95 or 0):,.4f}\n"
+        f"Metric: {', '.join(metric_names) or '-'}\n"
+        f"Direction: {', '.join(direction_rows) or '-'}"
+    )
+
+    direct_hint = "\n".join("- " + x for x in direct_preview) or "- Tidak ada kandidat direct yang kuat."
+    cross_hint = "\n".join("- " + x for x in cross_preview) or "- Tidak ada."
+
+    prompt = f"""
+Anda adalah konsultan Enterprise Risk Management untuk Direksi PLN Batam.
+
+TUJUAN
+Gabungkan fakta hasil Monte Carlo dengan Konteks Bisnis & Arahan Analisis dari user
+menjadi insight manajemen yang spesifik, singkat, dan dapat ditindaklanjuti.
+
+HIERARKI SUMBER
+1. SYSTEM / MONTE CARLO FACTS authoritative dan tidak boleh diubah.
+2. USER BUSINESS CONTEXT adalah supporting context.
+3. Bila user context bertentangan dengan fakta sistem, pertahankan fakta sistem.
+4. Jangan mengubah target, direction/polarity, P5/P50/P95, probability, VaR,
+   validation status, atau hasil Monte Carlo.
+
+RELEVANSI
+- Hanya gunakan konteks user yang material terhadap Risk #{risk_number or '-'}: {risk_title}.
+- Metric risiko: {', '.join(metric_names) or '-'}.
+- Jangan memaksa konteks tidak relevan menjadi driver risiko.
+- Konteks tidak langsung harus disebut cross-risk/supporting context.
+- Arahan/program user menjadi recommended action hanya bila relevan langsung.
+
+SYSTEM / MONTE CARLO FACTS
+{system_facts}
+
+RULE-BASED BASELINE
+Executive Summary:
+{executive_summary}
+
+Key Findings:
+{key_findings}
+
+Recommended Actions:
+{recommended_actions}
+
+USER BUSINESS CONTEXT — RAW
+{user_context}
+
+PRE-CLASSIFICATION HINT
+Direct candidates:
+{direct_hint}
+
+Cross-risk/supporting candidates:
+{cross_hint}
+
+OUTPUT
+Kembalikan JSON valid saja dengan key executive_summary, key_findings, recommended_actions.
+- executive_summary: 1-2 paragraf pendek; mulai dari implikasi manajemen utama.
+- key_findings: 3-5 poin/baris; gabungkan sinyal Monte Carlo dan konteks user relevan.
+- recommended_actions: 3-5 aksi spesifik; gunakan program/management action user yang relevan.
+- Jangan gunakan daftar generik tanpa menjelaskan aksi spesifik.
+"""
+
+    provider = (setting.ai_provider or "").strip().lower()
+    if (
+        not setting.ai_aktif
+        or not setting.runtime_ai_api_key
+        or provider not in {AppSetting.AI_PROVIDER_GEMINI, AppSetting.AI_PROVIDER_OPENAI}
+    ):
+        return _context_aware_rule_based_fallback(
+            result, executive_summary, key_findings, recommended_actions, user_context,
+        )
+
+    try:
+        data = _generate_management_language(setting, prompt)
+    except Exception as exc:
+        logger.exception(
+            "External AI context-aware polish failed provider=%s model=%s result=%s: %s",
+            provider, setting.ai_model, getattr(result, "pk", "-"), exc,
+        )
+        return _context_aware_rule_based_fallback(
+            result, executive_summary, key_findings, recommended_actions, user_context,
+        )
+
+    if not data:
+        logger.warning(
+            "External AI context-aware polish returned empty response provider=%s model=%s result=%s",
+            provider, setting.ai_model, getattr(result, "pk", "-"),
+        )
+        return _context_aware_rule_based_fallback(
+            result, executive_summary, key_findings, recommended_actions, user_context,
+        )
+
+    polished = (
+        _coerce_ai_text(data.get("executive_summary"), executive_summary),
+        _coerce_ai_text(data.get("key_findings"), key_findings),
+        _coerce_ai_text(data.get("recommended_actions"), recommended_actions),
+    )
+    logger.info(
+        "AI Insight CONTEXT-AWARE SUCCESS provider=%s model=%s result=%s direct_candidates=%s cross_candidates=%s",
+        provider, setting.ai_model, getattr(result, "pk", "-"),
+        len(direct_preview), len(cross_preview),
+    )
+    return polished
+
+
+def generate_rule_based_ai_insight_for_multi_metric_result(result, user_context=""):
+    """
+    V4.11 — one AI insight call; management decision is derived from the same insight.
+
+    user_context is business context only. It must not replace or override
+    target, polarity, percentile, probability, validation, or other system
+    facts from the Monte Carlo result.
+    """
     metrics = (result.metric_snapshot or {}).get("metrics", [])
     snapshot = result.simulation_snapshot or {}
     projection_rows = snapshot.get("projection_rows", [])
     target_analysis = snapshot.get("target_analysis") or {}
+    user_context = _normalize_ai_user_context(user_context, max_length=5000)
 
     if not metrics:
         raise ValueError("Metric snapshot belum tersedia.")
@@ -2697,12 +3233,127 @@ def generate_rule_based_ai_insight_for_multi_metric_result(result):
             "siapkan rencana mitigasi demand/penjualan dan trigger eskalasi bulanan."
         )
 
-    executive_summary, key_findings, recommended_actions = _polish_multi_metric_insight_with_ai(
+    executive_summary, key_findings, recommended_actions = _polish_multi_metric_insight_context_aware(
         result,
         executive_summary,
         key_findings,
         recommended_actions,
+        user_context=user_context,
     )
+
+    # V4.11.10 — Executive Decision Summary
+    # Draft Management Decision diringkas secara deterministik dari hasil AI Insight
+    # yang sama: Executive Summary + Key Findings + Recommended Actions.
+    # Tidak ada AI call kedua.
+    def _decision_clean(value):
+        value = str(value or "")
+        value = re.sub(r"\*\*|__|`", "", value)
+        value = re.sub(r"(?m)^\s*[-•]\s*", "", value)
+        value = re.sub(
+            r"(?mi)^\s*(Executive Summary|Key Findings|Recommended Actions)\s*:?\s*",
+            "",
+            value,
+        )
+        value = re.sub(
+            r"(?i)\b(Aksi Jangka Pendek|Aksi Jangka Menengah|Aksi Jangka Panjang)"
+            r"\s*(?:\([^)]*\))?\s*:?\s*",
+            "",
+            value,
+        )
+        value = re.sub(
+            r"(?i)\b(30 Hari|60 Hari|90 Hari(?:\s*&\s*Berkelanjutan)?)\s*:?\s*",
+            "",
+            value,
+        )
+        value = re.sub(
+            r"^(Direksi\s+(?:yang\s+terhormat|Yth\.?)\s*,?\s*)",
+            "",
+            value,
+            flags=re.I,
+        )
+        value = re.sub(r"\s+", " ", value).strip()
+        return value
+
+    def _decision_sentences(value):
+        value = _decision_clean(value)
+        if not value:
+            return []
+        parts = re.split(r"(?<=[.!?])\s+", value)
+        return [
+            part.strip()
+            for part in parts
+            if len(part.strip()) >= 18
+        ]
+
+    def _decision_pick(value):
+        sentences = _decision_sentences(value)
+        return sentences[0] if sentences else ""
+
+    def _decision_compact(value, limit=145):
+        value = _decision_clean(value)
+        if not value:
+            return ""
+        if len(value) <= limit:
+            return value
+        shortened = value[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        return shortened + "."
+
+    summary_part = _decision_compact(
+        _decision_pick(executive_summary),
+        145,
+    )
+    finding_part = _decision_compact(
+        _decision_pick(key_findings),
+        135,
+    )
+    action_part = _decision_compact(
+        _decision_pick(recommended_actions),
+        145,
+    )
+
+    parts = []
+    for candidate in (summary_part, finding_part, action_part):
+        if not candidate:
+            continue
+
+        candidate_norm = re.sub(
+            r"[^a-z0-9]+",
+            " ",
+            candidate.lower(),
+        ).strip()
+
+        is_duplicate = False
+        for existing in parts:
+            existing_norm = re.sub(
+                r"[^a-z0-9]+",
+                " ",
+                existing.lower(),
+            ).strip()
+            a = set(candidate_norm.split())
+            b = set(existing_norm.split())
+            if a and b and len(a & b) / len(a | b) >= 0.72:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            parts.append(candidate)
+
+    management_decision_draft = " ".join(parts[:3]).strip()
+
+    # Hard ceiling agar tetap 2–3 baris pada Executive Dashboard.
+    if len(management_decision_draft) > 430:
+        management_decision_draft = (
+            management_decision_draft[:430]
+            .rsplit(" ", 1)[0]
+            .rstrip(" ,;:-")
+            + "."
+        )
+
+    if not management_decision_draft:
+        management_decision_draft = (
+            "Prioritaskan tindak lanjut atas temuan utama AI Insight dan lakukan "
+            "monitoring berkala; eskalasikan kepada manajemen apabila kondisi tidak membaik."
+        )
 
     insight, _ = MultiMetricAIInsightKorporat.objects.update_or_create(
         multi_metric_result=result,
@@ -2710,6 +3361,8 @@ def generate_rule_based_ai_insight_for_multi_metric_result(result):
             "executive_summary": executive_summary,
             "key_findings": key_findings,
             "recommended_actions": recommended_actions,
+            "user_context": user_context,
+            "management_decision_draft": management_decision_draft,
         },
     )
 

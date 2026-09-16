@@ -46,18 +46,52 @@
                 </tr>
                 {% endif %}
               </table>
-              {% if show_kpmr and kpmr %}
+              {% if show_kpmr %}
+              {% if not kpmr_is_quarter_snapshot %}
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:24px 0;border:1px solid #dbe3ec;">
+                <tr>
+                  <td style="background:#eef5fa;padding:12px 14px;font-weight:700;">
+                    KPMR TW{{ kpmr_quarter }} Belum Dinilai
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background:#fff7ed;color:#92400e;padding:12px 14px;border-bottom:1px solid #f3d6b8;font-size:13px;line-height:1.6;">
+                    Penilaian KPMR resmi dilakukan pada posisi akhir
+                    <strong>{{ kpmr_closing_month_name }} {{ report.reassessment.tahun }}</strong>.
+                    Data <strong>{{ report.periode.nama_periode }}</strong>
+                    tetap digunakan sebagai monitoring risiko dan bahan evaluasi
+                    sampai penutupan TW{{ kpmr_quarter }}.
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                      <tr>
+                        <td style="padding:11px 14px;color:#6b7280;border-bottom:1px solid #edf1f5;width:45%;">Status KPMR</td>
+                        <td style="padding:11px 14px;font-weight:700;border-bottom:1px solid #edf1f5;">Belum Dinilai</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:11px 14px;color:#6b7280;">Periode Penilaian</td>
+                        <td style="padding:11px 14px;font-weight:700;">{{ kpmr_closing_month_name }} {{ report.reassessment.tahun }}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              {% elif kpmr %}
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:24px 0;border:1px solid #dbe3ec;">
                 <tr>
                   <td colspan="3" style="background:#eef5fa;padding:12px 14px;font-weight:700;">
-                    KPMR Bulan {{ report.periode.nama_periode }}
+                    KPMR TW{{ kpmr_quarter }} — {{ report.periode.nama_periode }}
                   </td>
                 </tr>
                 {% if kpmr_is_preview %}
                 <tr>
                   <td colspan="3" style="background:#fff7ed;color:#92400e;padding:10px 14px;border-bottom:1px solid #f3d6b8;font-size:13px;">
                     <strong>Hasil sementara.</strong>
-                    Nilai KPMR dihitung berdasarkan data bulan berjalan dan masih dapat berubah sampai laporan selesai direview dan disetujui.
+                    Nilai KPMR pada posisi akhir triwulan masih dapat berubah
+                    sampai laporan selesai direview dan disetujui.
                   </td>
                 </tr>
                 {% endif %}
@@ -80,6 +114,7 @@
                   <td style="padding:11px 14px;font-weight:700;text-align:center;">{{ kpmr.score_total }}</td>
                 </tr>
               </table>
+              {% endif %}
               {% endif %}
               <p style="text-align:center;margin:30px 0;">
                 <a href="{{ report_url }}" style="background:#1677b9;color:#ffffff;text-decoration:none;padding:13px 28px;border-radius:6px;font-weight:700;display:inline-block;">Buka Laporan</a>

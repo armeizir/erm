@@ -392,7 +392,46 @@ def generate_monthly_report_from_reassessment(report: MonthlyRiskReport):
 def refresh_monthly_report_summary(report: MonthlyRiskReport):
     items = report.items.all()
 
-    report.total_risiko = items.count()
+    # MRR_RISK_PARENT_COUNT_V2
+    #
+    # Struktur nomor Profil Risiko belum seragam antar unit.
+    #
+    # UB BES:
+    #   no_risiko = identitas risiko utama.
+    #   no_item   = row/treatment pada baseline BES.
+    #
+    # Unit lain:
+    #   pertahankan no_item sebagai canonical grouping agar tidak
+    #   mengubah perilaku existing, termasuk BID KEU.
+    #
+    # Jangan menggunakan peristiwa_risiko secara global karena beberapa
+    # unit mempunyai beberapa risiko logis dengan narasi event yang sama.
+    unit_name = ""
+    if report.reassessment_id and report.reassessment.unit_bisnis_id:
+        unit_name = (report.reassessment.unit_bisnis.name or "").strip().upper()
+
+    risk_group_field = (
+        "risk_event__no_risiko"
+        if unit_name == "UB BES"
+        else "risk_event__no_item"
+    )
+
+    linked_risk_count = (
+        items
+        .exclude(risk_event__isnull=True)
+        .values(risk_group_field)
+        .distinct()
+        .count()
+    )
+
+    unlinked_risk_count = items.filter(
+        risk_event__isnull=True
+    ).count()
+
+    report.total_risiko = (
+        linked_risk_count
+        + unlinked_risk_count
+    )
     report.total_high = (
         items.filter(
             Q(realisasi_skor_risiko__gte=20)
