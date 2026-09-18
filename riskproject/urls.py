@@ -10,10 +10,16 @@ from risk.executive_signage import (
     executive_risk_dashboard,
     executive_risk_ai_decision,
 )
+from risk.executive_risk_v2 import executive_risk_v2_dashboard
 
 urlpatterns = [
     path("strategy-risk-map/", include("risk.strategy_risk_map_urls")),
     path("executive-risk/", executive_risk_dashboard, name="executive_risk_dashboard"),
+    path(
+        "executive-risk-v2/",
+        executive_risk_v2_dashboard,
+        name="executive_risk_v2_dashboard"
+    ),
     path(
         "executive-risk/<int:risk_id>/ai-decision/",
         executive_risk_ai_decision,

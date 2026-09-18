@@ -4338,3 +4338,195 @@ class RiskTreatmentChangeRequest(models.Model):
             f"- Item {self.reassessment_item_id} "
             f"- v{self.version}"
         )
+
+
+# =========================================================
+# EXECUTIVE RISK DASHBOARD V2
+# =========================================================
+
+class RiskMetricHistory(models.Model):
+    risk_metric = models.ForeignKey(
+        "corporate_risk.RiskMetric",
+        on_delete=models.PROTECT,
+        related_name="history",
+        verbose_name="Risk Metric",
+    )
+    period = models.DateField(verbose_name="Period")
+    actual_value = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Actual Value",
+    )
+    target_value = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Target Value",
+    )
+    source = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Source",
+        help_text="e.g., manual upload, system integration",
+    )
+    model_version = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Model Version",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At")
+
+    class Meta:
+        verbose_name = "Risk Metric History"
+        verbose_name_plural = "Risk Metric History"
+        ordering = ["-period"]
+        indexes = [
+            models.Index(fields=["risk_metric", "period"]),
+        ]
+
+    def __str__(self):
+        return f"{self.risk_metric} - {self.period}"
+
+
+class RiskForecastResult(models.Model):
+    risk_metric = models.ForeignKey(
+        "corporate_risk.RiskMetric",
+        on_delete=models.PROTECT,
+        related_name="forecast_results",
+        verbose_name="Risk Metric",
+    )
+    forecast_date = models.DateField(verbose_name="Forecast Date")
+    period_start = models.DateField(verbose_name="Period Start")
+    period_end = models.DateField(verbose_name="Period End")
+    forecast_value = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        verbose_name="Forecast Value",
+    )
+    confidence_level = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        verbose_name="Confidence Level",
+        help_text="e.g., P5, P50, P95",
+    )
+    scenario_type = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name="Scenario Type",
+        help_text="e.g., baseline, optimistic, pessimistic",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At")
+
+    class Meta:
+        verbose_name = "Risk Forecast Result"
+        verbose_name_plural = "Risk Forecast Results"
+        ordering = ["-forecast_date", "period_start"]
+        indexes = [
+            models.Index(fields=["risk_metric", "forecast_date"]),
+            models.Index(fields=["risk_metric", "period_start", "period_end"]),
+        ]
+
+    def __str__(self):
+        return f"{self.risk_metric} forecast {self.forecast_date}"
+
+
+class RiskScenarioResult(models.Model):
+    risk_metric = models.ForeignKey(
+        "corporate_risk.RiskMetric",
+        on_delete=models.PROTECT,
+        related_name="scenario_results",
+        verbose_name="Risk Metric",
+    )
+    scenario_date = models.DateField(verbose_name="Scenario Date")
+    period_start = models.DateField(verbose_name="Period Start")
+    period_end = models.DateField(verbose_name="Period End")
+    scenario_name = models.CharField(
+        max_length=50,
+        verbose_name="Scenario Name",
+    )
+    scenario_type = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name="Scenario Type",
+        help_text="e.g., monte carlo, sensitivity analysis",
+    )
+    metric_type = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name="Metric Type",
+        help_text="e.g., exposure, probability, impact",
+    )
+    calculated_value = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        verbose_name="Calculated Value",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At")
+
+    class Meta:
+        verbose_name = "Risk Scenario Result"
+        verbose_name_plural = "Risk Scenario Results"
+        ordering = ["-scenario_date", "scenario_name"]
+        indexes = [
+            models.Index(fields=["risk_metric", "scenario_date"]),
+            models.Index(fields=["risk_metric", "scenario_type", "metric_type"]),
+        ]
+
+    def __str__(self):
+        return f"{self.risk_metric} scenario {self.scenario_name} {self.scenario_date}"
+
+
+class ExecutiveDecisionLog(models.Model):
+    risk_metric = models.ForeignKey(
+        "corporate_risk.RiskMetric",
+        on_delete=models.PROTECT,
+        related_name="decisions",
+        verbose_name="Risk Metric",
+    )
+    decision_date = models.DateField(verbose_name="Decision Date")
+    decision_type = models.CharField(
+        max_length=30,
+        verbose_name="Decision Type",
+        help_text="e.g., mitigation approval, risk acceptance, escalation",
+    )
+    description = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Description",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="executive_decisions_approved",
+        verbose_name="Approved By",
+    )
+    approved_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Approved At",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At")
+
+    class Meta:
+        verbose_name = "Executive Decision Log"
+        verbose_name_plural = "Executive Decision Logs"
+        ordering = ["-decision_date"]
+        indexes = [
+            models.Index(fields=["risk_metric", "decision_date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.risk_metric} decision {self.decision_date}"
