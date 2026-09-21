@@ -2343,6 +2343,17 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_peta_risiko_iiic_shows_preview_kpmr_for_draft_report(self):
         report_infra = self._report("INFRA DRAFT")
+        report_infra.periode, _ = PeriodeLaporan.objects.get_or_create(
+            kode_periode="2026-03",
+            defaults={
+                "tahun_buku": self.tahun_buku,
+                "nama_periode": "Maret 2026",
+                "jenis_periode": "bulanan",
+                "tanggal_mulai": date(2026, 3, 1),
+                "tanggal_selesai": date(2026, 3, 31),
+            },
+        )
+        report_infra.save(update_fields=["periode"])
         report_infra.status = " Draft "
         report_infra.save(update_fields=["status"])
         request = RequestFactory().get(
@@ -2385,8 +2396,18 @@ class MonthlyRiskReportAdminTests(TestCase):
         for status in ("submitted", "under_review"):
             with self.subTest(status=status):
                 report_infra = self._report(f"INFRA {status}")
+                report_infra.periode, _ = PeriodeLaporan.objects.get_or_create(
+                    kode_periode="2026-03",
+                    defaults={
+                        "tahun_buku": self.tahun_buku,
+                        "nama_periode": "Maret 2026",
+                        "jenis_periode": "bulanan",
+                        "tanggal_mulai": date(2026, 3, 1),
+                        "tanggal_selesai": date(2026, 3, 31),
+                    },
+                )
                 report_infra.status = status
-                report_infra.save(update_fields=["status"])
+                report_infra.save(update_fields=["periode", "status"])
 
                 request = RequestFactory().get(
                     f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/peta-risiko-iiic/"
@@ -2709,8 +2730,22 @@ class MonthlyRiskReportAdminTests(TestCase):
         report.reviewed_by = reviewer
         report.approved_by = approver
 
+        # KPMR resmi hanya tersedia pada snapshot akhir triwulan.
+        # Gunakan Maret agar assertion "Total KPMR" valid.
+        report.periode, _ = PeriodeLaporan.objects.get_or_create(
+            kode_periode="2026-03",
+            defaults={
+                "tahun_buku": self.tahun_buku,
+                "nama_periode": "Maret 2026",
+                "jenis_periode": "bulanan",
+                "tanggal_mulai": date(2026, 3, 1),
+                "tanggal_selesai": date(2026, 3, 31),
+            },
+        )
         report.status = "submitted"
-        report.save(update_fields=["status", "reviewed_by", "approved_by"])
+        report.save(
+            update_fields=["periode", "status", "reviewed_by", "approved_by"]
+        )
         send_monthly_report_notification(
             report,
             base_url="https://erm.plnbatam.com",

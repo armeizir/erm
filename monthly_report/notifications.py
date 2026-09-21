@@ -544,7 +544,22 @@ def send_monthly_report_notification(
         test_email_override=test_email_override,
     )
     app_setting = AppSetting.get_solo()
-    show_kpmr = normalized_status in {"submitted", "under_review", "approved"}
+
+    # KPMR resmi hanya ditampilkan pada snapshot akhir triwulan:
+    # Maret, Juni, September, dan Desember.
+    # MRR tetap dikirim setiap bulan.
+    kpmr_month = (
+        report.periode.tanggal_mulai.month
+        if report.periode_id and report.periode.tanggal_mulai
+        else None
+    )
+    kpmr_is_quarter_snapshot = kpmr_month in {3, 6, 9, 12}
+
+    show_kpmr = (
+        normalized_status in {"submitted", "under_review", "approved"}
+        and kpmr_is_quarter_snapshot
+    )
+
     kpmr = calculate_kpmr_for_report(report) if show_kpmr else None
     context = {
         "report": report,
@@ -564,7 +579,7 @@ def send_monthly_report_notification(
         "app_setting": app_setting,
         "show_kpmr": show_kpmr,
         "kpmr_is_preview": show_kpmr and normalized_status != "approved",
-        "kpmr": _notification_kpmr(report),
+        "kpmr": _notification_kpmr(report) if show_kpmr else None,
         "correction_note": correction_note,
         "tutorial": monthly_report_email_tutorial(),
     }
