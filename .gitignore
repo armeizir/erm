@@ -51,3 +51,10 @@ tmp/
 # Generated clean source archives
 risk_app*.zip
 riskproject_clean_*.zip
+
+# Local PRISMA validation/import datasets
+/import_kk_agustus_2026/
+/docs/dashboard/*.xlsx
+/analyze_excel.py
+/corporate_risk/scripts/run_validate_*_local.py
+/docs/dashboard/
