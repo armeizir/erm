@@ -1,5 +1,6 @@
 from datetime import date
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
@@ -9,8 +10,17 @@ from django.core import mail
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 
-from corporate_risk.admin import MultiMetricMonteCarloResultAdmin, MultiMetricMonteCarloResultForm
-from corporate_risk.models import MonteCarloMetricHistory, MultiMetricMonteCarloResult, RiskMetric
+from corporate_risk.admin import (
+    MonteCarloKorporatResultAdmin,
+    MultiMetricMonteCarloResultAdmin,
+    MultiMetricMonteCarloResultForm,
+)
+from corporate_risk.models import (
+    MonteCarloKorporatResult,
+    MonteCarloMetricHistory,
+    MultiMetricMonteCarloResult,
+    RiskMetric,
+)
 from corporate_risk.services import (
     _build_target_analysis,
     _select_descriptive_metric,
@@ -24,6 +34,49 @@ from risk.models import (
     ProfilRisikoKorporatItem,
     ProfilRisikoKorporatSummary,
 )
+
+
+class MonteCarloAdminHtmlSafetyTests(SimpleTestCase):
+    def setUp(self):
+        self.admin = MonteCarloKorporatResultAdmin(
+            model=MonteCarloKorporatResult,
+            admin_site=AdminSite(),
+        )
+
+    def test_history_snapshot_escapes_untrusted_labels(self):
+        obj = SimpleNamespace(
+            history_snapshot=[
+                {
+                    "periode": '<img src=x onerror="alert(1)">',
+                    "tanggal": "<script>alert(1)</script>",
+                    "value": 1,
+                    "target": 2,
+                }
+            ]
+        )
+
+        html = str(self.admin.history_snapshot_html(obj))
+
+        self.assertNotIn("<script>", html)
+        self.assertNotIn("<img", html)
+        self.assertIn("&lt;script&gt;", html)
+        self.assertIn("&lt;img", html)
+
+    @patch("corporate_risk.admin.AIInsightKorporat.objects.filter")
+    def test_ai_insight_escapes_generated_or_stored_html(self, mock_filter):
+        mock_filter.return_value.first.return_value = SimpleNamespace(
+            executive_summary='<script>alert("summary")</script>',
+            key_drivers='<img src=x onerror="alert(1)">',
+            recommended_actions="baris pertama\nbaris kedua",
+        )
+
+        html = str(self.admin.ai_insight_html(SimpleNamespace()))
+
+        self.assertNotIn("<script>", html)
+        self.assertNotIn("<img", html)
+        self.assertIn("&lt;script&gt;", html)
+        self.assertIn("&lt;img", html)
+        self.assertIn("baris pertama<br>baris kedua", html)
 
 
 class DistributionRecommendationAnalysisTests(SimpleTestCase):

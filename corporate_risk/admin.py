@@ -606,8 +606,8 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         for row in history:
             rows.append(f"""
                 <tr>
-                    <td style="padding:8px; border-bottom:1px solid #eee;">{row.get('periode', '-')}</td>
-                    <td style="padding:8px; border-bottom:1px solid #eee;">{row.get('tanggal', '-')}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">{escape(row.get('periode', '-'))}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">{escape(row.get('tanggal', '-'))}</td>
                     <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get('value'), 3)}</td>
                     <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get('target'), 3)}</td>
                 </tr>
@@ -641,7 +641,7 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
         for row in rows_data:
             rows.append(f"""
                 <tr>
-                    <td style="padding:8px; border-bottom:1px solid #eee;">{row.get('bulan', '-')}</td>
+                    <td style="padding:8px; border-bottom:1px solid #eee;">{escape(row.get('bulan', '-'))}</td>
                     <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get('mean'), 3)}</td>
                     <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get('p20'), 3)}</td>
                     <td style="padding:8px; border-bottom:1px solid #eee; text-align:right;">{self._fmt(row.get('p40'), 3)}</td>
@@ -946,16 +946,20 @@ class MonteCarloKorporatResultAdmin(admin.ModelAdmin):
                 '</div>'
             )
 
+        executive_summary = escape(insight.executive_summary or "-").replace("\n", "<br>")
+        key_drivers = escape(insight.key_drivers or "-").replace("\n", "<br>")
+        recommended_actions = escape(insight.recommended_actions or "-").replace("\n", "<br>")
+
         html = f"""
         <div style="padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #ddd;">
         <h3>Executive Summary</h3>
-        <p>{insight.executive_summary.replace(chr(10), '<br>')}</p>
+        <p>{executive_summary}</p>
 
         <h3 style="margin-top:15px;">Key Drivers</h3>
-        <p>{insight.key_drivers.replace(chr(10), '<br>')}</p>
+        <p>{key_drivers}</p>
 
         <h3 style="margin-top:15px;">Recommended Actions</h3>
-        <p>{insight.recommended_actions.replace(chr(10), '<br>')}</p>
+        <p>{recommended_actions}</p>
         </div>
         """
         return mark_safe(html)
