@@ -2231,7 +2231,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "III.A &amp; III.B – PEMANTAUAN RISIKO BULANAN", html=False)
         self.assertNotContains(response, "INPUT REALISASI RISIKO BULANAN")
-        self.assertContains(response, "Risiko 7 – Pemantauan Februari 2026")
+        self.assertContains(response, "Risiko 7 – Gangguan proses bisnis")
         self.assertContains(response, "Gangguan proses bisnis")
         self.assertContains(response, 'name="items-TOTAL_FORMS"', html=False)
         self.assertContains(response, "monthly_report/admin/monthly_report_monitoring.js")
@@ -2241,7 +2241,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertContains(response, "REALISASI RESIDUAL RISK – Q1 / FEBRUARI 2026")
         self.assertContains(response, "III.B – REALISASI PERLAKUAN RISIKO BULAN INI")
         self.assertContains(response, "REALISASI KEY RISK INDICATOR BULAN INI")
-        self.assertContains(response, "Belum diisi: skala dampak")
+        self.assertContains(response, 'data-field="realisasi_skala_dampak"', html=False)
         self.assertContains(response, "CATATAN TAMBAHAN ERM")
         self.assertContains(response, "Quarter aktif: Q1 | Periode laporan: Februari 2026")
         self.assertNotContains(response, "A. IDENTITAS RISIKO")
@@ -2325,8 +2325,18 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_peta_risiko_iiic_includes_automatic_kpmr_calculation(self):
         report_infra = self._report("INFRA")
+        report_infra.periode, _ = PeriodeLaporan.objects.get_or_create(
+            kode_periode="2026-03",
+            defaults={
+                "tahun_buku": self.tahun_buku,
+                "nama_periode": "Maret 2026",
+                "jenis_periode": "bulanan",
+                "tanggal_mulai": date(2026, 3, 1),
+                "tanggal_selesai": date(2026, 3, 31),
+            },
+        )
         report_infra.status = "approved"
-        report_infra.save(update_fields=["status"])
+        report_infra.save(update_fields=["periode", "status"])
         request = RequestFactory().get(
             f"/admin/monthly_report/monthlyriskreport/{report_infra.pk}/peta-risiko-iiic/"
         )
@@ -2374,7 +2384,7 @@ class MonthlyRiskReportAdminTests(TestCase):
         self.assertTrue(response.context_data["show_kpmr"])
         self.assertTrue(response.context_data["kpmr_is_preview"])
         self.assertIsNotNone(response.context_data["kpmr_calculation"])
-        self.assertIn(b"KPMR Otomatis Bulanan", response.content)
+        self.assertIn(b"KPMR Otomatis Triwulanan", response.content)
         self.assertIn(
             "Pratinjau KPMR — hasil masih dapat berubah selama laporan belum diajukan.",
             response.content.decode(),
@@ -2430,7 +2440,7 @@ class MonthlyRiskReportAdminTests(TestCase):
                 self.assertTrue(response.context_data["show_kpmr"])
                 self.assertFalse(response.context_data["kpmr_is_preview"])
                 self.assertIn(
-                    b"KPMR Otomatis Bulanan",
+                    b"KPMR Otomatis Triwulanan",
                     response.content,
                 )
 
@@ -2477,8 +2487,18 @@ class MonthlyRiskReportAdminTests(TestCase):
 
     def test_peta_risiko_iiic_calculates_kpmr_from_monthly_data_even_when_saved_result_exists(self):
         report_infra = self._report("INFRA")
+        report_infra.periode, _ = PeriodeLaporan.objects.get_or_create(
+            kode_periode="2026-03",
+            defaults={
+                "tahun_buku": self.tahun_buku,
+                "nama_periode": "Maret 2026",
+                "jenis_periode": "bulanan",
+                "tanggal_mulai": date(2026, 3, 1),
+                "tanggal_selesai": date(2026, 3, 31),
+            },
+        )
         report_infra.status = "approved"
-        report_infra.save(update_fields=["status"])
+        report_infra.save(update_fields=["periode", "status"])
         period = KPMRPeriode.objects.create(
             tahun=2026,
             triwulan=1,

@@ -115,20 +115,27 @@ def _is_filled(value):
 
 def is_qualitative_risk(item):
     """
-    Tentukan risiko kualitatif dari field jenis_risiko.
+    Tentukan apakah risiko bersifat kualitatif.
 
-    kategori_dampak hanya digunakan sebagai fallback untuk
-    data legacy yang belum memiliki jenis_risiko.
+    Kategori Dampak tetap menjadi bukti utama untuk kompatibilitas
+    data legacy. Field jenis_risiko digunakan sebagai fallback.
     """
-    value = str(getattr(item, "jenis_risiko", "") or "").strip().casefold()
-    normalized = re.sub(r"[^a-z]", "", value)
+    category = str(
+        getattr(item, "kategori_dampak", "") or ""
+    ).strip().casefold()
+    category_normalized = re.sub(r"[^a-z]", "", category)
 
-    if normalized:
-        return normalized in {"kualitatif", "kualilatif"}
+    if "kual" in category_normalized:
+        return True
+    if "kuant" in category_normalized:
+        return False
 
-    value = str(getattr(item, "kategori_dampak", "") or "").strip().casefold()
-    normalized = re.sub(r"[^a-z]", "", value)
-    return "kualitatif" in normalized or "kualilatif" in normalized
+    risk_type = str(
+        getattr(item, "jenis_risiko", "") or ""
+    ).strip().casefold()
+    risk_type_normalized = re.sub(r"[^a-z]", "", risk_type)
+
+    return risk_type_normalized in {"kualitatif", "kualilatif"}
 
 
 def profile_completeness_queryset():
