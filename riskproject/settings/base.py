@@ -109,6 +109,11 @@ TIME_ZONE = os.environ.get("TIME_ZONE", "Asia/Jakarta")
 USE_I18N = True
 USE_TZ = True
 
+WHATSAPP_PROVIDER = os.environ.get("WHATSAPP_PROVIDER", "")
+WHATSAPP_SENDER = os.environ.get("WHATSAPP_SENDER", "")
+WHATSAPP_TARGET = os.environ.get("WHATSAPP_TARGET", "")
+FONNTE_TOKEN = os.environ.get("FONNTE_TOKEN", "")
+
 # Satu konfigurasi untuk badge/status monitoring kelengkapan Profil Risiko.
 PROFILE_COMPLETENESS_COMPLETE_THRESHOLD = Decimal(
     os.environ.get("PROFILE_COMPLETENESS_COMPLETE_THRESHOLD", "100")
