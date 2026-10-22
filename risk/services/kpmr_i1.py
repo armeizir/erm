@@ -62,8 +62,17 @@ def _target_exposure(item, quarter):
 
 def _actual_exposure(item):
     value = formula_exposure_or_none(item)
-    return value, ("actual exposure dihitung dari dampak aktual × probabilitas aktual / 100"
-                   if value is not None else "Data aktual belum lengkap/valid")
+    if value is not None:
+        return value, "actual exposure dihitung dari dampak aktual × probabilitas aktual / 100"
+
+    # Monthly report imports may carry an authoritative exposure value while
+    # the impact component is unavailable.  Do not discard that value and make
+    # I1 appear incomplete; it is the same stored III.A value shown to users.
+    stored = _decimal(getattr(item, "realisasi_eksposur", None))
+    if stored is not None and stored >= 0:
+        return stored, "actual exposure memakai nilai tersimpan dari III.A"
+
+    return None, "Data aktual belum lengkap/valid"
 
 
 def _group_key(item):
