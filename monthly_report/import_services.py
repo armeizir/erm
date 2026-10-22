@@ -46,7 +46,7 @@ IMPORTABLE_FIELDS = (
     "realisasi_threshold_kri_skor",
     "realisasi_nilai_kri",
 )
-IMPORT_PARSER_VERSION = 5
+IMPORT_PARSER_VERSION = 6
 
 IIIA_QUARTER_COLUMNS = {
     "realisasi_nilai_dampak": {1: 14, 2: 15, 3: 16, 4: 17},       # O:R
@@ -1035,6 +1035,21 @@ def _validate_entry(entry, item, method, confidence, candidates):
     issues = []
     fatal = False
     proposed = entry["proposed_data"]
+    if (getattr(getattr(item, "risk_event", None), "jenis_risiko", None)
+            or proposed.get("jenis_risiko")) == "kuantitatif" and entry.get("source_sheet") == "III.A":
+        from risk.services.risk_exposure import calculate_quarterly_risk_exposure
+        try:
+            calculated = calculate_quarterly_risk_exposure(
+                proposed.get("realisasi_nilai_dampak"), proposed.get("realisasi_nilai_probabilitas")
+            )
+            imported = proposed.get("realisasi_eksposur")
+            if calculated is None:
+                issues.append("Data aktual belum lengkap: eksposur formula tidak dapat dihitung.")
+            elif imported is not None and Decimal(str(imported)) != calculated:
+                issues.append(f"Eksposur sumber {imported} berbeda dari formula {calculated}; formula digunakan saat disimpan.")
+        except ValidationError:
+            issues.append("Komponen eksposur kuantitatif tidak valid.")
+            fatal = True
     probability = proposed.get("realisasi_nilai_probabilitas")
     progress = proposed.get("progress_pelaksanaan_percent")
     for field_name in entry.get("raw_data", {}).get("empty_quarter_fields", []):
@@ -1397,8 +1412,10 @@ def apply_import_batch(batch, user):
                 value = Decimal(str(raw_value))
             setattr(item, field_name, value)
             applied[field_name] = _json_value(value)
+        previous.setdefault("realisasi_eksposur", _field_value(item, "realisasi_eksposur"))
         item.full_clean()
         item.save(update_fields=[*applied.keys(), "updated_at"])
+        applied["realisasi_eksposur"] = _json_value(item.realisasi_eksposur)
         row.previous_data = previous
         row.applied_data = applied
         row.save(update_fields=["previous_data", "applied_data", "updated_at"])

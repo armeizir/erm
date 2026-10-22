@@ -4,6 +4,8 @@ from collections import OrderedDict
 from decimal import Decimal
 
 from .kpmr_aggregation import _aggregate_exposure_for_i1, _format_report_scope
+from .kpmr_owner import residual_owner_items
+from .risk_exposure import formula_exposure_or_none
 from .kpmr_scoring import (
     _fmt,
     _weighted_score,
@@ -53,33 +55,15 @@ def _target_exposure(item, quarter):
     if risk_event is None:
         return None, "target exposure tidak tersedia"
 
-    explicit = _decimal(getattr(risk_event, f"eksposur_risiko_q{quarter}", None))
-    if explicit is not None:
-        return explicit, "target exposure tersimpan"
-
-    impact = _decimal(getattr(risk_event, f"nilai_dampak_q{quarter}", None))
-    probability = _target_probability_fraction(
-        getattr(risk_event, f"nilai_probabilitas_q{quarter}", None)
-    )
-    if impact is None or probability is None:
-        return None, "target exposure/komponen target belum lengkap"
-
-    return impact * probability, "target exposure dihitung dari dampak × probabilitas"
+    value = formula_exposure_or_none(risk_event, quarter)
+    return value, ("target exposure dihitung dari dampak Q × probabilitas Q / 100"
+                   if value is not None else "komponen target belum lengkap/valid")
 
 
 def _actual_exposure(item):
-    explicit = _decimal(getattr(item, "realisasi_eksposur", None))
-    if explicit is not None:
-        return explicit, "actual exposure tersimpan"
-
-    impact = _decimal(getattr(item, "realisasi_nilai_dampak", None))
-    probability = _actual_probability_fraction(
-        getattr(item, "realisasi_nilai_probabilitas", None)
-    )
-    if impact is None or probability is None:
-        return None, "actual exposure/komponen realisasi belum lengkap"
-
-    return impact * probability, "actual exposure dihitung dari dampak × probabilitas"
+    value = formula_exposure_or_none(item)
+    return value, ("actual exposure dihitung dari dampak aktual × probabilitas aktual / 100"
+                   if value is not None else "Data aktual belum lengkap/valid")
 
 
 def _group_key(item):
@@ -144,12 +128,12 @@ def _aggregate_hybrid_i1(report_items, quarter):
 
     Kuantitatif: exposure vs target exposure.
     Kualitatif: matrix score vs target matrix score.
-    Jika satu top-risk kualitatif punya beberapa cause, gunakan score maksimum
-    (worst case) agar top-risk hanya dihitung satu kali.
+    Residual hanya dibaca dari baris utama III.A, sesuai pemilik formulir.
+    Baris penyebab III.B tidak menjadi kandidat residual.
     """
     groups = OrderedDict()
 
-    for item in report_items:
+    for item in residual_owner_items(report_items):
         key = _group_key(item)
         if key is None:
             continue
@@ -263,7 +247,7 @@ def _aggregate_hybrid_i1(report_items, quarter):
             actual = max(actual_scores) if actual_scores else None
             method = "matrix-score"
             reason = (
-                "score maksimum/worst-case per top-risk; "
+                "score baris utama III.A per top-risk; "
                 f"target candidates={_unique_decimal(target_scores)}, "
                 f"actual candidates={_unique_decimal(actual_scores)}"
             )
@@ -289,6 +273,8 @@ def _aggregate_hybrid_i1(report_items, quarter):
                 comparison = "same"
             else:
                 comparison = "above"
+
+        reason += "; item utama=" + ",".join(str(item.pk) for item in items)
 
         if inferred:
             reason = "jenis diinferensikan; " + reason
@@ -330,163 +316,77 @@ def _aggregate_hybrid_i1(report_items, quarter):
     }
 
 
-def _raw_from_group_comparison(summary):
-    if (
-        summary["group_count"] <= 0
-        or summary["complete_group_count"] != summary["group_count"]
-        or summary["conflicts"]
-    ):
-        return None, ""
-    if summary["above_target"] > 0:
-        return Decimal("40"), "c"
-    if summary["same_target"] > 0:
-        return Decimal("60"), "b"
-    return Decimal("90"), "a"
+def _cumulative_ratio_i1(summary):
+    """Equal-weight ratios; exact rational arithmetic determines a/b/c."""
+    from fractions import Fraction
+    if (summary["group_count"] <= 0
+            or summary["complete_group_count"] != summary["group_count"]
+            or summary["conflicts"]):
+        return None, "", None, [], "Data top-risk belum lengkap/konflik."
+    ratios = []
+    for row in summary["groups"]:
+        target, actual = row["target"], row["actual"]
+        if target is None or actual is None or not target.is_finite() or not actual.is_finite():
+            return None, "", None, [], "Target/realisasi tidak valid."
+        if target < 0 or actual < 0:
+            return None, "", None, [], "Target/realisasi negatif perlu verifikasi."
+        if target == 0:
+            if actual != 0:
+                return None, "", None, [], f"Top-risk {row['group']}: target nol dan actual positif; rasio tidak terdefinisi."
+            ratio = Fraction(1)  # zero exposure equals zero target
+        else:
+            ratio = Fraction(actual) / Fraction(target)
+        ratios.append((row["group"], ratio))
+    mean = sum((r for _, r in ratios), Fraction(0)) / len(ratios)
+    option, raw = ("a", Decimal("90")) if mean < 1 else (("b", Decimal("60")) if mean == 1 else ("c", Decimal("40")))
+    return raw, option, mean, ratios, ""
+
+
+def _ratio_decimal_i1(ratio):
+    return Decimal(ratio.numerator) / Decimal(ratio.denominator)
 
 
 def calculate_i1(
-    *,
-    report_items,
-    quarter: int,
-    unit,
-    year: int,
-    reports,
-    comparable,
-    above_target: int,
-    same_target: int,
-    below_target: int,
-    notes: list[str],
+    *, report_items, quarter: int, unit, year: int, reports, comparable,
+    above_target: int, same_target: int, below_target: int, notes: list[str],
 ):
-    """KPMR I1 hybrid kuantitatif-kualitatif.
-
-    Backward compatibility:
-    - seluruh top-risk kuantitatif + exposure tersimpan lengkap:
-      tetap gunakan agregasi TOTAL Exposure lama;
-    - mixed/kualitatif: bandingkan per top-risk dengan satuan masing-masing.
-    """
-    hybrid = _aggregate_hybrid_i1(report_items, quarter)
-    exposure_summary = _aggregate_exposure_for_i1(report_items, quarter)
-
-    all_quantitative = (
-        hybrid["group_count"] > 0
-        and hybrid["quantitative_count"] == hybrid["group_count"]
-    )
-    exposure_ready = (
-        all_quantitative
-        and exposure_summary is not None
-        and exposure_summary["group_count"] == hybrid["group_count"]
-        and exposure_summary["comparable_group_count"] > 0
-        and exposure_summary["incomplete_group_count"] == 0
-        and not exposure_summary["conflicts"]
-    )
-
-    if exposure_ready:
-        target = exposure_summary["total_target"]
-        actual = exposure_summary["total_residual"]
-        if actual < target:
-            i1_raw, i1_option, comparison = Decimal("90"), "a", "lebih rendah dari"
-        elif actual == target:
-            i1_raw, i1_option, comparison = Decimal("60"), "b", "sama dengan"
-        else:
-            i1_raw, i1_option, comparison = Decimal("40"), "c", "lebih tinggi dari"
-
-        i1_note = (
-            f"Total Exposure Residual {_fmt(actual)} {comparison} "
-            f"Total Exposure Target {_fmt(target)}."
-        )
-        i1_detail = (
-            "[METODE KUANTITATIF - BACKWARD COMPATIBLE]\n"
-            f"Unit: {unit.name}; Tahun: {year}; Triwulan: Q{quarter}.\n"
-            f"Laporan: {_format_report_scope(reports)}.\n"
-            "Seluruh top-risk kuantitatif dan exposure tersimpan lengkap; "
-            "metode lama TOTAL Exposure tetap dipertahankan.\n"
-            f"Top-risk: {hybrid['group_count']}.\n"
-            f"Total Target Exposure = {_fmt(target)}.\n"
-            f"Total Actual/Residual Exposure = {_fmt(actual)}.\n"
-            f"Jawaban '{i1_option}' -> Hasil {_fmt(i1_raw)}; "
-            f"skor berbobot = {_weighted_score(i1_raw, 30)}."
-        )
-        return i1_raw, i1_option, i1_note, i1_detail
-
-    i1_raw, i1_option = _raw_from_group_comparison(hybrid)
-
-    if i1_raw is None:
-        incomplete = [
-            f"{x['group']} ({x['kind']}): {x['reason']}"
-            for x in hybrid["groups"] if not x["complete"]
-        ]
-        i1_note = (
-            "I1 hybrid belum dapat dihitung karena belum semua top-risk "
-            "memiliki pasangan target-aktual yang dapat dibandingkan."
-        )
-        i1_detail = (
-            "[METODE HYBRID KUANTITATIF-KUALITATIF]\n"
-            f"Unit: {unit.name}; Tahun: {year}; Triwulan: Q{quarter}.\n"
-            f"Laporan: {_format_report_scope(reports)}.\n"
-            "Kuantitatif: actual exposure dibanding target exposure.\n"
-            "Kualitatif: actual matrix score dibanding target matrix score.\n"
-            "Rupiah tidak dijumlahkan dengan matrix score.\n"
-            "I1 hybrid belum dapat dihitung karena belum semua top-risk lengkap.\n"
-            f"Top-risk lengkap: {hybrid['complete_group_count']} dari "
-            f"{hybrid['group_count']}.\n"
-            "Belum lengkap/konflik:\n- "
-            + "\n- ".join(incomplete or ["tidak teridentifikasi"])
-        )
-        notes.append(i1_note)
-        return None, "", i1_note, i1_detail
-
-    if hybrid["above_target"] > 0:
-        conclusion = "terdapat top-risk di atas target residual"
-    elif hybrid["same_target"] > 0:
-        conclusion = "tidak ada yang di atas target, tetapi ada yang sama dengan target"
-    else:
-        conclusion = "seluruh top-risk berada di bawah target residual"
-
-    i1_note = (
-        "Hybrid per top-risk: "
-        f"{hybrid['below_target']} di bawah, "
-        f"{hybrid['same_target']} sama, "
-        f"{hybrid['above_target']} di atas target residual."
-    )
-
-    details = []
-    for row in hybrid["groups"]:
-        if row["complete"]:
-            symbol = (
-                "<" if row["comparison"] == "below"
-                else "=" if row["comparison"] == "same"
-                else ">"
-            )
-            details.append(
-                f"Top-risk {row['group']}: {row['kind']} / {row['method']} "
-                f"actual {_fmt(row['actual'])} {symbol} target {_fmt(row['target'])}"
-            )
-
-    i1_detail = (
-        "[METODE HYBRID KUANTITATIF-KUALITATIF]\n"
+    """I1: rata-rata rasio actual/target seluruh top-risk, bobot sama."""
+    hybrid = _aggregate_hybrid_i1(residual_owner_items(report_items), quarter)
+    raw, option, mean, ratios, error = _cumulative_ratio_i1(hybrid)
+    prefix = (
+        "[METODE KUMULATIF RASIO - BOBOT SAMA PER TOP-RISK]\n"
         f"Unit: {unit.name}; Tahun: {year}; Triwulan: Q{quarter}.\n"
         f"Laporan: {_format_report_scope(reports)}.\n"
-        "Kuantitatif: actual exposure dibanding target exposure. Jika exposure "
-        "kosong tetapi nilai dampak dan probabilitas lengkap, exposure dihitung "
-        "Dampak × Probabilitas.\n"
-        "Kualitatif: actual matrix score dibanding target matrix score. Untuk "
-        "top-risk dengan beberapa cause dipakai score maksimum/worst-case.\n"
-        "Setiap no_item dihitung satu kali; rupiah tidak pernah dijumlahkan "
-        "dengan matrix score.\n\n"
-        f"Top-risk: {hybrid['group_count']}; kuantitatif="
-        f"{hybrid['quantitative_count']}; kualitatif="
-        f"{hybrid['qualitative_count']}.\n"
-        f"Hasil: bawah={hybrid['below_target']}; sama={hybrid['same_target']}; "
-        f"atas={hybrid['above_target']}.\n"
-        f"Pencapaian actual <= target = {hybrid['achieved_count']} / "
-        f"{hybrid['complete_group_count']} = {_fmt(hybrid['achievement_ratio'])}%.\n"
-        "Policy hasil existing tetap dipakai: ada actual > target => c/40; "
-        "jika tidak ada yang di atas tetapi ada actual = target => b/60; "
-        "seluruh actual < target => a/90.\n"
-        f"Kesimpulan: {conclusion}.\n"
-        f"Jawaban '{i1_option}' -> Hasil {_fmt(i1_raw)}; "
-        f"skor berbobot = {_weighted_score(i1_raw, 30)}.\n\n"
+        "Setiap no_item dihitung satu kali dari baris utama III.A.\n"
+        "Rasio = actual / target; kuantitatif memakai exposure, kualitatif memakai skor matriks.\n"
+        "Rupiah tidak dijumlahkan dengan skor matriks. Semua risiko berbobot sama.\n"
+        "Target=actual=0 diperlakukan sebagai rasio 1 (sama); target=0 dan actual>0 perlu verifikasi.\n"
+        f"Top-risk: {hybrid['group_count']}; kuantitatif={hybrid['quantitative_count']}; "
+        f"kualitatif={hybrid['qualitative_count']}.\n"
+        "Aturan: rata-rata rasio < 1 => a/90; = 1 => b/60; > 1 => c/40.\n"
+    )
+    if raw is None:
+        note = "I1 kumulatif belum dapat dinilai: " + error
+        notes.append(note)
+        reasons = [f"Top-risk {r['group']}: {r['reason']}" for r in hybrid['groups'] if not r['complete']]
+        return None, "", note, prefix + note + "\n" + "\n".join(reasons + hybrid['conflicts'])
+    ratio_map = dict(ratios)
+    details = []
+    for row in hybrid['groups']:
+        symbol = '<' if row['comparison'] == 'below' else ('=' if row['comparison'] == 'same' else '>')
+        details.append(
+            f"Top-risk {row['group']}: {row['kind']} / {row['method']} "
+            f"actual {_fmt(row['actual'])} {symbol} target {_fmt(row['target'])}; "
+            f"rasio={_ratio_decimal_i1(ratio_map[row['group']]):.8f}; sumber: {row['reason']}"
+        )
+    mean_decimal = _ratio_decimal_i1(mean)
+    note = f"Rata-rata rasio actual/target = {mean_decimal:.8f}; jawaban {option}."
+    detail = prefix + (
+        f"Jumlah rasio = {_ratio_decimal_i1(sum((r for _, r in ratios))):.8f}; "
+        f"dibagi {len(ratios)} top-risk.\n"
+        f"Rata-rata rasio = {mean_decimal:.8f} ({mean_decimal * 100:.6f}%).\n"
+        "Keputusan memakai rasio presisi penuh, bukan angka tampilan yang dibulatkan.\n"
+        f"Jawaban '{option}' -> Hasil {_fmt(raw)}; skor berbobot = {_weighted_score(raw, 30)}.\n\n"
         "[RINCIAN]\n" + "\n".join(details)
     )
-
-    return i1_raw, i1_option, i1_note, i1_detail
+    return raw, option, note, detail

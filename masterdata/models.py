@@ -382,6 +382,15 @@ class PeriodeLaporan(TimeStampedModel):
         ordering = ["-tanggal_mulai"]
 
     def __str__(self):
+        # PERIODE_LABEL_INDONESIA_V1
+        if self.jenis_periode == "bulanan" and self.tanggal_mulai:
+            months = (
+                "Januari", "Februari", "Maret", "April",
+                "Mei", "Juni", "Juli", "Agustus",
+                "September", "Oktober", "November", "Desember",
+            )
+            date = self.tanggal_mulai
+            return f"{months[date.month - 1]} {date.year}"
         return self.nama_periode
 
     

@@ -127,7 +127,7 @@ def _matches(expression, value, unit=""):
     textual_range = re.search(
         rf"(?P<op1>>=|<=|>|<|≥|≤)?\s*"
         rf"(?P<first>{number_pattern})\s*%?\s*"
-        rf"(?:s\s*[.,/]\s*d\s*\.?|sd|to)\s*"
+        rf"(?:s\s*[.,/]\s*d\s*\.?|sd\.?|to|-)\s*"
         rf"(?P<op2>>=|<=|>|<|≥|≤)?\s*"
         rf"(?P<second>{number_pattern})\s*%?",
         text,

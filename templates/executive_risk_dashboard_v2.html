@@ -3,23 +3,1718 @@
 <html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ page_title }}</title>
 <style>
 :root{--navy:#003b70;--blue:#006aab;--cyan:#10abe0;--ink:#062e59;--line:#cfe3f1;--red:#f21f25;--green:#2bb83f;--yellow:#ffd91a}*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Arial,"Segoe UI",sans-serif;color:var(--ink);background:#dceff9}body{padding:10px}.board{width:min(1536px,100%);min-height:calc(100vh - 20px);margin:auto;background:linear-gradient(135deg,#fff,#edf9ff);border:1px solid #b9d9ec;box-shadow:0 12px 38px #124d7040;display:grid;grid-template-rows:auto auto auto 1fr auto;gap:9px;padding:12px 15px 0;overflow:hidden}.top{display:grid;grid-template-columns:190px 1fr 260px;align-items:center;min-height:86px;background:linear-gradient(90deg,#fff 0%,#edf8ff 60%,#d9effc 100%)}.brand{font-weight:900;font-size:22px;line-height:.85;color:#050505}.brand .mark{display:inline-grid;place-items:center;width:40px;height:40px;margin-right:7px;border-radius:7px;background:#050505;color:#ef1b2d}.headline{text-align:center}.headline h1{font-size:34px;margin:0;font-weight:900;letter-spacing:-1.2px}.headline h2{font-size:24px;margin:2px 0}.headline p{font-size:15px;margin:5px 0 0}.pln{text-align:right;font-size:22px;font-weight:800;color:#0588c4}.pln b{display:inline-grid;place-items:center;width:48px;height:48px;background:#ffea00;color:#e62e25;margin-right:8px}.pln small{display:block;font-style:italic;color:#07558d}.identity{display:grid;grid-template-columns:1.7fr .5fr .5fr;gap:10px;position:relative}.period{position:absolute;right:0;top:-28px;background:#073864;color:#fff;border-radius:8px;padding:6px 14px;font-size:12px}.riskbox{background:linear-gradient(120deg,#006cae,#00528c);color:#fff;border-radius:8px;padding:11px 18px}.riskline{display:flex;align-items:center;gap:18px}.riskno{background:#0bb4e7;padding:10px 17px;border-radius:5px;font-size:28px;font-weight:900;white-space:nowrap}.riskbox h3{margin:0;font-size:22px;line-height:1.1}.riskbox p{font-size:13px;margin:12px 0 0;line-height:1.35}.status-card{background:#f9fdff;border:1px solid var(--line);border-radius:8px;text-align:center;padding:10px}.status-card h3{font-size:16px;margin:0 0 14px}.status-card strong{display:block;color:#fff;font-size:27px;border-radius:8px;padding:14px 8px}.risk-level strong{background:var(--red)}.outlook strong{background:linear-gradient(#42c84f,#25aa37)}
-.metrics{display:grid;grid-template-columns:1fr 1fr 1.15fr 1fr 2.25fr;gap:8px}.metric,.threshold{background:#fff;border:1px solid #d9eaf4;border-radius:8px;box-shadow:0 2px 7px #1c5e7c16;padding:14px 16px;min-height:130px}.metric{display:flex;flex-direction:column;justify-content:center}.metric h4{font-size:13px;margin:0 0 13px}.metric strong{font-size:25px;white-space:nowrap}.metric p{font-size:13px;margin:7px 0 0}.metric .percent{font-size:18px;color:#174e8e;font-weight:800}.threshold{display:grid;grid-template-columns:1fr 170px;gap:16px}.threshold h4{font-size:14px;margin:0 0 16px}.scale{position:relative;padding-top:17px}.rail{height:5px;background:linear-gradient(90deg,#2fbc41 0 34%,#ffd21b 34% 67%,#ef2428 67%)}.dots{position:absolute;left:0;right:0;top:7px;display:flex;justify-content:space-between}.dot{text-align:center;width:32%}.dot i{display:block;width:18px;height:18px;border-radius:50%;margin:auto;background:currentColor}.dot:nth-child(1){color:#32b83e}.dot:nth-child(2){color:#ffc617}.dot:nth-child(3){color:#eb1d27}.dot b,.dot small{display:block;color:#111}.dot b{font-size:12px;margin-top:-37px}.dot small{font-size:11px;margin-top:36px;line-height:1.25}.current-tag{margin:44px auto 0;background:#078cc7;color:#fff;width:max-content;padding:4px 10px;border-radius:4px;font-size:10px;text-align:center}.impact{background:linear-gradient(#eef9ff,#fff);border-radius:8px;display:grid;place-items:center;text-align:center;padding:8px}.impact h5{margin:0;font-size:12px}.impact strong{font-size:21px;color:#111}.impact p{margin:0;font-size:18px}
-.content{display:grid;grid-template-rows:minmax(215px,.85fr) minmax(255px,1fr);gap:9px}.row{display:grid;gap:9px}.row1{grid-template-columns:1.3fr .75fr .95fr}.row2{grid-template-columns:.9fr 1.15fr 1.1fr}.panel{background:#fff;border:1px solid #d8e9f3;border-radius:8px;padding:10px 17px;overflow:hidden;box-shadow:0 2px 7px #1c5e7c13}.panel h3{font-size:16px;margin:0 0 9px;color:#06518b}.chart-head{display:flex;justify-content:space-between}.legend{font-size:12px}.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin:0 5px 0 13px}.legend .actual{background:#0871b4}.legend .forecast{background:#a9ddf8}.legend .target{background:#ef1f24;border-radius:0;height:3px}.chart{height:160px;position:relative;padding:18px 7px 22px 27px}.plot{position:absolute;inset:18px 7px 22px 27px;border-left:1px solid #7896aa;border-bottom:1px solid #7896aa;background:repeating-linear-gradient(to top,transparent 0 35px,#dce8ef 36px)}.target-line{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--red);bottom:46.7%}.bars{position:absolute;inset:18px 7px 22px 27px;display:flex;align-items:end;gap:8px}.bar-wrap{height:100%;flex:1;display:flex;align-items:end;position:relative}.bar{width:100%;min-height:2px;background:linear-gradient(#087abb,#075591);border-radius:4px 4px 0 0}.bar.forecast{background:linear-gradient(#d9f2ff,#91d0f1)}.bar-wrap span{position:absolute;bottom:-19px;width:100%;text-align:center;font-size:10px;color:#111}.bar-wrap b{position:absolute;bottom:calc(var(--height) + 3px);width:100%;text-align:center;font-size:10px}.scenario-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;height:calc(100% - 30px)}.scenario{text-align:center;border-radius:8px;padding:20px 8px 10px;display:flex;flex-direction:column;justify-content:space-between;color:#111}.scenario b{font-size:13px}.scenario strong{font-size:18px}.scenario p{font-size:13px;line-height:1.25}.best{background:#dbf7de}.base{background:#fff6cf}.worst{background:#ffe0dc;color:#960d13}.simple-table{width:100%;border-collapse:collapse;font-size:12px}.simple-table th{background:#f0f7fb;text-align:left;padding:7px}.simple-table td{border-bottom:1px solid #e8eff4;padding:7px 5px}.signal{font-size:22px;font-weight:900;text-align:center}.danger{color:#ef2029}.watch{color:#ffd000}
+.metrics{display:grid;grid-template-columns:1fr 1fr 1fr 3fr;gap:8px}.metric,.threshold{background:#fff;border:1px solid #d9eaf4;border-radius:8px;box-shadow:0 2px 7px #1c5e7c16;padding:14px 16px;min-height:130px}.metric{display:flex;flex-direction:column;justify-content:center}.metric h4{font-size:13px;margin:0 0 13px}.metric strong{font-size:25px;white-space:nowrap}.metric p{font-size:13px;margin:7px 0 0}.metric .percent{font-size:18px;color:#174e8e;font-weight:800}.threshold{display:block;text-align:center}.threshold h4{display:block;position:static;font-size:14px;line-height:normal;margin:0 0 22px}.scale{position:relative;padding:0 8px 0}.rail{position:absolute;left:12%;right:12%;top:43px;height:5px;background:linear-gradient(90deg,#2fbc41 0 34%,#ffd21b 34% 67%,#ef2428 67%);z-index:0}.dots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));position:static;z-index:1}.dot{display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;z-index:1}.dot i{display:block;width:18px;height:18px;border-radius:50%;margin:7px auto 0;background:currentColor}.dot:nth-child(1){color:#32b83e}.dot:nth-child(2){color:#ffc617}.dot:nth-child(3){color:#eb1d27}.dot b,.dot small{display:block;color:#111}.dot b{font-size:12px;line-height:normal;margin:0}.dot small{font-size:11px;line-height:1.25;margin:12px 0 0}.current-tag{margin:16px auto 0;background:#078cc7;color:#fff;width:max-content;padding:4px 10px;border-radius:4px;font-size:10px;text-align:center}
+.content{display:grid;grid-template-rows:minmax(215px,.85fr) minmax(255px,1fr);gap:9px}.row{display:grid;gap:9px}.row1{grid-template-columns:2fr 1fr}.row2{grid-template-columns:.9fr 1.15fr 1.1fr}.panel{background:#fff;border:1px solid #d8e9f3;border-radius:8px;padding:10px 17px;overflow:hidden;box-shadow:0 2px 7px #1c5e7c13}.panel h3{font-size:16px;margin:0 0 9px;color:#06518b}.chart-head{display:flex;justify-content:space-between}.legend{font-size:12px}.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin:0 5px 0 13px}.legend .actual{background:#0871b4}.legend .forecast{background:#a9ddf8}.legend .target{background:#ef1f24;border-radius:0;height:3px}.chart{height:160px;position:relative;padding:18px 7px 22px 27px}.plot{position:absolute;inset:18px 7px 22px 27px;border-left:1px solid #7896aa;border-bottom:1px solid #7896aa;background:repeating-linear-gradient(to top,transparent 0 35px,#dce8ef 36px)}.target-line{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--red);bottom:46.7%}.bars{position:absolute;inset:18px 7px 22px 27px;display:flex;align-items:end;gap:8px}.bar-wrap{height:100%;flex:1;display:flex;align-items:end;position:relative}.bar{width:100%;min-height:2px;background:linear-gradient(#087abb,#075591);border-radius:4px 4px 0 0}.bar.forecast{background:linear-gradient(#d9f2ff,#91d0f1)}.bar-wrap span{position:absolute;bottom:-19px;width:100%;text-align:center;font-size:10px;color:#111}.bar-wrap b{position:absolute;bottom:calc(var(--height) + 3px);width:100%;text-align:center;font-size:10px}.scenario-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;height:calc(100% - 30px)}.scenario{text-align:center;border-radius:8px;padding:20px 8px 10px;display:flex;flex-direction:column;justify-content:space-between;color:#111}.scenario b{font-size:13px}.scenario strong{font-size:18px}.scenario p{font-size:13px;line-height:1.25}.best{background:#dbf7de}.base{background:#fff6cf}.worst{background:#ffe0dc;color:#960d13}.simple-table{width:100%;border-collapse:collapse;font-size:12px}.simple-table th{background:#f0f7fb;text-align:left;padding:7px}.simple-table td{border-bottom:1px solid #e8eff4;padding:7px 5px}.danger{color:#ef2029}.watch{color:#ffd000}
 .number-list{list-style:none;padding:0;margin:0}.number-list li{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start;margin:11px 0;font-size:13px;line-height:1.3}.number-list i{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;background:#1187c6;color:#fff;font-style:normal;font-weight:800}.programs{font-size:11px}.programs th,.programs td{padding:4px 5px}.pill{display:inline-block;min-width:91px;text-align:center;padding:4px 8px;border-radius:12px;color:#071d2e}.on-track{background:#a9e8a8}.in-progress{background:#ffdf24}.planned{background:#c4e9fb}.right-stack{display:grid;grid-template-rows:1fr auto;gap:9px}.concerns{background:linear-gradient(90deg,#fff,#fff3f2)}.concerns li{margin:6px 0;font-size:12px}.conclusion{background:#def3ff;border-radius:7px;padding:9px 13px;font-size:12px}.conclusion strong{display:block;color:#075188}.footer{margin:0 -15px;background:#003b69;color:#fff;min-height:58px;display:grid;grid-template-columns:1fr 1fr 1.4fr;align-items:center;padding:8px 42px;font-size:13px}.footer div:nth-child(2){text-align:center;border-left:1px solid #ffffff66;border-right:1px solid #ffffff66}.footer div:nth-child(3){text-align:right}.back{position:fixed;right:17px;bottom:70px;background:#fff;color:#064c82;border:1px solid #8bbbd8;border-radius:20px;padding:8px 14px;text-decoration:none;font-size:12px;box-shadow:0 2px 9px #1236;z-index:3}
 @media(max-width:1100px){body{padding:0}.board{width:100%;min-height:100vh}.top{grid-template-columns:150px 1fr 180px}.headline h1{font-size:27px}.identity{grid-template-columns:1fr .35fr .35fr}.metrics{grid-template-columns:repeat(2,1fr)}.threshold{grid-column:span 2}.content{display:block}.row{grid-template-columns:1fr;margin-bottom:9px}.panel{min-height:220px}.footer{grid-template-columns:1fr;text-align:center!important;gap:6px}.footer div{border:0!important;text-align:center!important}}
 .toolbar{width:min(1536px,100%);margin:0 auto 8px;background:#08335e;color:#fff;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:9px;box-shadow:0 3px 12px #1234}.toolbar-title{font-weight:800;margin-right:auto}.toolbar label{font-size:11px;font-weight:700}.toolbar select,.toolbar button,.toolbar a{height:36px;border:0;border-radius:7px;background:#fff;color:#12385d;padding:0 12px;font-weight:700;text-decoration:none}.toolbar .risk-select{min-width:340px}.toolbar .active{background:#168df0;color:#fff}.brand-logo{height:72px;padding:5px 8px;background:#fff;border-radius:7px;overflow:hidden;display:flex;align-items:center}.brand-logo img{display:block;width:100%;height:58px;object-fit:contain;object-position:left center}.brand-logo.pln-logo{justify-content:flex-end;background:transparent}.brand-logo.pln-logo img{width:145px;height:68px;object-position:right center}.status-card.outlook.danger strong{background:var(--red)}.status-card.outlook.warning strong{background:#efa900}.status-card.outlook.neutral strong{background:#728397}.empty-chart{height:160px;display:grid;place-items:center;background:#f5f9fc;border:1px dashed #bdd4e2;border-radius:6px;color:#637b8d;font-size:12px;text-align:center}.tv .toolbar{display:none}.tv body{padding:0}.tv .board{min-height:100vh}
 @media(max-width:900px){.toolbar{flex-wrap:wrap}.toolbar-title{width:100%;margin:0}.toolbar .risk-select{min-width:200px;flex:1}.brand-logo.pln-logo img{width:110px}}
 .bars:empty:after{content:"Trend bulanan belum tersedia untuk risiko ini.";position:absolute;inset:0;display:grid;place-items:center;color:#637b8d;font-size:12px}
-</style></head><body class="{% if tv_mode %}tv{% endif %}">
-<nav class="toolbar"><span class="toolbar-title">Executive Risk Dashboard V2</span><label for="yearSelect">Tahun</label><select id="yearSelect">{% for year in years %}<option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>{% endfor %}</select><label for="riskSelect">Risiko</label><select id="riskSelect" class="risk-select">{% if risks %}{% for risk in risks %}<option value="{{ risk.pk }}" {% if risk.pk == selected_risk_id %}selected{% endif %}>#{{ risk.no_risiko|default:risk.no_item|default:risk.pk }} — {{ risk.peristiwa_risiko }}</option>{% endfor %}{% else %}<option value="">#5 — Gangguan Padam System</option>{% endif %}</select><button type="button" id="fullscreenBtn">Fullscreen</button><button type="button" class="active" id="tvBtn">Mode TV</button><a href="{% url 'executive_risk_dashboard' %}">Dashboard Awal</a><a href="{% url 'rcc_dashboard' %}">RCC</a></nav>
+/* header-overlap-fix-20260929 */.identity{padding-top:34px}.period{top:0!important;z-index:2;max-width:100%;white-space:nowrap}</style>
+<!-- OUTLOOK_DIRECT_PRO_V3 -->
+<style>
+/* Panel Outlook yang lebih ringkas dan profesional */
+.outlook-panel-pro {
+    position: relative !important;
+    padding: 20px 24px 24px !important;
+    background:
+        linear-gradient(145deg, #ffffff 0%, #fbfdff 100%) !important;
+    border: 1px solid rgba(17, 94, 145, .15) !important;
+    box-shadow: 0 8px 24px rgba(16, 68, 105, .08) !important;
+    overflow: visible !important;
+}
+
+/* Header panel */
+.outlook-panel-pro > h3 {
+    margin: 0 !important;
+    padding: 2px 165px 17px 0 !important;
+    min-height: 32px !important;
+    font-size: 20px !important;
+    line-height: 1.15 !important;
+    letter-spacing: -.3px !important;
+    color: #07538d !important;
+    border-bottom: 1px solid rgba(17, 94, 145, .12) !important;
+}
+
+/* Grid tiga skenario */
+.outlook-panel-pro > .scenario-grid {
+    margin-top: 18px !important;
+    padding-top: 0 !important;
+    gap: 18px !important;
+    align-items: stretch !important;
+}
+
+/* Mengalahkan margin inline dari patch lama */
+.outlook-panel-pro .scenario {
+    margin-top: 0 !important;
+    min-height: 128px !important;
+    padding: 20px 18px !important;
+    border-radius: 14px !important;
+    border: 1px solid rgba(16, 76, 112, .08) !important;
+    box-shadow: 0 6px 16px rgba(16, 63, 96, .09) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition:
+        transform 180ms ease,
+        box-shadow 180ms ease !important;
+}
+
+.outlook-panel-pro .scenario:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 10px 22px rgba(16, 63, 96, .13) !important;
+}
+
+/* Accent warna per skenario */
+.outlook-panel-pro .scenario.best {
+    border-top: 4px solid #19a463 !important;
+    background: linear-gradient(180deg, #e6f8ea 0%, #d9f3df 100%) !important;
+}
+
+.outlook-panel-pro .scenario.base {
+    border-top: 4px solid #e0aa00 !important;
+    background: linear-gradient(180deg, #fff8d9 0%, #fff3c5 100%) !important;
+}
+
+.outlook-panel-pro .scenario.worst {
+    border-top: 4px solid #dc2638 !important;
+    background: linear-gradient(180deg, #ffe5e3 0%, #ffd9d6 100%) !important;
+}
+
+/* Tipografi kartu */
+.outlook-panel-pro .scenario > b {
+    margin-bottom: 8px !important;
+    font-size: 15px !important;
+    line-height: 1.2 !important;
+}
+
+.outlook-panel-pro .scenario > strong {
+    margin-bottom: 8px !important;
+    font-size: 21px !important;
+    line-height: 1.2 !important;
+}
+
+.outlook-panel-pro .scenario > p {
+    margin: 0 !important;
+    font-size: 14px !important;
+    line-height: 1.3 !important;
+    text-align: center !important;
+}
+
+/* Badge Outlook */
+.outlook-panel-pro .outlook-status-badge-v1 {
+    top: 17px !important;
+    right: 24px !important;
+    min-width: 108px !important;
+    padding: 7px 16px !important;
+    border-radius: 11px !important;
+    box-shadow: 0 6px 15px rgba(187, 22, 35, .20) !important;
+}
+
+.outlook-panel-pro .outlook-status-value {
+    font-size: 20px !important;
+    line-height: 1.15 !important;
+}
+
+/* Tampilan mobile */
+@media (max-width: 768px) {
+    .outlook-panel-pro {
+        padding: 18px !important;
+    }
+
+    .outlook-panel-pro > h3 {
+        padding-right: 0 !important;
+        padding-bottom: 14px !important;
+    }
+
+    .outlook-panel-pro .outlook-status-badge-v1 {
+        position: relative !important;
+        top: auto !important;
+        right: auto !important;
+        display: block !important;
+        width: fit-content !important;
+        margin: 12px 0 0 auto !important;
+    }
+
+    .outlook-panel-pro > .scenario-grid {
+        margin-top: 14px !important;
+        gap: 12px !important;
+    }
+}
+</style>
+
+
+<!-- OUTLOOK_OVERLAP_FIX_V4 -->
+<style>
+/* Memastikan ukuran kartu termasuk padding dan border */
+.outlook-panel-pro,
+.outlook-panel-pro *,
+.outlook-panel-pro *::before,
+.outlook-panel-pro *::after {
+    box-sizing: border-box !important;
+}
+
+/* Kartu dibuat cukup ringkas agar tidak keluar dari panel */
+.outlook-panel-pro .scenario {
+    height: 165px !important;
+    min-height: 165px !important;
+    max-height: 165px !important;
+    padding: 14px 12px !important;
+    margin-top: 0 !important;
+    overflow: hidden !important;
+}
+
+.outlook-panel-pro .scenario > b {
+    margin: 0 0 7px !important;
+    font-size: 14px !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+}
+
+.outlook-panel-pro .scenario > strong {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 0 8px !important;
+    font-size: 19px !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+}
+
+.outlook-panel-pro .scenario > p {
+    margin: 0 !important;
+    font-size: 13px !important;
+    line-height: 1.25 !important;
+    text-align: center !important;
+}
+
+/* Ruang aman di bawah kartu */
+.outlook-panel-pro > .scenario-grid {
+    margin-top: 16px !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+/* Mencegah panel meluber ke blok selanjutnya */
+.outlook-panel-pro {
+    overflow: hidden !important;
+}
+
+@media (max-width: 768px) {
+    .outlook-panel-pro .scenario {
+        height: auto !important;
+        min-height: 130px !important;
+        max-height: none !important;
+    }
+}
+</style>
+
+
+<!-- RISK_REVIEW_HIGHLIGHT_V1 -->
+<style>
+/* Risk Review sebagai executive summary utama */
+.right-stack .conclusion {
+    position: relative !important;
+    display: block !important;
+    padding: 18px 22px 18px 25px !important;
+    min-height: 112px !important;
+    color: #ffffff !important;
+    background:
+        linear-gradient(
+            135deg,
+            #064d83 0%,
+            #076ba8 58%,
+            #0787bb 100%
+        ) !important;
+    border: 1px solid rgba(255, 255, 255, .22) !important;
+    border-left: 6px solid #f4c542 !important;
+    border-radius: 14px !important;
+    box-shadow:
+        0 10px 24px rgba(4, 66, 110, .22),
+        inset 0 1px 0 rgba(255, 255, 255, .14) !important;
+    font-size: 15px !important;
+    line-height: 1.45 !important;
+    overflow: hidden !important;
+}
+
+/* Efek cahaya halus */
+.right-stack .conclusion::after {
+    content: "" !important;
+    position: absolute !important;
+    top: -55px !important;
+    right: -45px !important;
+    width: 170px !important;
+    height: 170px !important;
+    border-radius: 50% !important;
+    background: rgba(255, 255, 255, .07) !important;
+    pointer-events: none !important;
+}
+
+/* Judul Risk Review */
+.right-stack .conclusion > strong {
+    position: relative !important;
+    z-index: 1 !important;
+    display: block !important;
+    margin: 0 0 8px !important;
+    color: #ffffff !important;
+    font-size: 18px !important;
+    font-weight: 800 !important;
+    line-height: 1.2 !important;
+    letter-spacing: .45px !important;
+}
+
+/* Seluruh teks isi tetap putih dan terbaca */
+.right-stack .conclusion,
+.right-stack .conclusion * {
+    color: #ffffff !important;
+}
+
+/* Responsif */
+@media (max-width: 768px) {
+    .right-stack .conclusion {
+        min-height: auto !important;
+        padding: 17px 18px 17px 21px !important;
+        font-size: 14px !important;
+    }
+
+    .right-stack .conclusion > strong {
+        font-size: 17px !important;
+    }
+}
+</style>
+
+
+<!-- EXECUTIVE_GRID_ALIGNMENT_V1 -->
+<style>
+/*
+ * GRID UTAMA:
+ * Kolom 1 = Risk Driver
+ * Kolom 2 = Trend + Program Mitigasi
+ * Kolom 3 = Proyeksi + Risk Review + Management Concern
+ */
+.content {
+    display: grid !important;
+    grid-template-columns:
+        minmax(0, .82fr)
+        minmax(0, 1.28fr)
+        minmax(0, 1.10fr) !important;
+    grid-template-rows: auto auto !important;
+    gap: 9px !important;
+    align-items: stretch !important;
+}
+
+/* Anak row langsung menjadi item grid utama */
+.content > .row1,
+.content > .row2 {
+    display: contents !important;
+}
+
+/* Top 4 Risk Driver menjadi sidebar kiri */
+.content > .row2 > article:first-child {
+    grid-column: 1 !important;
+    grid-row: 1 / span 2 !important;
+    min-width: 0 !important;
+}
+
+/* Trend tepat di atas Program Mitigasi */
+.content > .row1 > article:first-child {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+}
+
+.content > .row2 > article:nth-child(2) {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    min-width: 0 !important;
+}
+
+/* Proyeksi tepat di atas Risk Review dan Management Concern */
+.content > .row1 > .outlook-panel-pro {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+}
+
+.content > .row2 > .right-stack {
+    grid-column: 3 !important;
+    grid-row: 2 !important;
+    min-width: 0 !important;
+    display: grid !important;
+    grid-template-rows: auto auto !important;
+    align-content: start !important;
+    gap: 9px !important;
+}
+
+/* Trend dan Program memiliki lebar serta garis kolom yang sama */
+.content > .row1 > article:first-child,
+.content > .row2 > article:nth-child(2) {
+    width: 100% !important;
+}
+
+/* Panel kanan juga memiliki garis kolom yang sama */
+.content > .row1 > .outlook-panel-pro,
+.content > .row2 > .right-stack {
+    width: 100% !important;
+}
+
+/* Proyeksi dibuat lebih padat */
+.outlook-panel-pro {
+    padding: 15px 17px 17px !important;
+}
+
+.outlook-panel-pro > h3 {
+    min-height: 28px !important;
+    padding:
+        2px 145px 12px 0 !important;
+    font-size: 18px !important;
+    line-height: 1.15 !important;
+}
+
+.outlook-panel-pro > .scenario-grid {
+    margin-top: 12px !important;
+    gap: 11px !important;
+}
+
+/* Best Case, Baseline, Worst Case tidak terlalu tinggi */
+.outlook-panel-pro .scenario {
+    box-sizing: border-box !important;
+    height: 132px !important;
+    min-height: 132px !important;
+    max-height: 132px !important;
+    padding: 11px 9px !important;
+    margin-top: 0 !important;
+    border-radius: 12px !important;
+}
+
+.outlook-panel-pro .scenario > b {
+    margin-bottom: 6px !important;
+    font-size: 13px !important;
+    line-height: 1.15 !important;
+}
+
+.outlook-panel-pro .scenario > strong {
+    margin-bottom: 7px !important;
+    font-size: 18px !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+}
+
+.outlook-panel-pro .scenario > p {
+    margin: 0 !important;
+    font-size: 12px !important;
+    line-height: 1.25 !important;
+}
+
+/* Badge disesuaikan dengan header yang lebih ringkas */
+.outlook-panel-pro .outlook-status-badge-v1 {
+    top: 14px !important;
+    right: 17px !important;
+    min-width: 102px !important;
+    padding: 6px 13px !important;
+}
+
+.outlook-panel-pro .outlook-status-value {
+    font-size: 18px !important;
+}
+
+/* Risk Review ikut dipadatkan agar Management Concern naik */
+.right-stack .conclusion {
+    min-height: 96px !important;
+    padding: 14px 18px 14px 21px !important;
+    font-size: 13px !important;
+    line-height: 1.38 !important;
+}
+
+.right-stack .conclusion > strong {
+    margin-bottom: 6px !important;
+    font-size: 16px !important;
+}
+
+/* Management Concern dibuat lebih efisien */
+.right-stack .concerns {
+    padding: 13px 16px !important;
+}
+
+.right-stack .concerns > h3 {
+    margin-bottom: 8px !important;
+    font-size: 15px !important;
+}
+
+.right-stack .concerns li {
+    margin: 4px 0 !important;
+    font-size: 11.5px !important;
+    line-height: 1.28 !important;
+}
+
+/* Risk Driver mengisi sidebar dengan lebih seimbang */
+.content > .row2 > article:first-child .number-list {
+    display: grid !important;
+    align-content: start !important;
+    gap: 11px !important;
+}
+
+/* Chart tetap terbaca pada kolom tengah */
+.content > .row1 > article:first-child .chart-head {
+    gap: 10px !important;
+}
+
+.content > .row1 > article:first-child .legend {
+    white-space: nowrap !important;
+    font-size: 10px !important;
+}
+
+.content > .row1 > article:first-child .legend i {
+    margin-left: 7px !important;
+}
+
+/* Tablet dan layar sempit kembali menjadi satu kolom */
+@media (max-width: 1100px) {
+    .content {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: auto !important;
+    }
+
+    .content > .row2 > article:first-child {
+        grid-column: 1 !important;
+        grid-row: 1 !important;
+    }
+
+    .content > .row1 > article:first-child {
+        grid-column: 1 !important;
+        grid-row: 2 !important;
+    }
+
+    .content > .row2 > article:nth-child(2) {
+        grid-column: 1 !important;
+        grid-row: 3 !important;
+    }
+
+    .content > .row1 > .outlook-panel-pro {
+        grid-column: 1 !important;
+        grid-row: 4 !important;
+    }
+
+    .content > .row2 > .right-stack {
+        grid-column: 1 !important;
+        grid-row: 5 !important;
+    }
+
+    .outlook-panel-pro .scenario {
+        height: auto !important;
+        min-height: 125px !important;
+        max-height: none !important;
+    }
+}
+</style>
+
+
+<!-- EXECUTIVE_GRID_ALIGNMENT_V2 -->
+<style>
+/*
+ * SUSUNAN FINAL:
+ *
+ * Baris 1:
+ * [ Trend Realisasi dan Forecast — dua kolom ] [ Proyeksi ]
+ *
+ * Baris 2:
+ * [ Top Risk Driver ] [ Program Mitigasi ] [ Risk Review + Concern ]
+ */
+.content {
+    grid-template-columns:
+        minmax(0, .90fr)
+        minmax(0, 1.15fr)
+        minmax(0, 1.10fr) !important;
+    grid-template-rows: auto auto !important;
+    align-items: stretch !important;
+}
+
+/* Trend kembali panjang di atas, melintasi dua kolom */
+.content > .row1 > article:first-child {
+    grid-column: 1 / span 2 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Proyeksi berada di kanan Trend */
+.content > .row1 > .outlook-panel-pro {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Top 4 Risk Driver kembali ke kiri bawah */
+.content > .row2 > article:first-child {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Program Mitigasi berada di tengah bawah */
+.content > .row2 > article:nth-child(2) {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Risk Review dan Management Concern di kanan bawah */
+.content > .row2 > .right-stack {
+    grid-column: 3 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Risk Driver tidak lagi dipaksa mengisi dua baris */
+.content > .row2 > article:first-child .number-list {
+    align-content: start !important;
+    gap: 7px !important;
+}
+
+/* Trend tetap proporsional dan panjang */
+.content > .row1 > article:first-child .chart {
+    width: 100% !important;
+}
+
+.content > .row1 > article:first-child .chart-head {
+    width: 100% !important;
+}
+
+/* Penyesuaian responsif */
+@media (max-width: 1100px) {
+    .content {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: auto !important;
+    }
+
+    .content > .row1 > article:first-child {
+        grid-column: 1 !important;
+        grid-row: 1 !important;
+    }
+
+    .content > .row1 > .outlook-panel-pro {
+        grid-column: 1 !important;
+        grid-row: 2 !important;
+    }
+
+    .content > .row2 > article:first-child {
+        grid-column: 1 !important;
+        grid-row: 3 !important;
+    }
+
+    .content > .row2 > article:nth-child(2) {
+        grid-column: 1 !important;
+        grid-row: 4 !important;
+    }
+
+    .content > .row2 > .right-stack {
+        grid-column: 1 !important;
+        grid-row: 5 !important;
+    }
+}
+</style>
+
+
+<style id="compact-dashboard-header-v1">
+.board .top {
+    grid-template-columns: 155px minmax(0, 1fr) 155px !important;
+    min-height: 70px !important;
+    height: auto !important;
+    padding: 4px 8px !important;
+    gap: 12px !important;
+}
+.board .headline h1 {
+    font-size: 30px !important;
+    line-height: 1.1 !important;
+    margin: 0 !important;
+    letter-spacing: -0.6px !important;
+}
+.board .headline h2 {
+    font-size: 22px !important;
+    line-height: 1.1 !important;
+    margin: 2px 0 !important;
+}
+.board .headline p {
+    font-size: 13px !important;
+    line-height: 1.2 !important;
+    margin: 3px 0 0 !important;
+}
+.board .top .brand-logo {
+    height: 60px !important;
+    min-height: 0 !important;
+    padding: 2px 4px !important;
+}
+.board .top .brand-logo img {
+    width: 100% !important;
+    height: 54px !important;
+    object-fit: contain !important;
+}
+.board .top .pln-logo img {
+    width: 115px !important;
+    height: 58px !important;
+}
+.board .identity {
+    padding-top: 27px !important;
+}
+.board .identity .period {
+    top: 0 !important;
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+    padding: 4px 10px !important;
+}
+@media (max-width: 900px) {
+    .board .top {
+        grid-template-columns: 95px minmax(0, 1fr) 95px !important;
+        gap: 6px !important;
+    }
+    .board .headline h1 { font-size: 22px !important; }
+    .board .headline h2 { font-size: 17px !important; }
+    .board .headline p { font-size: 11px !important; }
+    .board .top .brand-logo img,
+    .board .top .pln-logo img {
+        width: 100% !important;
+        height: 44px !important;
+    }
+}
+</style>
+
+
+<style id="worst-case-details-v1">
+.scenario.worst .worst-details {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(160, 0, 0, .18);
+    width: 100%;
+    font-size: 11px;
+    line-height: 1.3;
+}
+.scenario.worst .worst-details > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+    padding: 2px 0;
+}
+.scenario.worst .worst-details em {
+    font-style: normal;
+    font-weight: 700;
+    text-align: right;
+}
+</style>
+
+
+<style id="scenario-height-fix-v1">
+.outlook-panel-pro {
+    height: auto !important;
+    overflow: visible !important;
+}
+.outlook-panel-pro .scenario-grid {
+    height: auto !important;
+    align-items: stretch !important;
+    overflow: visible !important;
+}
+.outlook-panel-pro .scenario-grid .scenario {
+    height: auto !important;
+    min-height: 230px !important;
+    max-height: none !important;
+    padding: 14px 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    overflow: visible !important;
+}
+.outlook-panel-pro .scenario > b {
+    display: block !important;
+    flex-shrink: 0 !important;
+    margin: 0 0 6px !important;
+    font-size: 15px !important;
+    line-height: 1.2 !important;
+}
+.outlook-panel-pro .scenario > strong {
+    flex-shrink: 0 !important;
+    font-size: 23px !important;
+    line-height: 1.2 !important;
+    margin: 0 !important;
+}
+.outlook-panel-pro .scenario > p {
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+    margin: 6px 0 !important;
+}
+.outlook-panel-pro .scenario.worst .worst-details {
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+    margin-top: 6px !important;
+}
+.outlook-panel-pro .worst-details > div {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 6px !important;
+    text-align: left !important;
+}
+.outlook-panel-pro .worst-details em {
+    white-space: nowrap !important;
+    font-size: 11px !important;
+}
+</style>
+
+
+<style id="trend-chart-fill-panel-v1">
+.board .trend-chart-panel {
+    display: flex !important;
+    flex-direction: column !important;
+}
+.board .trend-chart-panel .chart-head {
+    flex: 0 0 auto;
+}
+.board .trend-chart-panel .chart {
+    flex: 1 1 auto !important;
+    height: auto !important;
+    min-height: 260px !important;
+    max-height: none !important;
+    margin-bottom: 8px;
+}
+.board .trend-chart-panel .plot,
+.board .trend-chart-panel .bars {
+    top: 24px !important;
+    bottom: 30px !important;
+}
+@media (max-width: 900px) {
+    .board .trend-chart-panel .chart {
+        min-height: 220px !important;
+    }
+}
+</style>
+
+
+<style id="current-risk-group-v1">
+.board .identity {
+    grid-template-columns: minmax(0,1.7fr) minmax(0,1fr) !important;
+}
+.current-risk-group {
+    min-width: 0;
+    border: 1px solid #cfe3f1;
+    border-radius: 8px;
+    background: #f9fdff;
+    padding: 6px 8px 8px;
+}
+.board .current-group-title {
+    text-align: center;
+    margin: 0 0 5px;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: #062e59;
+}
+.current-group-cards {
+    display: grid;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 8px;
+}
+.board .current-group-cards .status-card {
+    min-width: 0;
+    padding: 5px;
+    border: 0;
+    background: transparent;
+}
+.board .current-group-cards .status-card h3 {
+    font-size: 13px;
+    margin: 0 0 6px;
+}
+.board .current-group-cards .status-card strong {
+    font-size: 25px;
+    padding: 10px 6px;
+    line-height: 1.1;
+}
+@media (max-width: 900px) {
+    .board .identity {
+        grid-template-columns: 1fr !important;
+    }
+}
+</style>
+
+
+<style>
+/* CURRENT_LEVEL_COLOR_V1 */
+.board .status-card.risk-level strong.current-level-value {
+    text-transform: uppercase;
+    background: #728397 !important;
+    color: #fff !important;
+}
+.board .status-card.risk-level strong.current-level-green {
+    background: #2bb83f !important;
+}
+.board .status-card.risk-level strong.current-level-lightgreen {
+    background: #a4d65e !important;
+    color: #173500 !important;
+}
+.board .status-card.risk-level strong.current-level-yellow {
+    background: #ffd91a !important;
+    color: #302600 !important;
+}
+.board .status-card.risk-level strong.current-level-orange {
+    background: #f59e0b !important;
+    color: #382000 !important;
+}
+.board .status-card.risk-level strong.current-level-red {
+    background: #f21f25 !important;
+}
+</style>
+
+
+<style>
+/* SCENARIO_COLUMNS_FIT_V1 */
+.board .outlook-panel-pro {
+    min-width: 0 !important;
+}
+.board .outlook-panel-pro .scenario-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    align-items: stretch !important;
+}
+.board .outlook-panel-pro .scenario-grid > .scenario {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: auto !important;
+    padding: 16px 10px !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    overflow-wrap: anywhere;
+}
+.board .outlook-panel-pro .scenario strong {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: clamp(16px, 1.35vw, 23px) !important;
+    line-height: 1.3 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+.board .outlook-panel-pro .scenario b {
+    font-size: 16px !important;
+}
+.board .outlook-panel-pro .scenario p {
+    margin: 0 !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+}
+@media (max-width: 600px) {
+    .board .outlook-panel-pro .scenario-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
+</style>
+
+<style>
+/* PROJECTION_STATUS_BADGE_HIDE_V1 */
+.outlook-panel-pro .outlook-status-badge-v1 {
+    display: none !important;
+}
+</style>
+
+<style>
+/* KRI_STATUS_COLORS_V1 */
+.board .status-card.outlook.danger strong,
+.board .status-card.outlook.bahaya strong {
+    background: #ed1c24 !important;
+    color: #fff !important;
+}
+.board .status-card.outlook.warning strong,
+.board .status-card.outlook.waspada strong {
+    background: #ffc107 !important;
+    color: #172b45 !important;
+}
+.board .status-card.outlook.safe strong,
+.board .status-card.outlook.aman strong {
+    background: #25b63d !important;
+    color: #fff !important;
+}
+</style>
+
+<style>
+/* SCENARIO_NUMBER_ONE_LINE_V1 */
+.board .scenario-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.board .scenario-grid .scenario {
+    min-width: 0;
+}
+.board .scenario-grid .scenario strong {
+    white-space: nowrap !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    font-size: clamp(11px, 1.1vw, 16px) !important;
+    letter-spacing: -0.3px;
+    line-height: 1.3;
+}
+</style>
+</head><body class="{% if tv_mode %}tv{% endif %}">
+<nav class="toolbar"><span class="toolbar-title">Executive Risk Dashboard</span><label for="yearSelect">Tahun</label><select id="yearSelect">{% for year in years %}<option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>{% endfor %}</select><label for="riskSelect">Risiko</label><select id="riskSelect" class="risk-select">{% if risks %}{% for risk in risks %}<option value="{{ risk.pk }}" {% if risk.pk == selected_risk_id %}selected{% endif %}>#{{ risk.no_risiko|default:risk.no_item|default:risk.pk }} — {{ risk.peristiwa_risiko }}</option>{% endfor %}{% else %}<option value="">#5 — Gangguan Padam System</option>{% endif %}</select><button type="button" id="fullscreenBtn">Fullscreen</button><button type="button" class="active" id="tvBtn">Mode TV</button><a href="{% url 'rcc_dashboard' %}">RCC</a></nav>
 <main class="board">
-<header class="top"><div class="brand-logo"><img src="{% static 'risk/brand/danantara.svg' %}" alt="Danantara Indonesia"></div><div class="headline"><h1>Executive Risk Dashboard</h1><h2>PT PLN Batam</h2><p>Risiko Terkelola, Layanan Andal, Masa Depan Berkelanjutan</p></div><div class="brand-logo pln-logo"><img src="{% static 'risk/brand/pln-batam.jpg' %}" alt="PLN Batam"></div></header>
-<section class="identity"><span class="period">Periode Data : {{ period }}</span><div class="riskbox"><div class="riskline"><span class="riskno">RISK #{{ risk_number }}</span><h3>{{ risk_title }}</h3></div><p>{{ risk_description }}</p></div><div class="status-card risk-level"><h3>LEVEL RISIKO</h3><strong>{{ level }}</strong></div><div class="status-card outlook {{ status_class|default:'safe' }}"><h3>STATUS OUTLOOK {{ selected_year }}</h3><strong>{{ status }}</strong></div></section>
-<section class="metrics"><article class="metric"><h4>◉ Realisasi {{ period }}</h4><strong>{{ actual_ytd }}</strong>{% if achievement != "–" %}<p class="percent">{{ achievement }}% dari target</p>{% endif %}</article><article class="metric"><h4>◎ Target {{ selected_year }}</h4><strong>{{ target }}</strong></article><article class="metric"><h4>▥ Proyeksi {{ selected_year }}<br>(Worst Case)</h4><strong>{{ worst_case }}</strong></article><article class="metric"><h4>ϟ Month Current<br>({{ period }})</h4><strong>{{ current_month }}</strong></article><article class="threshold"><div><h4>THRESHOLD RKAP (Dampak)</h4><div class="scale"><div class="rail"></div><div class="dots"><div class="dot"><b>95%</b><i></i><small>Risk Limit<br>{{ risk_limit }}</small></div><div class="dot"><b>100%</b><i></i><small>Risk Appetite<br>{{ risk_appetite }}</small></div><div class="dot"><b>105%</b><i></i><small>Risk Tolerance<br>{{ risk_tolerance }}</small></div></div><div class="current-tag">Realisasi<br>{{ actual_ytd }}</div></div></div><div class="impact"><h5>Worst Impact</h5><strong>{{ worst_case }}</strong><p>{{ level }}</p></div></article></section>
-<section class="content"><div class="row row1"><article class="panel"><div class="chart-head"><h3>TREND REALISASI VS FORECAST 2026<br><small>(Rp Miliar)</small></h3><div class="legend"><i class="actual"></i>Aktual <i class="forecast"></i>Forecast <i class="target"></i>Target bulanan</div></div><div class="chart"><div class="plot"><span class="target-line"></span></div><div class="bars">{% for value in chart_values %}<div class="bar-wrap" style="--height:{% widthratio value 1.2 100 %}%"><b>{{ value|floatformat:2 }}</b><div class="bar {% if forloop.counter > actual_month_count %}forecast{% endif %}" style="height:{% widthratio value 1.2 100 %}%"></div><span>{% if forloop.counter == 1 %}Jan{% elif forloop.counter == 2 %}Feb{% elif forloop.counter == 3 %}Mar{% elif forloop.counter == 4 %}Apr{% elif forloop.counter == 5 %}Mei{% elif forloop.counter == 6 %}Jun{% elif forloop.counter == 7 %}Jul{% elif forloop.counter == 8 %}Agu{% elif forloop.counter == 9 %}Sep{% elif forloop.counter == 10 %}Okt{% elif forloop.counter == 11 %}Nov{% else %}Des{% endif %}</span></div>{% endfor %}</div></div></article>
-<article class="panel"><h3>♎ OUTLOOK DAMPAK 2026</h3><div class="scenario-grid"><div class="scenario best"><b>Best Case</b><strong>{{ best_case }}</strong><p>Di bawah risk appetite</p></div><div class="scenario base"><b>Baseline</b><strong>{{ baseline_case }}</strong><p>Melewati risk appetite</p></div><div class="scenario worst"><b>Worst Case</b><strong>{{ worst_case }}</strong><p>Melebihi tolerance</p></div></div></article><article class="panel"><h3>↗ KEY RISK INDICATOR (KRI)</h3><table class="simple-table"><thead><tr><th>Indikator Utama</th><th></th><th>Status</th></tr></thead><tbody>{% for row in kri_rows %}<tr><td>{{ row.name }}</td><td class="signal {{ row.class }}">{{ row.icon }}</td><td>{{ row.status }}</td></tr>{% endfor %}</tbody></table></article></div>
-<div class="row row2"><article class="panel"><h3>♙ TOP 4 RISK DRIVER / PENYEBAB UTAMA</h3><ol class="number-list">{% for item in drivers %}<li><i>{{ forloop.counter }}</i><span>{{ item }}</span></li>{% endfor %}</ol></article><article class="panel"><h3>PROGRAM MITIGASI PRIORITAS {{ selected_year }}</h3><table class="simple-table programs"><thead><tr><th>Program / Inisiatif</th><th>PIC</th><th>Progress</th></tr></thead><tbody>{% for row in programs %}<tr><td>{{ row.name }}</td><td>{{ row.pic }}</td><td><span class="pill {{ row.class }}">{{ row.status }}</span></td></tr>{% endfor %}</tbody></table></article><div class="right-stack"><article class="panel concerns"><h3>⚠ MANAGEMENT CONCERN &amp; DECISION REQUIRED</h3><ol class="number-list">{% for item in concerns %}<li><i>{{ forloop.counter }}</i><span>{{ item }}</span></li>{% endfor %}</ol></article><div class="conclusion"><strong>💡 KESIMPULAN</strong>{% if conclusion %}{{ conclusion }}{% else %}Realisasi {{ period }} masih dalam risk tolerance.<br>Diperlukan percepatan realisasi mitigasi dan dukungan manajemen untuk menjaga keandalan pasokan kepada pelanggan premium.{% endif %}</div></div></div></section>
+<header class="top"><div class="brand-logo"><img src="{% static 'risk/brand/danantara.svg' %}" alt="Danantara Indonesia"></div><div class="headline"><h1>Executive Risk Dashboard</h1><h2>PT PLN Batam</h2><p>Risiko Terkelola, Layanan Andal, Masa Depan Berkelanjutan</p></div><div class="brand-logo pln-logo"><img src="{% static 'risk/brand/pln-batam-transparent.png' %}" alt="PLN Batam"></div></header>
+<section class="identity"><span class="period">Periode Data : {{ period }}</span><div class="riskbox"><div class="riskline"><span class="riskno">RISK #{{ risk_number }}</span><h3>{{ risk_title }}</h3></div><p>{{ risk_description }}</p></div><div class="current-risk-group"><div class="current-group-cards"><div class="status-card risk-level"><h3>LEVEL RISIKO</h3><strong class="current-level-value
+{% with label=level|lower %}
+{% if 'moderate to high' in label or 'moderat ke tinggi' in label or 'moderate-high' in label %}
+current-level-orange
+{% elif 'low to moderate' in label or 'rendah ke moderat' in label or 'low-moderate' in label %}
+current-level-lightgreen
+{% elif 'moderate' in label or 'moderat' in label %}
+current-level-yellow
+{% elif 'high' in label or 'tinggi' in label %}
+current-level-red
+{% elif 'low' in label or 'rendah' in label %}
+current-level-green
+{% else %}
+current-level-neutral
+{% endif %}
+{% endwith %}">{{ level }}</strong></div><div class="status-card outlook {{ hjr_actual_status_class|default:outlook_status_class|default:'waspada' }}"><h3>STATUS KRI</h3><strong>{{ hjr_actual_status|default:outlook_status }}</strong></div></div></div></section>
+<section class="metrics"><article class="metric"><h4>ϟ Month Current<br>({{ period }})</h4><strong>{{ current_month }}</strong></article><article class="metric"><h4>◉ Realisasi {{ period }}</h4><strong>{{ actual_ytd }}</strong>{% if achievement != "–" %}<p class="percent">{{ achievement }}% dari target</p>{% endif %}</article><article class="metric"><h4>◎ Target {{ selected_year }}</h4><strong>{{ target }}</strong></article><article class="threshold"><h4>THRESHOLD RKAP (Dampak)</h4><div class="scale"><div class="rail"></div><div class="dots"><div class="dot"><b>95%</b><i></i><small>Risk Limit<br>{{ risk_limit }}</small></div><div class="dot"><b>100%</b><i></i><small>Risk Appetite<br>{{ risk_appetite }}</small></div><div class="dot"><b>105%</b><i></i><small>Risk Tolerance<br>{{ risk_tolerance|cut:" atau Dokumen Purchase Order/Pemesanan Material/BA Ekspedisi: H-48 atau Reserve Margin: <15%" }}</small></div></div><div class="current-tag">Realisasi<br>{{ actual_ytd }}</div></div></article></section>
+<section class="content"><div class="row row1"><article class="panel trend-chart-panel"><div class="chart-head"><h3>TREND REALISASI VS FORECAST {{ selected_year }}<br><small>({{ chart_unit|default:"Rp Miliar" }})</small></h3><div class="legend"><i class="actual"></i>Aktual <i class="forecast"></i>Forecast {% if chart_reference_visible %}<i class="target"></i>{{ chart_reference_label }}{% endif %}</div></div><div class="chart"><div class="plot">{% if chart_reference_visible %}<span class="target-line" style="bottom:{{ chart_reference_percent }}% !important" title="{{ chart_reference_label }}: {{ chart_reference_value }}"></span>{% endif %}</div><div class="bars">{% for value in chart_values %}<div class="bar-wrap" style="--height:{% widthratio value chart_scale 100 %}%"><b>{{ value|floatformat:2 }}</b><div class="bar {% if forloop.counter > actual_month_count %}forecast{% endif %}" style="height:{% widthratio value chart_scale 100 %}%"></div><span>{% if forloop.counter == 1 %}Jan{% elif forloop.counter == 2 %}Feb{% elif forloop.counter == 3 %}Mar{% elif forloop.counter == 4 %}Apr{% elif forloop.counter == 5 %}Mei{% elif forloop.counter == 6 %}Jun{% elif forloop.counter == 7 %}Jul{% elif forloop.counter == 8 %}Agu{% elif forloop.counter == 9 %}Sep{% elif forloop.counter == 10 %}Okt{% elif forloop.counter == 11 %}Nov{% else %}Des{% endif %}</span></div>{% endfor %}</div></div></article>
+<article class="panel outlook-panel-pro"><h3>♎ PROYEKSI DAMPAK DESEMBER {{ selected_year }}</h3><span class="outlook-status-badge-v1 status-{{ outlook_status_class|default:'waspada' }}"><span class="outlook-status-value">{{ outlook_status|default:"BELUM TERSEDIA" }}</span></span>
+{% if sla_zero_target %}
+<div style="font-size:12px;line-height:1.4;margin:6px 0 10px">
+  <b>Target 2026: Rp0</b> ·
+  Realisasi 2025: {{ historical_reference }} (referensi)
+</div>
+{% endif %}
+<div class="scenario-grid"><div class="scenario best"><b>Best Case</b><strong>{{ best_case }}</strong><p>{{ best_case_note|default:"Di bawah risk appetite" }}</p></div><div class="scenario base"><b>Baseline</b><strong>{{ baseline_case }}</strong><p>{{ baseline_case_note|default:"Melewati risk appetite" }}</p></div><div class="scenario worst"><b>Worst Case</b><strong>{{ worst_case }}</strong><p>{{ worst_case_note|default:"Melebihi tolerance" }}</p>
+<div class="worst-details">
+  <div title="Peluang total kompensasi melampaui target RKAP">
+    <span>Probability &gt; target</span>
+    <em>{{ worst_probability|default:"–" }}</em>
+  </div>
+  <div title="Selisih Worst Case terhadap target RKAP">
+    <span>Dampak</span>
+    <em>{{ worst_impact|default:"–" }}</em>
+  </div>
+  <div title="Indikator: Probability melampaui target × Dampak Worst Case">
+    <span>Exposure (P × D)</span>
+    <em>{{ worst_exposure|default:"–" }}</em>
+  </div>
+</div>
+</div></div></article></div>
+<div class="row row2"><article class="panel"><h3>♙ TOP 4 RISK DRIVER / PENYEBAB UTAMA</h3><ol class="number-list">{% for item in drivers %}<li><i>{{ forloop.counter }}</i><span>{{ item }}</span></li>{% endfor %}</ol></article><article class="panel"><h3>PROGRAM MITIGASI PRIORITAS {{ selected_year }}</h3><table class="simple-table programs"><thead><tr><th>Program / Inisiatif</th><th>PIC</th><th>Progress</th></tr></thead><tbody>{% for row in programs %}<tr><td>{{ row.name }}</td><td>{{ row.pic }}</td><td><span class="pill {{ row.class }}">{{ row.status }}</span></td></tr>{% endfor %}</tbody></table></article><div class="right-stack"><!-- RIGHT_STACK_CONCLUSION_FIRST_V1 --><div class="conclusion"><strong>◆ RISK REVIEW</strong>{% if conclusion %}{{ conclusion }}{% else %}Realisasi {{ period }} masih dalam risk tolerance.<br>Diperlukan percepatan realisasi mitigasi dan dukungan manajemen untuk menjaga keandalan pasokan kepada pelanggan premium.{% endif %}</div><article class="panel concerns"><h3>⚠ MANAGEMENT CONCERN &amp; DECISION REQUIRED</h3><ol class="number-list">{% for item in concerns %}<li><i>{{ forloop.counter }}</i><span>{{ item }}</span></li>{% endfor %}</ol></article></div></div></section>
 <footer class="footer"><div>◎ &nbsp; Keandalan Hari Ini<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Untuk Pelanggan Utama Esok</div><div>♧ &nbsp; Energi Andal<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;untuk Kehidupan yang Lebih Baik</div><div>Kolaborasi &nbsp; | &nbsp; Integritas &nbsp; | &nbsp; Profesional &nbsp; | &nbsp; Berorientasi Solusi</div></footer></main><a class="back" href="{% url 'rcc_dashboard' %}">← Kembali ke RCC</a>
 <script>
 (()=>{const year=document.getElementById('yearSelect'),risk=document.getElementById('riskSelect');function go(tv){const p=new URLSearchParams();if(year.value)p.set('year',year.value);if(risk.value)p.set('risk',risk.value);if(tv)p.set('tv','1');location.href='{% url "executive_risk_v2_dashboard" %}?'+p.toString()}year.addEventListener('change',()=>go(false));risk.addEventListener('change',()=>go(false));document.getElementById('fullscreenBtn').addEventListener('click',()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen());document.getElementById('tvBtn').addEventListener('click',()=>go(true));{% if tv_mode and risks %}const options=[...risk.options];setTimeout(()=>{const next=options[(risk.selectedIndex+1)%options.length];risk.value=next.value;go(true)},20000);{% endif %}})();
-</script></body></html>
+</script>
+<!-- OUTLOOK_STATUS_BADGE_V1 -->
+<style>
+  .outlook-status-badge-v1 {
+    position: absolute;
+    top: 18px;
+    right: 20px;
+    z-index: 2;
+    min-width: 125px;
+    padding: 8px 18px;
+    border-radius: 10px;
+    color: #fff;
+    text-align: center;
+    font-weight: 800;
+    line-height: 1.15;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
+  }
+
+  .outlook-status-badge-v1 .outlook-status-value {
+    display: block;
+    font-size: 20px;
+  }
+
+  .outlook-status-badge-v1.status-aman {
+    background: linear-gradient(135deg, #43cf55, #23a938);
+  }
+
+  .outlook-status-badge-v1.status-waspada {
+    background: linear-gradient(135deg, #ffc928, #e6a900);
+    color: #3d3000;
+  }
+
+  .outlook-status-badge-v1.status-bahaya {
+    background: linear-gradient(135deg, #ff3038, #d80e18);
+  }
+
+  @media (max-width: 900px) {
+    .outlook-status-badge-v1 {
+      position: static;
+      display: block;
+      width: fit-content;
+      margin: 8px 0 14px auto;
+    }
+  }
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  if (document.querySelector(".outlook-panel-pro > .outlook-status-badge-v1")) return;
+  const headings = Array.from(
+    document.querySelectorAll("h1, h2, h3, h4, h5, h6")
+  );
+
+  const heading = headings.find(function (node) {
+    return node.textContent
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase()
+      .includes("PROYEKSI DAMPAK DESEMBER 2026");
+  });
+
+  if (!heading) {
+    console.warn("Outlook Status: judul Outlook Dampak 2026 tidak ditemukan.");
+    return;
+  }
+
+  let panel = heading.parentElement;
+
+  while (panel && panel.tagName !== "BODY") {
+    const text = panel.textContent
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+
+    if (
+      text.includes("best case") &&
+      text.includes("baseline") &&
+      text.includes("worst case")
+    ) {
+      break;
+    }
+
+    panel = panel.parentElement;
+  }
+
+  if (!panel || panel.tagName === "BODY") {
+    console.warn("Outlook Status: panel outlook tidak ditemukan.");
+    return;
+  }
+
+  const outlookText = panel.textContent
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  let status = "AMAN";
+  let statusClass = "status-aman";
+
+  if (
+    outlookText.includes("melebihi tolerance") ||
+    outlookText.includes("melewati tolerance")
+  ) {
+    status = "BAHAYA";
+    statusClass = "status-bahaya";
+  } else if (
+    outlookText.includes("melewati risk appetite") ||
+    outlookText.includes("melebihi risk appetite")
+  ) {
+    status = "HATI-HATI";
+    statusClass = "status-waspada";
+  }
+
+  panel.style.position = "relative";
+
+  const badge = document.createElement("div");
+  badge.className = "outlook-status-badge-v1 " + statusClass;
+  badge.setAttribute("aria-label", "Outlook Status 2026: " + status);
+
+  const value = document.createElement("span");
+  value.className = "outlook-status-value";
+  value.textContent = status;
+
+  badge.appendChild(value);
+  panel.appendChild(badge);
+
+  // OUTLOOK_HEADER_ALIGN_V1
+  const statusFontSize = window.getComputedStyle(value).fontSize;
+
+  heading.style.fontSize = statusFontSize;
+  heading.style.lineHeight = "1.15";
+  heading.style.marginTop = "0";
+  heading.style.marginBottom = "0";
+
+  if (!window.matchMedia("(max-width: 900px)").matches) {
+    window.requestAnimationFrame(function () {
+      const panelRect = panel.getBoundingClientRect();
+      const headingRect = heading.getBoundingClientRect();
+      const badgeRect = badge.getBoundingClientRect();
+
+      const alignedTop =
+        headingRect.top -
+        panelRect.top +
+        ((headingRect.height - badgeRect.height) / 2);
+
+      badge.style.top = Math.max(10, alignedTop) + "px";
+    });
+  }
+
+  // OUTLOOK_SCENARIO_OFFSET_V1
+  const scenarioNames = ["Best Case", "Baseline", "Worst Case"];
+  const scenarioOffset = window.matchMedia("(max-width: 900px)").matches
+    ? "12px"
+    : "48px";
+
+  scenarioNames.forEach(function (scenarioName) {
+    const titleNode = Array.from(panel.querySelectorAll("*")).find(
+      function (node) {
+        return node.textContent
+          .replace(/\s+/g, " ")
+          .trim()
+          .toLowerCase() === scenarioName.toLowerCase();
+      }
+    );
+
+    if (!titleNode) {
+      console.warn(
+        "Outlook Status: judul skenario tidak ditemukan:",
+        scenarioName
+      );
+      return;
+    }
+
+    let scenarioCard = titleNode;
+
+    while (scenarioCard && scenarioCard !== panel) {
+      const cardText = scenarioCard.textContent
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+
+      if (
+        cardText.includes(scenarioName.toLowerCase()) &&
+        cardText.includes("rp") &&
+        (
+          cardText.includes("risk appetite") ||
+          cardText.includes("tolerance")
+        )
+      ) {
+        break;
+      }
+
+      scenarioCard = scenarioCard.parentElement;
+    }
+
+    if (scenarioCard && scenarioCard !== panel) {
+      scenarioCard.style.marginTop = scenarioOffset;
+    }
+  });
+});
+</script>
+
+
+<!-- MONTH_CURRENT_REMOVE_SD_DOM_V2 -->
+<script>
+(function () {
+    function normalize(value) {
+        return (value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function fixMonthCurrent() {
+        const allElements = Array.from(document.querySelectorAll("body *"));
+
+        let candidates = allElements.filter(function (element) {
+            return /Month\s+Current/i.test(normalize(element.textContent));
+        });
+
+        if (!candidates.length) {
+            return false;
+        }
+
+        // Pilih elemen terkecil yang memuat Month Current.
+        candidates.sort(function (a, b) {
+            return normalize(a.textContent).length -
+                   normalize(b.textContent).length;
+        });
+
+        let target = candidates[0];
+        let container = target;
+
+        // Jika s.d. berada di sibling/child lain, naik ke parent terdekat.
+        for (let level = 0; level < 5 && container; level++) {
+            const text = normalize(container.textContent);
+
+            if (
+                /Month\s+Current/i.test(text) &&
+                /s\s*\.\s*d\s*\.?/i.test(text)
+            ) {
+                break;
+            }
+
+            container = container.parentElement;
+        }
+
+        if (!container) {
+            return false;
+        }
+
+        let changed = false;
+        const walker = document.createTreeWalker(
+            container,
+            NodeFilter.SHOW_TEXT
+        );
+
+        const textNodes = [];
+        let node;
+
+        while ((node = walker.nextNode())) {
+            textNodes.push(node);
+        }
+
+        textNodes.forEach(function (textNode) {
+            const original = textNode.nodeValue;
+
+            if (/s\s*\.\s*d\s*\.?/i.test(original)) {
+                textNode.nodeValue = original
+                    .replace(/s\s*\.\s*d\s*\.?\s*/i, "");
+
+                changed = true;
+            }
+        });
+
+        if (changed) {
+            container.setAttribute(
+                "data-month-current-clean",
+                "true"
+            );
+            console.info(
+                "MONTH_CURRENT_REMOVE_SD_DOM_V2: Month Current diperbaiki"
+            );
+        }
+
+        return changed;
+    }
+
+    function runFix() {
+        fixMonthCurrent();
+
+        window.setTimeout(fixMonthCurrent, 250);
+        window.setTimeout(fixMonthCurrent, 750);
+        window.setTimeout(fixMonthCurrent, 1500);
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", runFix);
+    } else {
+        runFix();
+    }
+})();
+</script>
+
+
+<!-- EXECUTIVE_NAV_UNIFORM_START -->
+<style>
+.executive-nav-uniform {
+    box-sizing: border-box !important;
+    min-height: 54px !important;
+    padding: 0 18px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 auto !important;
+    border-radius: 15px !important;
+    font-family: inherit !important;
+    font-size: clamp(14px, 1.15vw, 18px) !important;
+    font-weight: 700 !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+    text-decoration: none !important;
+    vertical-align: middle !important;
+}
+
+.executive-nav-uniform *,
+.executive-nav-uniform:link,
+.executive-nav-uniform:visited,
+.executive-nav-uniform:hover,
+.executive-nav-uniform:active {
+    text-decoration: none !important;
+}
+
+@media (max-width: 1100px) {
+    .executive-nav-uniform {
+        min-height: 48px !important;
+        padding: 0 13px !important;
+        font-size: 14px !important;
+    }
+}
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const labels = new Set([
+        "Mode: Residual",
+        "Lihat Inheren",
+        "Dashboard Direksi",
+        "Postur Keuangan RKAP",
+        "Mode TV",
+        "Detail RCC",
+        "Strategy–Risk Map",
+        "Strategy-Risk Map"
+    ]);
+
+    document.querySelectorAll("a, button, span, div").forEach(function (node) {
+        const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+
+        if (!labels.has(text)) return;
+
+        const control = node.closest("a, button") || node;
+        control.classList.add("executive-nav-uniform");
+    });
+});
+</script>
+<!-- EXECUTIVE_NAV_UNIFORM_END -->
+
+
+<!-- NAV_ALIGNMENT_FORCE_START -->
+<style>
+.nav-force-row {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 10px !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding-bottom: 3px !important;
+}
+
+.nav-force-row > .nav-force-item {
+    box-sizing: border-box !important;
+    flex: 0 0 auto !important;
+    height: 50px !important;
+    min-height: 50px !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding: 0 13px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    vertical-align: middle !important;
+    font-size: 16px !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    text-decoration: none !important;
+    border-radius: 13px !important;
+}
+
+.nav-force-row > .nav-force-item,
+.nav-force-row > .nav-force-item *,
+.nav-force-row > .nav-force-item:hover,
+.nav-force-row > .nav-force-item:focus {
+    text-decoration: none !important;
+}
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const labels = new Set([
+        "Mode: Residual",
+        "Lihat Inheren",
+        "Dashboard Direksi",
+        "Postur Keuangan RKAP",
+        "Mode TV",
+        "Detail RCC",
+        "Strategy–Risk Map",
+        "Strategy-Risk Map",
+        "Strategy—Risk Map"
+    ]);
+
+    const controls = [];
+
+    document.querySelectorAll("a, button, span, div").forEach(function (node) {
+        const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+
+        if (!labels.has(text)) return;
+
+        const control = node.closest("a, button") || node;
+
+        if (!controls.includes(control)) {
+            controls.push(control);
+        }
+    });
+
+    if (controls.length < 6) {
+        console.warn("Navigasi tidak lengkap:", controls.length);
+        return;
+    }
+
+    function commonParent(nodes) {
+        let current = nodes[0].parentElement;
+
+        while (current && current !== document.body) {
+            if (nodes.every(function (node) {
+                return current.contains(node);
+            })) {
+                return current;
+            }
+
+            current = current.parentElement;
+        }
+
+        return null;
+    }
+
+    const container = commonParent(controls);
+
+    if (!container) {
+        console.warn("Container navigasi tidak ditemukan.");
+        return;
+    }
+
+    container.classList.add("nav-force-row");
+
+    controls.forEach(function (control) {
+        control.classList.add("nav-force-item");
+
+        /* Pindahkan item ke level container yang sama jika dibungkus elemen kecil. */
+        let directItem = control;
+
+        while (
+            directItem.parentElement &&
+            directItem.parentElement !== container &&
+            directItem.parentElement.children.length === 1
+        ) {
+            directItem = directItem.parentElement;
+        }
+
+        directItem.classList.add("nav-force-item");
+    });
+});
+</script>
+<!-- NAV_ALIGNMENT_FORCE_END -->
+
+
+<!-- CENTER_NAV_LINK_TEXT_START -->
+<style>
+/* Dashboard Direksi dan Strategy–Risk Map */
+.nav-link-button-fix {
+    box-sizing: border-box !important;
+    height: 50px !important;
+    min-height: 50px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    align-content: center !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    text-decoration: none !important;
+}
+
+.nav-link-button-fix > *,
+.nav-link-button-fix span,
+.nav-link-button-fix strong {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    line-height: 1.15 !important;
+    align-self: center !important;
+    text-decoration: none !important;
+}
+</style>
+<!-- CENTER_NAV_LINK_TEXT_END -->
+
+
+<!-- FORCE_SAME_NAV_ROW_START -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const labels = [
+        "Mode: Residual",
+        "Lihat Inheren",
+        "Dashboard Direksi",
+        "Postur Keuangan RKAP",
+        "Mode TV",
+        "Detail RCC",
+        "Strategy–Risk Map",
+        "Strategy-Risk Map",
+        "Strategy—Risk Map"
+    ];
+
+    function normalizedText(element) {
+        return (element.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function findControl(label) {
+        const candidates = Array.from(
+            document.querySelectorAll("a, button, span, div")
+        ).filter(function (element) {
+            return normalizedText(element) === label;
+        });
+
+        if (!candidates.length) return null;
+
+        candidates.sort(function (a, b) {
+            return a.children.length - b.children.length;
+        });
+
+        return candidates[0].closest("a, button") || candidates[0];
+    }
+
+    function findVisualButton(element) {
+        let current = element;
+
+        for (let i = 0; current && i < 5; i++, current = current.parentElement) {
+            const style = window.getComputedStyle(current);
+            const rect = current.getBoundingClientRect();
+
+            const borderWidth =
+                parseFloat(style.borderTopWidth || 0) +
+                parseFloat(style.borderRightWidth || 0) +
+                parseFloat(style.borderBottomWidth || 0) +
+                parseFloat(style.borderLeftWidth || 0);
+
+            if (
+                rect.height >= 35 &&
+                rect.height <= 100 &&
+                borderWidth > 0
+            ) {
+                return current;
+            }
+        }
+
+        return element;
+    }
+
+    const found = [];
+
+    labels.forEach(function (label) {
+        const control = findControl(label);
+
+        if (!control) return;
+
+        const visualButton = findVisualButton(control);
+
+        if (!found.some(function (item) {
+            return item.box === visualButton;
+        })) {
+            found.push({
+                label: label,
+                control: control,
+                box: visualButton
+            });
+        }
+    });
+
+    if (found.length < 6) {
+        console.warn("Navigasi tidak lengkap:", found.length);
+        return;
+    }
+
+    function commonAncestor(elements) {
+        let ancestor = elements[0].parentElement;
+
+        while (ancestor && ancestor !== document.body) {
+            if (elements.every(function (element) {
+                return ancestor.contains(element);
+            })) {
+                return ancestor;
+            }
+
+            ancestor = ancestor.parentElement;
+        }
+
+        return null;
+    }
+
+    const boxes = found.map(function (item) {
+        return item.box;
+    });
+
+    const container = commonAncestor(boxes);
+
+    if (container) {
+        container.style.setProperty("display", "flex", "important");
+        container.style.setProperty("flex-direction", "row", "important");
+        container.style.setProperty("flex-wrap", "nowrap", "important");
+        container.style.setProperty("align-items", "center", "important");
+        container.style.setProperty("align-content", "center", "important");
+        container.style.setProperty("justify-content", "flex-start", "important");
+        container.style.setProperty("gap", "10px", "important");
+        container.style.setProperty("overflow-x", "auto", "important");
+        container.style.setProperty("overflow-y", "hidden", "important");
+
+        boxes.forEach(function (box) {
+            let directChild = box;
+
+            while (
+                directChild.parentElement &&
+                directChild.parentElement !== container
+            ) {
+                directChild = directChild.parentElement;
+            }
+
+            directChild.style.setProperty("margin-top", "0", "important");
+            directChild.style.setProperty("margin-bottom", "0", "important");
+            directChild.style.setProperty("align-self", "center", "important");
+            directChild.style.setProperty("flex", "0 0 auto", "important");
+        });
+    }
+
+    const referenceItem =
+        found.find(function (item) {
+            return item.label === "Lihat Inheren";
+        }) || found[0];
+
+    const referenceHeight = Math.round(
+        referenceItem.box.getBoundingClientRect().height
+    );
+
+    found.forEach(function (item) {
+        const box = item.box;
+        const control = item.control;
+
+        box.style.setProperty(
+            "height",
+            referenceHeight + "px",
+            "important"
+        );
+        box.style.setProperty(
+            "min-height",
+            referenceHeight + "px",
+            "important"
+        );
+        box.style.setProperty(
+            "max-height",
+            referenceHeight + "px",
+            "important"
+        );
+        box.style.setProperty("margin-top", "0", "important");
+        box.style.setProperty("margin-bottom", "0", "important");
+        box.style.setProperty("display", "inline-flex", "important");
+        box.style.setProperty("align-items", "center", "important");
+        box.style.setProperty("justify-content", "center", "important");
+        box.style.setProperty("vertical-align", "middle", "important");
+        box.style.setProperty("box-sizing", "border-box", "important");
+
+        control.style.setProperty("display", "inline-flex", "important");
+        control.style.setProperty("align-items", "center", "important");
+        control.style.setProperty("justify-content", "center", "important");
+        control.style.setProperty("height", "100%", "important");
+        control.style.setProperty("margin", "0", "important");
+        control.style.setProperty("padding-top", "0", "important");
+        control.style.setProperty("padding-bottom", "0", "important");
+        control.style.setProperty("line-height", "1.15", "important");
+        control.style.setProperty("text-decoration", "none", "important");
+    });
+});
+</script>
+<!-- FORCE_SAME_NAV_ROW_END -->
+
+</body></html>

@@ -3419,6 +3419,9 @@ class MultiMetricMonteCarloResultAdmin(admin.ModelAdmin):
     metric_snapshot_html.short_description = "Detail Metric"
 
     def multi_metric_ai_insight_html(self, obj):
+        # MULTI_METRIC_ADD_FORM_GUARD
+        if obj is None or obj.pk is None:
+            return "AI Insight tersedia setelah hasil simulasi disimpan."
         # V4.11.1-r3 — detail-page AI Insight action button.
         generate_url = reverse(
             f"{self.admin_site.name}:corporate_risk_generate_ai_insight_multi_metric",

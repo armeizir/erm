@@ -550,14 +550,36 @@ class MonthlyRiskReportItem(TimeStampedModel):
     def __str__(self):
         return f"{self.report.kode} - {self.risk_event.no_risiko}"
 
+    def _km_matches_report_or_profile(self):
+        """Accept an exact profile reference across contracts of the same unit/year."""
+        if self.km_item.kontrak_id == self.report.kontrak_manajemen_id:
+            return True
+        if not self.risk_event_id or not self.report.reassessment_id:
+            return False
+        profile = self.report.reassessment
+        if (
+            self.risk_event.summary_id != profile.pk
+            or self.risk_event.km_item_id != self.km_item_id
+        ):
+            return False
+        contract = self.km_item.kontrak
+        return (
+            profile.unit_bisnis_id is not None
+            and contract.unit_bisnis_id == profile.unit_bisnis_id
+            and contract.tahun == profile.tahun
+        )
+
     def clean(self):
         errors = {}
         if self.report_id and self.risk_event_id:
             if self.risk_event.summary_id != self.report.reassessment_id:
                 errors["risk_event"] = "Item risiko harus berasal dari profil risiko yang sama dengan report."
         if self.km_item_id and self.report_id:
-            if self.km_item.kontrak_id != self.report.kontrak_manajemen_id:
-                errors["km_item"] = "KM item harus berasal dari Kontrak Manajemen pada report ini."
+            if not self._km_matches_report_or_profile():
+                errors["km_item"] = (
+                    "KM item harus berasal dari kontrak laporan atau sama dengan "
+                    "referensi pada profil risiko untuk unit dan tahun yang sama."
+                )
         if self.residual_level and self.target_residual_level:
             if self.residual_level > self.target_residual_level and not self.escalation_note:
                 errors["escalation_note"] = (
@@ -718,6 +740,13 @@ class MonthlyRiskReportItem(TimeStampedModel):
                 self.km_item_id = canonical_km_item_id
                 if kwargs.get("update_fields") is not None:
                     kwargs["update_fields"] = set(kwargs["update_fields"]) | {"km_item"}
+        if self.jenis_risiko == "kuantitatif":
+            from risk.services.risk_exposure import calculate_quarterly_risk_exposure
+            self.realisasi_eksposur = calculate_quarterly_risk_exposure(
+                self.realisasi_nilai_dampak, self.realisasi_nilai_probabilitas
+            )
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"realisasi_eksposur"}
         self._calculate_realisasi()
         super().save(*args, **kwargs)
 

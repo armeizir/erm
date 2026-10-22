@@ -22,6 +22,25 @@ from .services.risk_level import (
 # =========================================================
 
 class AppSetting(models.Model):
+
+    # Referensi historis grafik risiko #5 tahun 2026.
+    sla_reference_annual = models.DecimalField(
+        max_digits=24, decimal_places=2,
+        default=Decimal("6726701018"),
+        validators=[MinValueValidator(Decimal("0"))],
+        verbose_name="Realisasi kompensasi 2025 (Rp)",
+        help_text="Referensi tahunan. Garis grafik = nilai ini / 12; bukan target 2026.",
+    )
+    sla_reference_label = models.CharField(
+        max_length=120,
+        default="Rata-rata bulanan 2025",
+        verbose_name="Label garis referensi SLA",
+    )
+    sla_reference_visible = models.BooleanField(
+        default=True,
+        verbose_name="Tampilkan garis referensi SLA",
+    )
+
     AI_PROVIDER_OPENAI = "openai"
     AI_PROVIDER_GEMINI = "gemini"
     AI_PROVIDER_CHOICES = (

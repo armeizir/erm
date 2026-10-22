@@ -10,6 +10,7 @@ from .kpmr_aggregation import (
     _aggregate_exposure_for_i1,
 )
 from .kpmr_assembly import build_kpmr_indicators, finalize_kpmr_result
+from .kpmr_owner import residual_owner_items
 from .kpmr_i1 import calculate_i1
 from .kpmr_i2 import calculate_i2
 from .kpmr_i3 import calculate_i3
@@ -347,7 +348,7 @@ def calculate_kpmr_for_unit(
     ) if reports else None
     comparable = [
         item
-        for item in report_items
+        for item in residual_owner_items(report_items)
         if target_residual_score(item, quarter) is not None
         and actual_residual_score(item) is not None
     ]

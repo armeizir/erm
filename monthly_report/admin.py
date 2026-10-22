@@ -475,18 +475,24 @@ def _users_for_unit_group(unit):
 def _monthly_risk_item_key(item):
     """Canonical grouping key for one business risk in monthly monitoring.
 
-    no_risiko is the parent/business-risk identifier.  no_item is only the
-    technical/source row and may repeat one business risk across causes.
-    Fall back to event text only for legacy data where no_risiko is absent.
+    no_item is the parent/business-risk identifier and may repeat across
+    multiple cause/detail rows. no_risiko identifies the technical source row.
+    Fall back to no_risiko and event text only for legacy data.
     """
-    risk_number = getattr(item, "no_risiko", None)
+    risk_number = getattr(item, "no_item", None)
     if risk_number not in (None, ""):
         return f"risk:{risk_number}"
+
+    source_number = getattr(item, "no_risiko", None)
+    if source_number not in (None, ""):
+        return f"source:{source_number}"
 
     risk_event = (item.peristiwa_risiko or "").strip().casefold()
     if risk_event:
         return f"event:{risk_event}"
+
     return f"item:{item.pk}"
+
 
 
 def _monthly_risk_item_number_map(items):
@@ -510,8 +516,8 @@ def _monthly_report_pairing_owner_items(report, *, for_update=False):
         "risk_event__summary",
         "risk_event__summary__unit_bisnis",
     ).order_by(
-        "risk_event__no_risiko",
         "risk_event__no_item",
+        "risk_event__no_risiko",
         "risk_event__no_penyebab_risiko",
         "pk",
     )
@@ -535,7 +541,7 @@ def _monthly_risk_item_label(item, number_by_pk=None):
     unit_code = ""
     if item.summary_id and item.summary.unit_bisnis_id:
         unit_code = item.summary.unit_bisnis.name
-    risk_number = item.no_risiko or item.no_item or "-"
+    risk_number = item.no_item or item.no_risiko or "-"
     cause_number = (item.no_penyebab_risiko or "").strip().lower()
     code_parts = [str(part) for part in (unit_code, risk_number) if part]
     risk_code = "-".join(code_parts)
@@ -632,7 +638,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             "realisasi_nilai_kri": "Status threshold dihitung otomatis berdasarkan nilai realisasi dan konfigurasi KRI.",
             "realisasi_skala_dampak_kbumn": "Isi skala dampak KBUMN antara 1 sampai 5 sesuai Kertas Kerja III.A.",
             "realisasi_skala_probabilitas_kbumn": "Isi skala probabilitas KBUMN antara 1 sampai 5 sesuai Kertas Kerja III.A.",
-            "realisasi_eksposur": "Isi nilai eksposur risiko dalam Rupiah/USD sesuai Kertas Kerja III.A. Diisi manual atau melalui import Excel.",
+            "realisasi_eksposur": "Kuantitatif: dihitung otomatis dari dampak aktual × probabilitas aktual / 100 saat disimpan. Komponen kosong menghasilkan eksposur kosong. Kualitatif: sesuai Kertas Kerja III.A.",
             "realisasi_skor_risiko": "Isi skala nilai risiko BUMN antara 1 sampai 25 sesuai Kertas Kerja III.A.",
             "realisasi_skala_nilai_risiko_kbumn": "Isi skala nilai risiko KBUMN antara 1 sampai 25 sesuai Kertas Kerja III.A.",
             "realisasi_level_risiko_bumn": "Isi level risiko BUMN sesuai Kertas Kerja III.A.",
@@ -900,6 +906,24 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
 
         return super().has_changed()
 
+    def _update_errors(self, errors):
+        """Show model errors on excluded fields as non-field validation errors."""
+        if hasattr(errors, "error_dict"):
+            routed = {}
+            for field_name, field_errors in errors.error_dict.items():
+                if field_name == "__all__" or field_name in self.fields:
+                    routed.setdefault(field_name, []).extend(field_errors)
+                else:
+                    routed.setdefault("__all__", []).extend(
+                        ValidationError(
+                            "%(field)s: %(message)s",
+                            params={"field": field_name, "message": message},
+                        )
+                        for error in field_errors for message in error.messages
+                    )
+            errors = ValidationError(routed)
+        return super()._update_errors(errors)
+
     def full_clean(self):
         """
         Jangan validasi row existing yang tidak disentuh browser.
@@ -1077,7 +1101,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         if not self.risk:
             return "Risiko Baru"
 
-        risk_number = self.risk.no_risiko or self.risk.no_item or "-"
+        risk_number = self.risk.no_item or self.risk.no_risiko or "-"
         risk_name = (
             self.risk.peristiwa_risiko
             or "Nama risiko belum tersedia"
@@ -1145,8 +1169,8 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                 "risk_event__summary__unit_bisnis",
             )
             .order_by(
-                "risk_event__no_risiko",
                 "risk_event__no_item",
+                "risk_event__no_risiko",
                 "risk_event__no_penyebab_risiko",
                 "pk",
             )
@@ -1252,7 +1276,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         ]
 
         # Child cause rows only carry III.B treatment monitoring.  Residual
-        # risk and KRI completeness belong to the first/owner row of no_risiko.
+        # risk and KRI completeness belong to the first/owner row of no_item.
         if not self.kri_is_owner:
             return treatment_fields
 
@@ -1426,9 +1450,9 @@ class MonthlyRiskReportItemInline(admin.StackedInline):
             .get_queryset(request)
             .select_related("risk_event")
             .order_by(
+                "risk_event__no_item",
                 "risk_event__no_risiko",
                 "risk_event__no_penyebab_risiko",
-                "risk_event__no_item",
                 "pk",
             )
         )
@@ -3036,8 +3060,43 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         quarter = _quarter_number(report)
         iiia_rows = []
         iiib_rows = []
+        # IIIA_COLUMN_SUM_V1
+        from decimal import Decimal
+        column_sums = {
+            key: Decimal("0")
+            for key in (
+                "target_impact", "target_exposure",
+                "actual_impact", "actual_exposure",
+            )
+        }
+        column_counts = dict.fromkeys(column_sums, 0)
+        # IIIB_PROGRESS_SUM_V1
+        from decimal import Decimal as ProgressDecimal
+        progress_sum = ProgressDecimal("0")
+        progress_count = 0
         for item in items:
+            raw_progress = item.progress_pelaksanaan_percent
+            if raw_progress is not None:
+                progress_value = ProgressDecimal(str(raw_progress))
+                if not progress_value.is_finite():
+                    raise ValueError("Nilai progress tidak valid.")
+                progress_sum += progress_value
+                progress_count += 1
             risk = item.risk_event
+            sum_values = {
+                "target_impact": getattr(risk, f"nilai_dampak_q{quarter}", None),
+                "target_exposure": getattr(risk, f"eksposur_risiko_q{quarter}", None),
+                "actual_impact": item.realisasi_nilai_dampak,
+                "actual_exposure": item.realisasi_eksposur,
+            }
+            for key, raw_value in sum_values.items():
+                if raw_value is None:
+                    continue
+                number = Decimal(str(raw_value))
+                if not number.is_finite():
+                    raise ValueError("Nilai kolom III.A tidak valid: " + key)
+                column_sums[key] += number
+                column_counts[key] += 1
             risk_no = number_by_risk.get(risk.id, risk.no_risiko or risk.no_item)
             target_level = _risk_level_text(
                 getattr(risk, f"skala_risiko_q{quarter}", ""),
@@ -3113,7 +3172,16 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "report": report,
             "quarter": quarter,
             "iiia_rows": iiia_rows,
+            "iiia_totals": {
+                key: _money(value if column_counts[key] else None)
+                for key, value in column_sums.items()
+            },
             "iiib_rows": iiib_rows,
+            "iiib_progress_total": (
+                format(progress_sum, ".2f").replace(".", ",")
+                if progress_count else "-"
+            ),
+            "iiib_progress_count": progress_count,
             "changes": report.changes.all(),
             "loss_events": report.loss_events.all(),
         }

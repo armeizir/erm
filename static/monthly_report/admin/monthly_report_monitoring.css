@@ -58,13 +58,7 @@
   border-radius: 4px;
   padding: 8px;
 }
-.monitoring-risk-body fieldset.residual-grid .readonly::before {
-  content: "🧮 Dihitung otomatis";
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
+/* MRR_READONLY_LABEL_FIX_V1: readonly bukan berarti hasil kalkulasi. */
 .monitoring-risk-body textarea { min-height: 70px; width: min(100%, 900px); }
 .monitoring-risk-footer { align-items: center; border-top: 1px solid var(--hairline-color); display: flex; gap: 14px; justify-content: flex-end; padding: 10px; }
 .monitoring-delete { color: var(--body-quiet-color); font-size: 12px; opacity: .75; }

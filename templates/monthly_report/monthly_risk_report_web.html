@@ -308,6 +308,22 @@
             <tr><td colspan="19">Belum ada data realisasi risiko bulanan.</td></tr>
           {% endfor %}
         </tbody>
+
+        <!-- IIIA_COLUMN_SUM_V1 -->
+        <tfoot>
+          <tr style="background:#e3edf7;font-weight:700;border-top:3px solid #245780">
+            <td colspan="4">TOTAL KOLOM — seluruh baris yang ditampilkan</td>
+            <td class="right nowrap">{{ iiia_totals.target_impact }}</td>
+            <td colspan="3"></td>
+            <td class="right nowrap">{{ iiia_totals.target_exposure }}</td>
+            <td colspan="2"></td>
+            <td class="right nowrap">{{ iiia_totals.actual_impact }}</td>
+            <td colspan="3"></td>
+            <td class="right nowrap">{{ iiia_totals.actual_exposure }}</td>
+            <td colspan="3"></td>
+          </tr>
+        </tfoot>
+
       </table>
     </div>
   </section>
@@ -376,6 +392,18 @@
             <tr><td colspan="29">Belum ada data pelaksanaan perlakuan risiko.</td></tr>
           {% endfor %}
         </tbody>
+        <!-- IIIB_PROGRESS_SUM_V1 -->
+        <tfoot>
+          <tr style="background:#e3edf7;font-weight:700;border-top:3px solid #245780">
+            <td colspan="15">
+              TOTAL NILAI PROGRESS
+              ({{ iiib_progress_count }} item terisi, termasuk nilai 0%)
+            </td>
+            <td class="center nowrap">{{ iiib_progress_total }}</td>
+            <td colspan="13"></td>
+          </tr>
+        </tfoot>
+
       </table>
     </div>
   </section>

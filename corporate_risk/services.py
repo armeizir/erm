@@ -584,6 +584,26 @@ def _sample_growth(rates, avg_growth, std_growth, distribution_type):
     return random.gauss(avg_growth, std_growth)
 
 
+# COP_END_OF_PERIOD_V1
+def _is_cop_position_metric(metric):
+    name = " ".join(str(getattr(metric, "name", "")).casefold().replace("_", " ").replace("-", " ").split())
+    unit = str(getattr(metric, "unit", "")).strip().casefold()
+    return unit in {"hari", "day", "days"} and ("cop" in name.split() or "collection period" in name)
+
+
+def _cop_forecast_horizon(metric, histories, forecast_periode, fallback):
+    if not _is_cop_position_metric(metric):
+        return fallback
+    cutoff = forecast_periode.tanggal_selesai
+    last = histories[-1].tanggal_data
+    if cutoff is None or last is None or (last.year, last.month) != (cutoff.year, cutoff.month):
+        raise ValueError("COP membutuhkan data aktual untuk bulan periode simulasi.")
+    dates = [(h.tanggal_data.year, h.tanggal_data.month) for h in histories]
+    if len(dates) != len(set(dates)):
+        raise ValueError("Histori COP memiliki lebih dari satu observasi dalam satu bulan.")
+    return 12 - cutoff.month
+
+
 def _simulate_metric(
     values,
     months_ahead=9,
@@ -591,6 +611,8 @@ def _simulate_metric(
     actual_total=None,
     distribution_type="normal",
     sma_window: int | None = None,
+    end_of_period=False,
+    rng_seed=None,
 ):
     """
     V4.12 — Rolling SMA monthly forecast for internal/history_sma models.
@@ -606,6 +628,19 @@ def _simulate_metric(
     - Imported assumptions / Crystal Ball memakai simulator terpisah dan tidak
       melewati fungsi ini.
     """
+    # COP selects the closing month; SUM behavior is preserved verbatim.
+    if end_of_period:
+        if str(distribution_type).casefold() != "normal":
+            raise ValueError("COP posisi saat ini mendukung Normal. Pilih Normal secara eksplisit.")
+        if int(months_ahead) != months_ahead or not 0 <= int(months_ahead) <= 12:
+            raise ValueError("Horizon COP tidak valid.")
+        if int(n_simulations) < 1000:
+            raise ValueError("COP memerlukan minimal 1000 trials.")
+        raw_values = [float(v) for v in values]
+        if any(not math.isfinite(v) or v < 0 for v in raw_values):
+            raise ValueError("Histori COP harus finite dan tidak negatif.")
+    rng = random.Random(rng_seed) if end_of_period else random
+
     if len(values) < 3:
         raise ValueError("Data histori metric belum cukup. Minimal 3 periode.")
 
@@ -629,6 +664,9 @@ def _simulate_metric(
         if actual_total is not None
         else sum(values)
     )
+
+    if end_of_period:
+        actual_total = values[-1]
 
     # ------------------------------------------------------------------
     # V4.12 — deterministic recursive monthly P50 baseline.
@@ -654,9 +692,9 @@ def _simulate_metric(
         total = float(actual_total)
 
         for month_p50 in rolling_p50:
-            sampled = random.gauss(month_p50, sigma)
+            sampled = rng.gauss(month_p50, sigma)
             sampled = max(sampled, 0.0)
-            total += sampled
+            total = sampled if end_of_period else total + sampled
 
         simulation_totals.append(total)
 
@@ -670,8 +708,12 @@ def _simulate_metric(
     p90_total = _percentile(simulation_totals, 0.90)
     p95_total = _percentile(simulation_totals, 0.95)
 
-    future_mean_total = sum(rolling_p50)
-    full_year_expected = float(actual_total) + future_mean_total
+    if end_of_period:
+        future_mean_total = rolling_p50[-1] if rolling_p50 else float(actual_total)
+        full_year_expected = future_mean_total
+    else:
+        future_mean_total = sum(rolling_p50)
+        full_year_expected = float(actual_total) + future_mean_total
 
     # Projection rows UI now expose a distinct P50 for every forecast month.
     projection_rows = []
@@ -680,7 +722,7 @@ def _simulate_metric(
         month_p15 = max(month_p50 - sigma, 0.0)
 
         monthly_draws = [
-            max(random.gauss(month_p50, sigma), 0.0)
+            max(rng.gauss(month_p50, sigma), 0.0)
             for _ in range(2000)
         ]
 
@@ -731,6 +773,14 @@ def _simulate_metric(
             "std_dev": float(std_dev),
             "forecast_method": "rolling_sma_recursive_baseline",
             "rolling_p50": [float(value) for value in rolling_p50],
+            **({
+                "aggregation_method": "end_of_period",
+                "rng_seed": rng_seed,
+                "actual_semantics": "latest_observed_position",
+                "forecast_semantics": "December_position",
+                "uncertainty_method": "legacy_history_p15_sigma_normal_zero_floor",
+                "patch": "COP_END_OF_PERIOD_V1",
+            } if end_of_period else {}),
         },
     }
 
@@ -1703,6 +1753,8 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             raise ValueError("Belum ada Risk Metric aktif yang memiliki imported forecast assumptions.")
 
     metric_results = []
+    cop_simulations = {}
+    hjr_input_cache = {}
     total_weight = sum([_safe_float(m.weight) for m in metrics])
     target_analysis = {}
 
@@ -1719,6 +1771,11 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             .select_related("periode")
             .order_by("tanggal_data", "id")
         )
+
+        if _is_hjr_ratio_metric(metric):
+            if simulation_mode != "history_sma":
+                raise ValueError("HJR ratio saat ini memakai history_sma; imported assumptions perlu model rasio tersendiri.")
+            histories, hjr_input_cache[metric.pk] = _hjr_ratio_inputs(metric, forecast_periode)
 
         if len(histories) < 3:
             raise ValueError(
@@ -1745,12 +1802,16 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             and h.tanggal_data.year == forecast_year
             and h.tanggal_data <= forecast_periode.tanggal_selesai
         ]
+        if _is_cop_position_metric(metric) and simulation_mode != "history_sma":
+            raise ValueError("COP posisi memakai history_sma; imported assumptions perlu model posisi terpisah.")
         actual_ytd_total = sum(actual_ytd_values)
         # Bug 3: fallback salah — jangan menjumlahkan seluruh histori
         if actual_ytd_total <= 0:
             actual_ytd_total = _safe_float(values[-1]) if values else 0.0
 
-        if simulation_mode == "imported_assumptions":
+        if _is_hjr_ratio_metric(metric):
+            simulation = _simulate_hjr_ratio(hjr_input_cache[metric.pk], n_simulations, rng_seed, distribution_type)
+        elif simulation_mode == "imported_assumptions":
             if metric.aggregation_type not in (
                 RiskMetric.AGGREGATION_SUM,
                 RiskMetric.AGGREGATION_RATE,
@@ -1792,12 +1853,18 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             # Legacy/default mode remains unchanged.
             simulation = _simulate_metric(
                 values=values,
-                months_ahead=months_ahead,
+                months_ahead=_cop_forecast_horizon(metric, histories, forecast_periode, months_ahead),
                 n_simulations=n_simulations,
                 actual_total=actual_ytd_total,
-                distribution_type=distribution_type,
+                # COP_NORMAL_OVERRIDE_MULTI_V2
+                distribution_type="normal" if _is_cop_position_metric(metric) else distribution_type,
                 sma_window=3,
+                end_of_period=_is_cop_position_metric(metric),
+                rng_seed=rng_seed,
             )
+
+        if _is_cop_position_metric(metric) or _is_hjr_ratio_metric(metric):
+            cop_simulations[metric.pk] = simulation
 
         weight = _safe_float(metric.weight)
         weight_ratio = weight / total_weight if total_weight else 0
@@ -1871,6 +1938,8 @@ def run_multi_metric_monte_carlo_for_korporat_item(
             "unit": metric.unit,
             "direction": metric.direction,
             "aggregation_type": metric.aggregation_type,
+            **({"simulation_distribution_type": "normal"} if _is_cop_position_metric(metric) else {}),
+            **({"simulation_distribution_type": distribution_type} if _is_hjr_ratio_metric(metric) else {}),
             "simulation_mode": simulation_mode,
             "weight": weight,
             "weight_ratio": weight_ratio,
@@ -1959,7 +2028,9 @@ def run_multi_metric_monte_carlo_for_korporat_item(
                     .order_by("tanggal_data", "id")
                 )
 
-                if simulation_mode == "imported_assumptions":
+                if _is_cop_position_metric(metric_obj) or _is_hjr_ratio_metric(metric_obj):
+                    simulation = cop_simulations[metric_obj.pk]
+                elif simulation_mode == "imported_assumptions":
                     assumptions = list(
                         MonteCarloForecastAssumption.objects.filter(
                             metric=metric_obj,
@@ -3367,3 +3438,125 @@ def generate_rule_based_ai_insight_for_multi_metric_result(result, user_context=
     )
 
     return insight
+
+
+# HJR_RATIO_OF_TOTALS_V1
+"""HJR ratio-of-totals. No changes to COP/SUM or process-global RNG."""
+
+def _is_hjr_ratio_metric(metric):
+    return (metric is not None
+            and getattr(metric, 'aggregation_type', '') == 'ratio'
+            and str(getattr(metric, 'unit', '')).replace(' ', '').casefold() == 'rp/kwh')
+
+
+def _hjr_ratio_inputs(metric, period):
+    from types import SimpleNamespace
+    from calendar import monthrange
+    from datetime import date
+    numerator = metric.ratio_numerator_metric
+    denominator = metric.ratio_denominator_metric
+    if numerator is None or denominator is None or numerator.pk == denominator.pk:
+        raise ValueError('HJR membutuhkan pembilang dan penyebut yang berbeda.')
+    if numerator.aggregation_type != 'sum' or denominator.aggregation_type != 'sum':
+        raise ValueError('HJR membutuhkan sumber SUM bulanan; sumber kumulatif perlu adapter tersendiri.')
+    if str(numerator.unit).strip().casefold() not in {'rp', 'idr'} or str(denominator.unit).strip().casefold() != 'kwh':
+        raise ValueError('HJR membutuhkan satuan sumber Rp dan kWh mentah.')
+    cutoff = period.tanggal_selesai
+    maps = []
+    for source in (numerator, denominator):
+        table = {}
+        for row in MonteCarloMetricHistory.objects.filter(metric=source, tanggal_data__lte=cutoff).exclude(status=MonteCarloMetricHistory.STATUS_UNUPDATED).select_related('periode').order_by('tanggal_data', 'pk'):
+            key = (row.tanggal_data.year, row.tanggal_data.month)
+            if key in table:
+                raise ValueError(f'HJR: duplikat bulan {key} pada metrik {source.pk}.')
+            value = float(row.metric_value) if row.metric_value is not None else float('nan')
+            if not math.isfinite(value) or value < 0 or (source.pk == denominator.pk and value <= 0):
+                raise ValueError(f'HJR: nilai sumber tidak valid pada metrik {source.pk}, bulan {key}.')
+            table[key] = (value, row.periode)
+        maps.append(table)
+    required = {(cutoff.year, m) for m in range(1, cutoff.month + 1)}
+    if any(not required.issubset(table) for table in maps):
+        raise ValueError('HJR: sumber Januari sampai periode laporan belum lengkap.')
+    keys = sorted(set(maps[0]) & set(maps[1]))
+    if len(keys) < 3 or keys[-1] != (cutoff.year, cutoff.month):
+        raise ValueError('HJR: histori berpasangan minimal tiga bulan dan harus mencakup bulan laporan.')
+    nums = [maps[0][k][0] for k in keys]
+    dens = [maps[1][k][0] for k in keys]
+    histories = [SimpleNamespace(tanggal_data=date(y, m, monthrange(y, m)[1]),
+        metric_value=maps[0][(y,m)][0] / maps[1][(y,m)][0], periode=maps[0][(y,m)][1]) for y,m in keys]
+    data = dict(numerator_values=nums, denominator_values=dens,
+        actual_numerator=sum(maps[0][k][0] for k in required),
+        actual_denominator=sum(maps[1][k][0] for k in required),
+        numerator_metric_id=numerator.pk, denominator_metric_id=denominator.pk,
+        cutoff=cutoff.isoformat(), months_ahead=12-cutoff.month)
+    return histories, data
+
+
+def _simulate_hjr_ratio(data, n_simulations=10000, rng_seed=None, distribution_type="lognormal"):
+    # Explicit ratio model, respecting Normal/Lognormal selection. SMA3/P15
+    # supplies arithmetic means/sigmas. Independence is an assumption, not observed correlation.
+    nums = [float(x) for x in data['numerator_values']]
+    dens = [float(x) for x in data['denominator_values']]
+    n = int(n_simulations)
+    horizon = int(data['months_ahead'])
+    an, ad = float(data['actual_numerator']), float(data['actual_denominator'])
+    if n < 1000 or not 0 <= horizon <= 12 or len(nums) != len(dens) or len(nums) < 3:
+        raise ValueError('HJR: jumlah trials, horizon atau pasangan histori tidak valid.')
+    if any(not math.isfinite(v) or v < 0 for v in nums) or any(not math.isfinite(v) or v <= 0 for v in dens):
+        raise ValueError('HJR: histori pembilang/penyebut tidak valid.')
+    if not math.isfinite(an) or an < 0 or not math.isfinite(ad) or ad <= 0:
+        raise ValueError('HJR: aktual pembilang/penyebut tidak valid.')
+    seed = 20261022 if rng_seed is None else int(rng_seed)
+    rng = random.Random(seed)
+    model = str(distribution_type).casefold()
+    if model not in {'normal', 'lognormal'}:
+        raise ValueError('HJR ratio mendukung Normal/Lognormal; model lain perlu kajian.')
+    def sample(mu, sigma):
+        if model == 'normal':
+            return max(rng.gauss(mu, sigma), 0.)
+        if mu <= 0:
+            raise ValueError('HJR Lognormal memerlukan mean positif.')
+        variance_log = math.log1p((sigma/mu)**2)
+        return rng.lognormvariate(math.log(mu)-variance_log/2, math.sqrt(variance_log))
+    def path(values):
+        sigma = max(abs(mean(values[-3:]) - _percentile(values, .15)), .0001)
+        rolling = list(values)
+        future = []
+        for _ in range(horizon):
+            mu = mean(rolling[-3:]); future.append(mu); rolling.append(mu)
+        return future, sigma
+    np, ns = path(nums); dp, ds = path(dens)
+    totals, monthly = [], [[] for _ in range(horizon)]
+    for _ in range(n):
+        tn, td = an, ad
+        for i, (nm, dm) in enumerate(zip(np, dp)):
+            sn, sd = sample(nm, ns), sample(dm, ds)
+            if sd <= 0:
+                raise ValueError('HJR: sampel kWh nol; model ketidakpastian perlu dikaji, hasil tidak disimpan.')
+            tn += sn; td += sd; monthly[i].append(sn/sd)
+        totals.append(tn/td)
+    projections = []
+    for i, draws in enumerate(monthly):
+        row = dict(bulan_index=i+1, mean=np[i]/dp[i], p50=_percentile(draws,.5),
+            p15=_percentile(draws,.15), stdev_f=_stdev(draws), source='hjr_ratio_of_monthly_draws')
+        row.update({f'p{p}':_percentile(draws,p/100) for p in (20,40,60,80)})
+        projections.append(row)
+    actual = an/ad
+    expected = (an+sum(np))/(ad+sum(dp))
+    ratios = [a/b for a,b in zip(nums,dens)]
+    stats = dict(mean=mean(ratios), std=_stdev(ratios), min=min(ratios), max=max(ratios),
+        skewness=_skewness(ratios), sma_window=3, f_p50=np[0]/dp[0] if horizon else actual,
+        f_p15=_percentile(ratios,.15), std_dev=_stdev(ratios),
+        aggregation_method='ratio_of_totals', actual_semantics='YTD_revenue_divided_by_YTD_kWh',
+        forecast_semantics='full_year_revenue_divided_by_full_year_kWh',
+        patch='HJR_RATIO_OF_TOTALS_V1', rng_seed=seed, simulation_distribution_type=model,
+        dependency_model='independent_numerator_denominator_innovations',
+        uncertainty_method='SMA3_P15_sigma_arithmetic_moment_matched_'+model,
+        source_numerator_metric_id=data['numerator_metric_id'], source_denominator_metric_id=data['denominator_metric_id'],
+        actual_numerator=an, actual_denominator=ad, cutoff=data['cutoff'])
+    result = dict(actual_total=actual, future_mean_total=sum(np)/sum(dp) if horizon else 0.,
+        full_year_expected=expected, min_total=min(totals), max_total=max(totals),
+        distribution_type=model, distribution_label=model.title()+' (rasio dua sumber)',
+        projection_rows=projections, simulation_totals=totals, descriptive_stats=stats)
+    result.update({f'p{p}_total':_percentile(totals,p/100) for p in (5,20,40,50,60,80,90,95)})
+    return result

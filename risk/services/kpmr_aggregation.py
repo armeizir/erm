@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .risk_exposure import formula_exposure_or_none
+
 from decimal import Decimal
 
 from .kpmr_scoring import _fmt
@@ -102,6 +104,9 @@ def _aggregate_exposure_for_i1(report_items, quarter):
 
         raw_target = getattr(risk_event, f"eksposur_risiko_q{quarter}", None)
         raw_residual = getattr(item, "realisasi_eksposur", None)
+        if getattr(risk_event, "jenis_risiko", None) == "kuantitatif":
+            raw_target = formula_exposure_or_none(risk_event, quarter)
+            raw_residual = formula_exposure_or_none(item)
 
         for field_name, raw_value in (
             ("target", raw_target),

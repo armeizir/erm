@@ -25,7 +25,9 @@ def calculate_quarterly_risk_exposure(impact, probability):
     probability = _as_decimal(probability)
     if impact is None or probability is None:
         return None
-    if not PROBABILITY_MIN <= probability <= PROBABILITY_MAX:
+    if not impact.is_finite() or impact < 0:
+        raise ValidationError("Nilai dampak harus berupa angka non-negatif yang valid.")
+    if not probability.is_finite() or not PROBABILITY_MIN <= probability <= PROBABILITY_MAX:
         raise ValidationError(
             "Nilai probabilitas harus berada antara 0% dan 100%."
         )
@@ -73,3 +75,19 @@ def assign_item_quarterly_exposures(item):
     for field_name, value in values.items():
         setattr(item, field_name, value)
     return values
+
+
+def quantitative_exposure_components(item, quarter=None):
+    if quarter is None:
+        return (getattr(item, "realisasi_nilai_dampak", None),
+                getattr(item, "realisasi_nilai_probabilitas", None))
+    return (getattr(item, f"nilai_dampak_q{quarter}", None),
+            getattr(item, f"nilai_probabilitas_q{quarter}", None))
+
+
+def formula_exposure_or_none(item, quarter=None):
+    """Missing/invalid components are not substituted with stored exposure."""
+    try:
+        return calculate_quarterly_risk_exposure(*quantitative_exposure_components(item, quarter))
+    except (ValidationError, InvalidOperation):
+        return None

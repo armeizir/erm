@@ -392,7 +392,17 @@ def generate_monthly_report_from_reassessment(report: MonthlyRiskReport):
 def refresh_monthly_report_summary(report: MonthlyRiskReport):
     items = report.items.all()
 
-    report.total_risiko = items.count()
+    # TOTAL_RISIKO_BY_NO_ITEM_V1
+    # Satu risiko dapat memiliki beberapa detail KRI/perlakuan.
+    risk_keys = {
+        ("no_item", no_item)
+        if no_item not in (None, "")
+        else ("risk_event", risk_event_id)
+        for no_item, risk_event_id in items.order_by().values_list(
+            "risk_event__no_item", "risk_event_id"
+        )
+    }
+    report.total_risiko = len(risk_keys)
     report.total_high = (
         items.filter(
             Q(realisasi_skor_risiko__gte=20)

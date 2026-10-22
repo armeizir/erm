@@ -4,6 +4,7 @@ from collections import Counter
 
 from .kpmr_aggregation import _aggregate_exposure_for_i1, normalize_no_item
 from .kpmr_scoring import actual_residual_score, target_residual_score
+from .kpmr_owner import residual_owner_items
 
 
 COMPARISON_LABELS = {
@@ -40,6 +41,9 @@ def build_kpmr_diagnostics(report, report_items=None, quarter=None):
             ).order_by("risk_event__no_item", "risk_event__no_risiko", "pk")
         )
 
+    report_items = list(report_items)
+    owner_items = residual_owner_items(report_items)
+    owner_ids = {item.pk for item in owner_items}
     rows = []
     group_members = {}
     counts = Counter()
@@ -51,6 +55,8 @@ def build_kpmr_diagnostics(report, report_items=None, quarter=None):
         risk = item.risk_event
         group_key = normalize_no_item(risk.no_item) or f"risk:{risk.pk}"
         group_members.setdefault(group_key, []).append(risk.no_risiko)
+        if item.pk not in owner_ids:
+            continue
         target_impact = getattr(risk, f"skala_dampak_q{quarter}", None)
         target_likelihood = getattr(risk, f"skala_probabilitas_q{quarter}", None)
         actual_impact = item.realisasi_skala_dampak
@@ -101,14 +107,14 @@ def build_kpmr_diagnostics(report, report_items=None, quarter=None):
             "legacy_target_residual_level": item.target_residual_level,
             "legacy_actual_score": item.realisasi_skor_risiko,
             "source": (
-                f"Target: ReAssessmentItem.skala_dampak_q{quarter} + "
+                f"Baris utama III.A item {item.pk}; Target: ReAssessmentItem.skala_dampak_q{quarter} + "
                 f"skala_probabilitas_q{quarter}; Aktual: "
                 "MonthlyRiskReportItem.realisasi_skala_dampak + "
                 "realisasi_skala_probabilitas; Score: RiskMatrix.get_cell().skor"
             ),
         })
 
-    exposure = _aggregate_exposure_for_i1(report_items, quarter)
+    exposure = _aggregate_exposure_for_i1(owner_items, quarter)
     exposure_ready = bool(
         exposure
         and exposure["comparable_group_count"] > 0
@@ -154,8 +160,8 @@ def build_kpmr_diagnostics(report, report_items=None, quarter=None):
             "risk_count": len(members),
             "target": values.get("target"),
             "actual": values.get("residual"),
-            "target_source": f"ReAssessmentItem.eksposur_risiko_q{quarter}",
-            "actual_source": "MonthlyRiskReportItem.realisasi_eksposur",
+            "target_source": f"Kuantitatif: dampak Q{quarter} × probabilitas Q{quarter} / 100; lainnya: eksposur tersimpan",
+            "actual_source": "Kuantitatif: dampak aktual × probabilitas aktual / 100; lainnya: eksposur tersimpan",
             "is_complete": is_complete,
             "missing": missing,
             "reason": "; ".join(reasons) if reasons else "Data eksposur lengkap",

@@ -33,13 +33,33 @@ def send_fonnte_message(message: str, *, target: str | None = None) -> dict:
     return payload
 
 
-def profile_monitoring_message(rows: list[dict]) -> str:
+def profile_monitoring_message(rows: list[dict], approved_rows: list[dict] | None = None,
+                               progress_rows: list[dict] | None = None) -> str:
+    approved_rows = approved_rows or []
+    progress_rows = progress_rows or []
     lines = [
         "Yth. Bapak/Ibu PIC Manajemen Risiko Bidang/Unit,", "",
-        f"Berdasarkan hasil monitoring terbaru pada aplikasi ERM, masih terdapat {len(rows)} laporan Profil Risiko yang belum berstatus Approved, yaitu:", "",
+        "Berdasarkan hasil monitoring terbaru pada aplikasi ERM, berikut status laporan Profil Risiko bulanan:", "",
     ]
-    for index, row in enumerate(rows, start=1):
-        lines.append(f"{index}. {row['unit']} – {row['month']} – {row['status']} – Coverage {row['coverage']}")
+    for title, group, approved in (
+        ("Laporan yang telah Approved", approved_rows, True),
+        ("Laporan dalam proses Submit/Review", progress_rows, False),
+        ("Laporan yang belum Approved", rows, False),
+    ):
+        lines.append(f"{title} ({len(group)}):")
+        if not group:
+            lines.append("- Tidak ada data.")
+        for index, row in enumerate(group, start=1):
+            detail = f"{index}. {row['unit']} – {row['month']} – {row['status']}"
+            if approved:
+                detail += (
+                    f" – KPMR {row['kpmr_period']} "
+                    f"{row.get('kpmr_text', 'Belum Dinilai')}"
+                )
+            else:
+                detail += f" – Coverage {row['coverage']}"
+            lines.append(detail)
+        lines.append("")
     lines.extend([
         "",
         "Mohon bantuan Bapak/Ibu PIC masing-masing Bidang/Unit untuk segera menindaklanjuti proses review, melengkapi data yang masih kurang, serta menyelesaikan proses approval laporan Profil Risiko pada aplikasi ERM.",

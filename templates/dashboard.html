@@ -881,6 +881,66 @@
             .matrix-risk-marker{min-width:22px;height:20px;font-size:9px}
         }
     </style>
+<style>
+/* NAV_COMPACT_UNIFORM_START */
+/* Navigasi RCC: satu baris, seragam, dan rata tengah */
+.bodx-actions {
+    display: flex !important;
+    flex-flow: row nowrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 7px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: thin;
+    padding: 2px 0 4px !important;
+}
+
+.bodx-actions > .bodx-btn,
+.bodx-actions > .bodx-chip {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    align-self: center !important;
+    flex: 0 0 auto !important;
+    box-sizing: border-box !important;
+    min-height: 38px !important;
+    height: 38px !important;
+    margin: 0 !important;
+    padding: 0 12px !important;
+    border-radius: 9px !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    text-decoration: none !important;
+    text-underline-offset: 0 !important;
+}
+
+.bodx-actions > a.bodx-btn {
+    line-height: 1 !important;
+}
+
+@media (max-width: 1350px) {
+    .bodx-actions {
+        justify-content: flex-start !important;
+    }
+
+    .bodx-actions > .bodx-btn,
+    .bodx-actions > .bodx-chip {
+        min-height: 36px !important;
+        height: 36px !important;
+        padding: 0 9px !important;
+        font-size: 11px !important;
+    }
+}
+/* NAV_COMPACT_UNIFORM_END */
+</style>
 </head>
 <body>
 <div class="page">
@@ -908,12 +968,12 @@
         <div class="bodx-actions">
           <span class="bodx-chip" id="bodMode">Mode: –</span>
           <button class="bodx-btn" type="button" id="bodResidual">Gunakan Residual</button>
-          <button class="bodx-btn primary" type="button" id="bodExecutiveOpen">Dashboard Direksi</button>
-          <a class="bodx-btn" href="{% url 'executive_risk_v2_dashboard' %}">Dashboard Direksi V2</a>
+          
+          <a class="bodx-btn nav-link-button-fix" href="{% url 'executive_risk_v2_dashboard' %}" style="text-decoration:none !important;text-underline-offset:0 !important;">Dashboard Direksi</a>
           <button class="bodx-btn" type="button" id="bodFinancialOpen">Postur Keuangan RKAP</button>
           <button class="bodx-btn" type="button" id="bodExecutiveTv">Mode TV</button>
           <button class="bodx-btn" type="button" id="bodDetail">Detail RCC</button>
-<a id="strategy-risk-map-nav" class="bodx-btn" href="{% url 'strategy_risk_map:home' %}">Strategy–Risk Map</a>
+<a id="strategy-risk-map-nav" class="bodx-btn nav-link-button-fix" href="{% url 'strategy_risk_map:home' %}" style="text-decoration:none !important;text-underline-offset:0 !important;">Strategy–Risk Map</a>
         </div>
       </div>
       <div class="bodx-warn" id="bodWarn" hidden></div>

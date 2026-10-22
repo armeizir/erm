@@ -346,6 +346,16 @@ class AppSettingAdmin(admin.ModelAdmin):
     )
     readonly_fields = ("logo_preview", "masked_ai_key", "masked_email_password", "diperbarui_pada")
     fieldsets = (
+
+        ("Referensi Grafik SLA — Risiko #5 / 2026", {
+            "fields": (
+                "sla_reference_annual",
+                "sla_reference_label",
+                "sla_reference_visible",
+            ),
+            "description": "Pembanding historis 2025; tidak mengubah target atau simulasi.",
+        }),
+
         ("Identitas Aplikasi & Logo", {
             "fields": (
                 "nama_aplikasi",
@@ -6940,3 +6950,34 @@ class ProfilRisikoKorporatRelasiUnitAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         obj.full_clean()
         super().save_model(request, obj, form, change)
+
+
+# EXECUTIVE_MITIGATION_ADMIN_INLINE_V2
+from risk.models import RencanaPerlakuanRisikoKorporat
+
+
+class ExecutivePriorityMitigationInline(admin.StackedInline):
+    model = RencanaPerlakuanRisikoKorporat
+    fk_name = "risiko_korporat"
+    extra = 0
+    ordering = ("urutan", "pk")
+    verbose_name = "Program Mitigasi Prioritas"
+    verbose_name_plural = "Program Mitigasi Prioritas — Dashboard Executive"
+    fields = (
+        "urutan",
+        "rencana_perlakuan_risiko",
+        "pic",
+        "status",
+        "output_perlakuan_risiko",
+        "keterangan",
+    )
+
+
+if not any(
+    getattr(inline, "model", None) is RencanaPerlakuanRisikoKorporat
+    for inline in ProfilRisikoKorporatItemAdmin.inlines
+):
+    ProfilRisikoKorporatItemAdmin.inlines = (
+        *ProfilRisikoKorporatItemAdmin.inlines,
+        ExecutivePriorityMitigationInline,
+    )
