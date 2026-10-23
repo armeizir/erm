@@ -1852,6 +1852,21 @@ class ProfileCompletenessNotificationLog(models.Model):
         verbose_name_plural = "Log Notifikasi Kelengkapan Profil"
 
 
+class WhatsAppMonitoringDelivery(models.Model):
+    """Idempotency log for the single daily profile-monitoring message."""
+
+    delivery_key = models.CharField(max_length=180, unique=True)
+    recipient = models.CharField(max_length=64)
+    report_year = models.PositiveSmallIntegerField()
+    report_month = models.PositiveSmallIntegerField(null=True, blank=True)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-sent_at",)
+        verbose_name = "Log Pengiriman WhatsApp Monitoring"
+        verbose_name_plural = "Log Pengiriman WhatsApp Monitoring"
+
+
 class ProfileCompletenessAssessment(models.Model):
     profile = models.ForeignKey(
         ReAssessmentSummary,

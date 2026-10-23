@@ -1,6 +1,9 @@
 from django.core.management.base import BaseCommand, CommandError
+from django.conf import settings
 from django.utils import timezone
+import httpx
 
+from risk.models import WhatsAppMonitoringDelivery
 from risk.views import _unit_profile_rows
 from risk.services.kpmr_automation import calculate_kpmr_for_report
 from risk.services.whatsapp import (
@@ -15,6 +18,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--send", action="store_true")
+        parser.add_argument(
+            "--force", action="store_true",
+            help="Kirim ulang meskipun sudah ada pengiriman sukses hari ini.",
+        )
         parser.add_argument("--year", type=int, default=timezone.localdate().year)
         parser.add_argument(
             "--month", type=int, choices=range(1, 13),
@@ -84,18 +91,49 @@ class Command(BaseCommand):
             )
             return
 
-        message = profile_monitoring_message(rows, approved_rows, progress_rows)
-        self.stdout.write(message)
+        messages = [
+            ("status-kpmr", profile_monitoring_message(
+                rows, approved_rows, progress_rows, include_kpmr=True,
+            )),
+            ("status", profile_monitoring_message(
+                rows, approved_rows, progress_rows, include_kpmr=False,
+            )),
+        ]
+        for label, message in messages:
+            self.stdout.write(f"\n--- FORMAT {label.upper()} ---\n{message}")
         if not options["send"]:
             self.stdout.write(self.style.WARNING(
                 "DRY-RUN: WhatsApp tidak dikirim."
             ))
             return
 
-        try:
-            result = send_fonnte_message(message)
-        except (WhatsAppConfigurationError, RuntimeError) as exc:
-            raise CommandError(str(exc)) from exc
-        self.stdout.write(self.style.SUCCESS(
-            f"Hasil pengiriman Fonnte: {result}"
-        ))
+        recipient = settings.WHATSAPP_TARGET.strip()
+        today = timezone.localdate()
+        for label, message in messages:
+            delivery_key = f"profile-monitoring:{label}:{recipient}:{today.isoformat()}"
+            if not options["force"]:
+                delivery, created = WhatsAppMonitoringDelivery.objects.get_or_create(
+                    delivery_key=delivery_key,
+                    defaults={
+                        "recipient": recipient,
+                        "report_year": options["year"],
+                        "report_month": options["month"],
+                    },
+                )
+                if not created:
+                    self.stdout.write(self.style.WARNING(
+                        f"DUPLICATE-SKIP: format {label} sudah diproses hari ini ({today})."
+                    ))
+                    continue
+            else:
+                delivery = None
+
+            try:
+                result = send_fonnte_message(message)
+            except (WhatsAppConfigurationError, RuntimeError, httpx.RequestError) as exc:
+                if delivery is not None:
+                    delivery.delete()
+                raise CommandError(f"Format {label}: {exc}") from exc
+            self.stdout.write(self.style.SUCCESS(
+                f"Format {label}: hasil pengiriman Fonnte: {result}"
+            ))
