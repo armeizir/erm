@@ -767,7 +767,7 @@ class PenugasanUnitBisnis(models.Model):
         if not self.aktif:
             return
 
-        if self.peran in {self.ROLE_PAIRING_OFFICER, self.ROLE_RISK_CHAMPION}:
+        if self.peran == self.ROLE_PAIRING_OFFICER:
             existing = PenugasanUnitBisnis.objects.filter(
                 unit_bisnis=self.unit_bisnis,
                 peran=self.peran,
