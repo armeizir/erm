@@ -165,3 +165,6 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "webmaster@localhost")
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
+
+# SMT — Sistem Manajemen Terintegrasi
+INSTALLED_APPS += ["smt.apps.SMTConfig"]

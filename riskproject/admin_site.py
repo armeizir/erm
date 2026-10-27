@@ -142,6 +142,9 @@ class RiskAdminSite(AdminSite):
             "/admin/risk/kpmrsummary/",
             "/admin/risk/kpmritem/",
 
+            # SMT: tetap mengikuti izin model Django
+            "/admin/smt/prosedurintegrasi/",
+            "/admin/smt/instruksikerja/",
             # ICoFR Phase 1 (permission tetap ditentukan oleh Django model permissions)
             "/admin/icofr/icofrperiod/",
             "/admin/icofr/rcmset/",
@@ -387,6 +390,13 @@ class RiskAdminSite(AdminSite):
                             item("Sampel CSA", reverse("risk_admin:icofr_csasample_changelist")),
                             item("Riwayat Distribusi", reverse("risk_admin:icofr_icofrdistributionbatch_changelist")),
                             item("Riwayat Import RCM", reverse("risk_admin:icofr_rcmimportbatch_changelist")),
+                        ],
+                    },
+                    {
+                        "title": "SMT (Sistem Manajemen Terintegrasi)",
+                        "items": [
+                            item("Prosedur Integrasi (PI)", reverse("risk_admin:smt_prosedurintegrasi_changelist")),
+                            item("Instruksi Kerja (IK)", reverse("risk_admin:smt_instruksikerja_changelist")),
                         ],
                     },
                 ],
