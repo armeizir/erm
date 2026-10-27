@@ -747,6 +747,10 @@ class MonthlyRiskReportItem(TimeStampedModel):
             )
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = set(kwargs["update_fields"]) | {"realisasi_eksposur"}
+        from .risk_scale_auto import derive_scales
+        derived_fields = derive_scales(self)
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | derived_fields
         self._calculate_realisasi()
         super().save(*args, **kwargs)
 
