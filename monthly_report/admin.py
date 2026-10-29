@@ -373,6 +373,23 @@ class MonthlyRiskReportAdminForm(forms.ModelForm):
             if approved_by_field:
                 approved_by_field.queryset = _users_for_unit_group(unit)
 
+        # Search labels only; server-side querysets and automatic champion remain authoritative.
+        for name in ("reviewed_by", "approved_by"):
+            field = self.fields.get(name)
+            if field is not None:
+                field.label_from_instance = lambda user: (
+                    f"{user.get_full_name().strip() or user.get_username()} "
+                    f"({user.get_username()})"
+                    + (f" — {user.email.strip()}" if user.email else "")
+                )
+        approved = self.fields.get("approved_by")
+        if approved is not None and not approved.disabled:
+            approved.help_text = (
+                str(approved.help_text or "")
+                + " Ketik nama, username, atau email untuk mencari pengguna pada pilihan yang diizinkan."
+            ).strip()
+
+
     def _selected_unit_bisnis(self):
         if self.instance and self.instance.reassessment_id:
             return self.instance.reassessment.unit_bisnis
@@ -1984,12 +2001,14 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "screen": (
                 "admin/css/vendor/select2/select2.css",
                 "admin/css/autocomplete.css",
+                "monthly_report/admin/monthly_report_user_search.css",
                 "monthly_report/admin/monthly_report_monitoring.css",
                 "risk/css/monthly_timeline.css",
             )
         }
         js = (
             "admin/js/vendor/select2/select2.full.js",
+            "monthly_report/admin/monthly_report_user_search.js",
             "monthly_report/admin/monthly_report_items_searchable.js",
             "monthly_report/admin/monthly_report_monitoring.js",
             "monthly_report/admin/monthly_risk_scale_auto.js",
