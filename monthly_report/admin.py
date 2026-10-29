@@ -1,3 +1,6 @@
+from django.db import transaction
+from django.http import FileResponse
+from django.forms.models import BaseInlineFormSet
 import calendar
 from datetime import date
 
@@ -1276,50 +1279,14 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
     def completion_status(self):
         if self.errors:
             return "Perlu Diperiksa"
-        required_values = [
-            self._value(name)
-            for name, _label in self.required_monitoring_fields
-        ]
-        base_complete = all(
-            value not in (None, "") for value in required_values
-        )
+        return "Belum Lengkap" if self.missing_fields_guidance else "Lengkap"
 
-        kri_required = bool(
-            self.kri_is_owner
-            and self.risk
-            and (self.risk.key_risk_indicators or "").strip()
-        )
-        kri_complete = (
-            not kri_required or self._has_kri_realisasi()
-        )
-
-        return (
-            "Lengkap"
-            if base_complete and kri_complete
-            else "Belum Lengkap"
-        )
 
     @property
     def required_monitoring_fields(self):
-        treatment_fields = [
-            ("status_rencana_perlakuan", "status mitigasi"),
-            ("progress_pelaksanaan_percent", "progres mitigasi"),
-        ]
+        from .submission_validation import required_monitoring_fields
+        return required_monitoring_fields(self.instance, self.kri_is_owner)
 
-        # Child cause rows only carry III.B treatment monitoring.  Residual
-        # risk and KRI completeness belong to the first/owner row of no_item.
-        if not self.kri_is_owner:
-            return treatment_fields
-
-        risk_level_fields = [
-            ("risk_event", "risiko"),
-            ("realisasi_skala_dampak", "skala dampak"),
-            ("realisasi_skala_probabilitas", "skala probabilitas"),
-            ("realisasi_eksposur", "nilai eksposur"),
-            ("realisasi_skor_risiko", "skala nilai risiko"),
-            ("realisasi_level_risiko_bumn", "level risiko BUMN"),
-        ]
-        return risk_level_fields + treatment_fields
 
     @property
     def kri_missing_label(self):
@@ -1364,93 +1331,24 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
 
     @property
     def missing_fields_display(self):
-        missing = [
-            label for name, label in self.required_monitoring_fields
-            if self._value(name) in (None, "")
-        ]
+        return ", ".join(x["label"] for x in self.missing_fields_guidance)
 
-        if (
-            self.kri_is_owner
-            and self.risk
-            and (self.risk.key_risk_indicators or "").strip()
-            and not self._has_kri_realisasi()
-        ):
-            missing.append(self.kri_missing_label)
-
-        return ", ".join(missing)
 
     @property
     def missing_fields_guidance(self):
-        """
-        Petunjuk langsung untuk data monitoring yang belum lengkap.
-
-        Field input user mendapat anchor menuju field terkait pada inline
-        yang sama. Field hasil kalkulasi ditandai sebagai otomatis.
-        """
-        input_fields = {
-            "realisasi_skala_dampak": "Isi Data",
-            "realisasi_skala_probabilitas": "Isi Data",
-            "status_rencana_perlakuan": "Isi Data",
-            "progress_pelaksanaan_percent": "Isi Data",
-        }
-
-        derived_fields = {
-            "realisasi_eksposur",
-            "realisasi_skor_risiko",
-            "realisasi_level_risiko_bumn",
-        }
-
+        from .submission_validation import item_monitoring_issues
+        issues = item_monitoring_issues(self.instance, self.kri_is_owner)
         result = []
-
-        for name, label in self.required_monitoring_fields:
-            if self._value(name) not in (None, ""):
-                continue
-
-            action = input_fields.get(name, "")
+        for issue in issues:
+            name = issue["name"]
+            editable = name in self.fields and not self.fields[name].disabled
             result.append({
-                "name": name,
-                "label": label,
-                "href": (
-                    f"#id_{self.add_prefix(name)}"
-                    if action
-                    else ""
-                ),
-                "action": action,
-                "derived": name in derived_fields,
+                **issue,
+                "action": "Isi Data" if editable else "",
+                "href": f"#id_{self.add_prefix(name)}" if editable else "",
             })
-
-        if (
-            self.kri_is_owner
-            and self.risk
-            and (self.risk.key_risk_indicators or "").strip()
-            and not self._has_kri_realisasi()
-        ):
-            direction = (
-                getattr(
-                    self.risk,
-                    "kri_threshold_direction",
-                    "",
-                )
-                or ""
-            ).strip()
-
-            kri_field_name = (
-                "realisasi_nilai_kri"
-                if direction in {"higher_better", "lower_better"}
-                else "realisasi_kri_text"
-            )
-
-            result.append({
-                "name": kri_field_name,
-                "label": self.kri_missing_label,
-                "href": (
-                    f"#id_{self.add_prefix(kri_field_name)}"
-                ),
-                "action": "Isi Data",
-                "derived": False,
-            })
-
         return result
+
 
     @property
     def kri_status_display(self):
@@ -1984,13 +1882,70 @@ class MonthlyRiskReportLossEventInline(admin.StackedInline):
     )
 
 
+class EvidenceInlineFormSet(BaseInlineFormSet):
+    def get_form_kwargs(self, index):
+        kwargs = super().get_form_kwargs(index)
+        kwargs["report"] = self.instance
+        return kwargs
+
+
+class MonthlyRiskReportEvidenceForm(forms.ModelForm):
+    class Meta:
+        model = MonthlyRiskReportEvidence
+        fields = "__all__"
+        widgets = {"document": forms.FileInput()}
+
+    def __init__(self, *args, **kwargs):
+        report = kwargs.pop("report", None)
+        super().__init__(*args, **kwargs)
+        report = report or (self.instance.report if self.instance.report_id else None)
+        if "report_item" not in self.fields or "supersedes" not in self.fields:
+            return
+        if report and report.pk:
+            self.fields["report_item"].queryset = report.items.select_related("risk_event")
+            self.fields["supersedes"].queryset = report.evidences.exclude(document="")
+        else:
+            self.fields["report_item"].queryset = MonthlyRiskReportItem.objects.none()
+            self.fields["supersedes"].queryset = MonthlyRiskReportEvidence.objects.none()
+        if self.instance.pk:
+            for field in self.fields.values():
+                field.disabled = True
+
+
 class MonthlyRiskReportEvidenceInline(admin.TabularInline):
     model = MonthlyRiskReportEvidence
+    form = MonthlyRiskReportEvidenceForm
+    formset = EvidenceInlineFormSet
     extra = 1
-    fields = ("title", "description", "external_url", "uploaded_by", "created_at")
-    readonly_fields = ("uploaded_by", "created_at")
-    verbose_name = "Eviden Pendukung"
-    verbose_name_plural = "Eviden Pendukung — link eksternal"
+    can_delete = False
+    fields = ("title", "description", "report_item", "document", "download_document",
+              "supersedes", "version", "external_url", "uploaded_by", "created_at")
+    readonly_fields = ("download_document", "version", "uploaded_by", "created_at")
+    verbose_name = "Dokumen Eviden"
+    verbose_name_plural = "Dokumen Eviden — unggah file; versi lama tetap diarsipkan"
+
+    def get_fields(self, request, obj=None):
+        fields = super().get_fields(request, obj)
+        if obj and not self.has_change_permission(request, obj):
+            return tuple(name for name in fields if name != "document")
+        return fields
+
+    def has_add_permission(self, request, obj=None):
+        return bool(obj and obj.status in {"draft", "revision"}
+                    and super().has_add_permission(request, obj))
+
+    def has_change_permission(self, request, obj=None):
+        return bool(obj and obj.status in {"draft", "revision"}
+                    and super().has_change_permission(request, obj))
+
+    @admin.display(description="Unduh arsip")
+    def download_document(self, obj):
+        if not obj.pk or not obj.document:
+            return "-"
+        url = reverse(f"{self.admin_site.name}:monthly_report_monthlyriskreport_evidence_download",
+                      args=[obj.report_id, obj.pk])
+        return format_html('<a href="{}">{} (v{})</a>', url,
+                           obj.original_filename or obj.title, obj.version)
 
 
 class MonthlyRiskReportGroupFilter(admin.SimpleListFilter):
@@ -2019,6 +1974,7 @@ class MonthlyRiskReportGroupFilter(admin.SimpleListFilter):
 class MonthlyRiskReportAdmin(admin.ModelAdmin):
     form = MonthlyRiskReportAdminForm
     inlines = [
+        MonthlyRiskReportEvidenceInline,
         MonthlyRiskReportItemInline,
         MonthlyRiskReportChangeInline,
         MonthlyRiskReportLossEventInline,
@@ -2138,6 +2094,11 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
+                "<int:object_id>/evidence/<int:evidence_id>/download/",
+                self.admin_site.admin_view(self.evidence_download_view),
+                name="monthly_report_monthlyriskreport_evidence_download",
+            ),
+            path(
                 "<path:object_id>/peta-risiko-iiic/",
                 self.admin_site.admin_view(self.peta_risiko_iiic_view),
                 name="monthly_report_monthlyriskreport_peta_risiko_iiic",
@@ -2192,9 +2153,30 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
     def get_fields(self, request, obj=None):
         fields = list(super().get_fields(request, obj))
+        fields = [field for field in fields if field != "evidence_url"]
+        if obj and (obj.evidence_url or "").strip():
+            if "legacy_evidence_link" not in fields:
+                fields.append("legacy_evidence_link")
+        else:
+            fields = [field for field in fields if field != "legacy_evidence_link"]
         if not self._can_manage_notifications(request):
             fields = [field for field in fields if field != "notification_button"]
         return fields
+
+
+    @admin.display(description="Eviden lama")
+    def legacy_evidence_link(self, obj):
+        url = (obj.evidence_url or "").strip() if obj else ""
+        if not url:
+            return "-"
+        from urllib.parse import urlsplit
+        parsed = urlsplit(url)
+        if parsed.scheme.lower() != "https" or not parsed.netloc:
+            return url
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>',
+            url, url,
+        )
 
     def get_list_display(self, request):
         list_display = list(super().get_list_display(request))
@@ -2209,6 +2191,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
+        if "legacy_evidence_link" not in readonly_fields:
+            readonly_fields.append("legacy_evidence_link")
         if obj and "status" not in readonly_fields:
             readonly_fields.append("status")
         return readonly_fields
@@ -3248,7 +3232,10 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             )
         return sent
 
+    @transaction.atomic
     def _apply_flow_action(self, report, flow_action, user, note=""):
+        MonthlyRiskReport.objects.select_for_update().get(pk=report.pk)
+        report.refresh_from_db()
         valid_actions = {
             "submit": {"draft", "revision"},
             "review": {"submitted"},
@@ -3265,11 +3252,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         update_fields = ["status", "updated_at"]
         action_note = ""
         if flow_action == "submit":
-            if not report.evidence_url:
-                raise ValidationError(
-                    "Laporan wajib memiliki minimal satu Link Eviden sebelum disubmit."
-                )
-            validate_https_evidence_url(report.evidence_url)
+            from .evidence_services import assert_report_evidence_complete
+            assert_report_evidence_complete(report)
             risk_officers = _users_for_unit_role(
                 report.reassessment.unit_bisnis,
                 PenugasanUnitBisnis.ROLE_RISK_OFFICER,
@@ -3278,6 +3262,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 raise ValidationError("Belum ada Risk Officer aktif pada BID/Unit Bisnis laporan.")
             if not user.is_superuser and not risk_officers.filter(pk=user.pk).exists():
                 raise ValidationError("Hanya Prepared by/Risk Officer unit yang dapat submit laporan.")
+            from .submission_validation import assert_report_submission_complete
+            assert_report_submission_complete(report)
             report.status = "submitted"
             report.submitted_at = timezone.now()
             update_fields.append("submitted_at")
@@ -3331,6 +3317,33 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             note=action_note,
         )
         return report
+
+    def evidence_download_view(self, request, object_id, evidence_id):
+        report = self.get_object(request, str(object_id))
+        if report is None or not self.has_view_permission(request, report):
+            raise Http404("Dokumen tidak ditemukan.")
+        user = request.user
+        allowed = user.is_superuser or self._can_manage_notifications(request)
+        if not allowed:
+            allowed = (
+                user.pk in {report.prepared_by_id, report.reviewed_by_id, report.approved_by_id}
+                or organizational_groups_for_user(user).filter(pk=report.reassessment.unit_bisnis_id).exists()
+            )
+        if not allowed:
+            raise PermissionDenied("Anda tidak memiliki akses eviden laporan ini.")
+        evidence = report.evidences.filter(pk=evidence_id).first()
+        if evidence is None or not evidence.document:
+            raise Http404("Dokumen tidak ditemukan.")
+        try:
+            file = evidence.document.storage.open(evidence.document.name, "rb")
+        except (OSError, ValueError):
+            raise Http404("File arsip belum tersedia pada penyimpanan.")
+        response = FileResponse(file, as_attachment=True,
+                                filename=evidence.original_filename or "eviden",
+                                content_type="application/octet-stream")
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "private, no-store"
+        return response
 
     def flow_action_view(self, request, object_id, flow_action):
         report = self.get_object(request, object_id)

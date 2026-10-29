@@ -452,6 +452,14 @@ def refresh_monthly_report_summary(report: MonthlyRiskReport):
 
 @transaction.atomic
 def submit_monthly_report(report: MonthlyRiskReport, user, note: str = ""):
+    from .submission_validation import assert_report_submission_complete
+    MonthlyRiskReport.objects.select_for_update().get(pk=report.pk)
+    report.refresh_from_db()
+    if report.status not in {"draft", "revision"}:
+        raise ValidationError("Submit hanya diperbolehkan saat Draft atau Revisi.")
+    assert_report_submission_complete(report)
+    from .evidence_services import assert_report_evidence_complete
+    assert_report_evidence_complete(report)
     issues = validate_report_alignment(report)
     if issues:
         raise ValidationError({"report": issues})

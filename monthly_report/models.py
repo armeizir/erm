@@ -1,3 +1,4 @@
+from .evidence_storage import private_evidence_storage, evidence_upload_path, validate_evidence_file
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
@@ -100,8 +101,8 @@ class MonthlyRiskReport(TimeStampedModel):
         blank=True,
         default="",
         validators=[validate_https_evidence_url],
-        verbose_name="Link Eviden",
-        help_text="Tempel link folder atau file tempat eviden laporan diunggah.",
+        verbose_name="Link Referensi Eviden Lama (opsional)",
+        help_text="Unggah Dokumen Eviden pada tabel di bawah. Link ini hanya referensi tambahan.",
     )
 
     prepared_by = models.ForeignKey(
@@ -1065,18 +1066,36 @@ class MonthlyRiskReportItemPairingReview(models.Model):
 class MonthlyRiskReportEvidence(TimeStampedModel):
     report = models.ForeignKey(
         MonthlyRiskReport,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="evidences",
         verbose_name="Laporan Risiko Bulanan",
     )
     title = models.CharField(max_length=255, verbose_name="Judul Eviden")
     description = models.TextField(blank=True, default="", verbose_name="Keterangan")
+    document = models.FileField(
+        upload_to=evidence_upload_path, storage=private_evidence_storage,
+        validators=[validate_evidence_file], blank=True, default="",
+        verbose_name="Upload dokumen (maks. 20 MB)",
+    )
+    original_filename = models.CharField(max_length=255, blank=True, default="", editable=False)
+    sha256 = models.CharField(max_length=64, blank=True, default="", editable=False)
+    file_size = models.PositiveBigIntegerField(default=0, editable=False)
+    version = models.PositiveIntegerField(default=1, editable=False)
+    supersedes = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="new_versions",
+        verbose_name="Versi sebelumnya (opsional)",
+    )
+    report_item = models.ForeignKey(
+        MonthlyRiskReportItem, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="evidence_documents", verbose_name="Risiko/perlakuan terkait (opsional)",
+    )
     external_url = models.URLField(
         max_length=500,
+        blank=True,
         default="",
         validators=[validate_https_evidence_url],
         verbose_name="Link Eviden",
-        help_text="Gunakan link HTTPS menuju file atau folder tempat eviden diunggah.",
+        help_text="Referensi tambahan; tidak menggantikan dokumen eviden tersimpan.",
     )
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -1090,6 +1109,55 @@ class MonthlyRiskReportEvidence(TimeStampedModel):
         ordering = ("created_at", "id")
         verbose_name = "Eviden Laporan Risiko"
         verbose_name_plural = "Eviden Laporan Risiko"
+
+    def clean(self):
+        super().clean()
+        if not self.document and not self.external_url:
+            raise ValidationError("Unggah dokumen atau isi referensi link lama.")
+        if self.report_item_id and self.report_item.report_id != self.report_id:
+            raise ValidationError("Risiko eviden harus berasal dari laporan yang sama.")
+        if self.supersedes_id:
+            if self.supersedes.report_id != self.report_id or not self.supersedes.document:
+                raise ValidationError("Versi sebelumnya harus berupa dokumen dalam laporan yang sama.")
+            if not self.document:
+                raise ValidationError("Versi pengganti wajib memiliki dokumen.")
+
+    def save(self, *args, **kwargs):
+        import hashlib
+        from pathlib import Path
+        from django.db import transaction
+        with transaction.atomic():
+            report = MonthlyRiskReport.objects.select_for_update().get(pk=self.report_id)
+            if self.pk:
+                previous = type(self).objects.get(pk=self.pk)
+                if any(getattr(self, f.attname) != getattr(previous, f.attname)
+                       for f in self._meta.concrete_fields
+                       if f.name not in {"created_at", "updated_at", "document"}):
+                    raise ValidationError("Eviden arsip tidak dapat diubah; tambahkan versi baru.")
+                if self.document.name != previous.document.name or not self.document._committed:
+                    raise ValidationError("File arsip tidak dapat ditimpa; unggah versi baru.")
+                return
+            if report.status not in {"draft", "revision"}:
+                raise ValidationError("Upload eviden hanya diperbolehkan saat Draft atau Revisi.")
+            self.clean()
+            if self.supersedes_id:
+                if type(self).objects.filter(supersedes_id=self.supersedes_id).exists():
+                    raise ValidationError("Versi ini sudah digantikan. Pilih versi terakhir.")
+                self.version = self.supersedes.version + 1
+            if self.document:
+                validate_evidence_file(self.document)
+                self.original_filename = Path(self.document.name.replace("\\", "/")).name[:255]
+                digest = hashlib.sha256()
+                self.document.seek(0)
+                for chunk in self.document.chunks():
+                    digest.update(chunk)
+                self.document.seek(0)
+                self.sha256 = digest.hexdigest()
+                self.file_size = self.document.size
+            super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Eviden arsip tidak dihapus melalui aplikasi; unggah versi pengganti.")
 
     def __str__(self):
         return f"{self.report} - {self.title}"
