@@ -11,6 +11,9 @@ from django.utils import timezone
 from masterdata.models import TahunBuku
 from risk.models import PenugasanUnitBisnis
 
+# HCGA PERIOD SELECTION V1
+from risk.services.title_period import risk_for_report
+
 from .models import (
     MonthlyRiskReport,
     MonthlyRiskReportChange,
@@ -166,6 +169,7 @@ def duplicate_approved_report_to_next_month(source_report, user):
             source_item,
             {"report", "created_at", "updated_at"},
         )
+        values["risk_event_id"] = risk_for_report(source_item.risk_event, target).pk
         target_item = MonthlyRiskReportItem.objects.create(report=target, **values)
         try:
             alignment = source_item.km_alignment
@@ -297,6 +301,7 @@ def initialize_monthly_report_structure_from_reference(report, reference_report)
             field_name: getattr(source_item, field_name)
             for field_name in STRUCTURE_ITEM_FIELDS
         }
+        values["risk_event_id"] = risk_for_report(source_item.risk_event, target).pk
         MonthlyRiskReportItem.objects.create(report=target, **values)
 
     target.status = "draft"
@@ -346,7 +351,7 @@ def initialize_monthly_report_structure_from_profile(report):
         return target.reassessment, existing_count, 0
 
     risk_events = list(
-        target.reassessment.item.select_related("km_item").order_by(
+        target.profile_items_queryset().select_related("km_item").order_by(
             "no_item", "no_risiko", "pk"
         )
     )
@@ -370,7 +375,7 @@ def generate_monthly_report_from_reassessment(report: MonthlyRiskReport):
     Membuat atau memperbarui item report dari seluruh risk event di reassessment.
     Snapshot diambil dari assessment dan progress treatment pada periode yang sama.
     """
-    risk_events = report.reassessment.item.select_related("summary").all()
+    risk_events = report.profile_items_queryset().select_related("summary")
 
     for risk_event in risk_events:
         item, _ = MonthlyRiskReportItem.objects.update_or_create(
