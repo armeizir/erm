@@ -50,6 +50,8 @@ from .models import (
 )
 
 from masterdata.models import OrganizationUnit, TahunBuku
+# REPORT_PIC_SCOPE_V1
+from .pic_scope import configure_pic_field, pic_baseline, pic_selection_changed, sync_pic_text
 from risk.access_policy import organizational_groups_for_user
 from risk.models import (
     MasterSkalaDampak,
@@ -803,29 +805,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
                         status_map[raw_status]
                     )
 
-        pic_field = self.fields["realisasi_pic_organization_unit"]
-        pic_field.label = "Mapping PIC ke Master Organisasi"
-        pic_field.queryset = OrganizationUnit.objects.filter(aktif=True).order_by("code")
-        pic_field.help_text = (
-            "Pilih unit PIC aktif dari Master Organisasi hanya jika mapping "
-            "resminya sudah diketahui. Ketik kode atau nama untuk mencari."
-        )
-        if (
-            self.instance
-            and not self.instance.realisasi_pic_organization_unit_id
-            and self.instance.realisasi_pic
-        ):
-            legacy_pic = self.instance.realisasi_pic.strip()
-            match = pic_field.queryset.filter(code__iexact=legacy_pic).first()
-            if match is None:
-                match = pic_field.queryset.filter(name__iexact=legacy_pic).first()
-            if match:
-                self.initial["realisasi_pic_organization_unit"] = match.pk
-            else:
-                pic_field.help_text = (
-                    "Belum terhubung ke Master Organisasi. "
-                    "Biarkan kosong sampai mapping resmi PIC diketahui."
-                )
+        configure_pic_field(self, report)
         if risk:
             canonical_risk_type = getattr(risk, "jenis_risiko", None)
             if canonical_risk_type in {"kuantitatif", "kualitatif"}:
@@ -885,6 +865,10 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
         }
 
     @property
+    def pic_scope_baseline(self):
+        return pic_baseline(self)
+
+    @property
     def concurrency_guard_enabled(self):
         """
         Guard hanya aktif untuk POST dari template monitoring V2.
@@ -920,7 +904,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
             or ""
         ).strip()
 
-        return value == "1"
+        return value == "1" or pic_selection_changed(self)
 
     @property
     def concurrency_touched_token(self):
@@ -1108,6 +1092,7 @@ class MonthlyRiskReportItemForm(forms.ModelForm):
 
     def save(self, commit=True):
         obj = super().save(commit=False)
+        sync_pic_text(self, obj)
 
         kri_text = (self.cleaned_data.get("realisasi_kri_text") or "").strip()
         manual_status = self.cleaned_data.get("realisasi_kri_status_manual")
@@ -2013,6 +1998,7 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             "monthly_report/admin/monthly_report_monitoring.js",
             "monthly_report/admin/monthly_risk_scale_auto.js",
             "risk/js/monthly_timeline.js",
+            "monthly_report/admin/monthly_report_pic_scope.js",
         )
 
     fields = [

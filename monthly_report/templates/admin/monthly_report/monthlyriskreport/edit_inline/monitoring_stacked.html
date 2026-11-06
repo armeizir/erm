@@ -8,6 +8,21 @@
     <p class="monitoring-help">Isi perkembangan risiko residual, pelaksanaan mitigasi, KRI, biaya, dan tindak lanjut pada bulan laporan.</p>
     {{ inline_admin_formset.formset.management_form }}
     {{ inline_admin_formset.formset.non_form_errors }}
+    {# REPORT_PIC_SCOPE_V1 #}
+    {% if inline_admin_formset.formset.is_bound %}
+      {% for row in inline_admin_formset.formset.forms %}
+        {% if row.errors %}
+          <div class="errornote" role="alert">
+            <strong>Perubahan pada {{ row.risk_heading }} belum disimpan.</strong>
+            {{ row.non_field_errors }}
+            {% for field in row %}
+              {% if field.errors %}<p>{{ field.label }}: {{ field.errors|striptags }}</p>{% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+
 
     <style>
       .monitoring-risk-child { margin-left: 24px; border-left: 3px solid #d7e3e8; }
@@ -143,6 +158,9 @@
                    class="mrr-row-touched"
                    name="{{ inline_admin_form.form.prefix }}-_row_touched"
                    value="{{ inline_admin_form.form.concurrency_touched_token }}">
+            <input type="hidden"
+                   name="{{ inline_admin_form.form.prefix }}-_row_pic_baseline"
+                   value="{{ inline_admin_form.form.pic_scope_baseline }}">
             <p class="active-period-context">{{ inline_admin_form.form.active_period_context }}</p>
             {% if inline_admin_form.form.non_field_errors %}{{ inline_admin_form.form.non_field_errors }}{% endif %}
             {% with parent_counter=forloop.counter0 %}
