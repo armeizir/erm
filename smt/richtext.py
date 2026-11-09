@@ -145,7 +145,11 @@ def pdf_flowables(value, base_style):
                 return
             indent = depth*16 + int(attrs.get('margin-left', '0px')[:-2])*.75
             style = ParagraphStyle('SMTRich', parent=base_style,
-                                   alignment=alignments.get(attrs.get('text-align'), base_style.alignment),
+                                   alignment=(
+                                       TA_JUSTIFY
+                                       if attrs.get('text-align') in {None, 'left', 'justify'}
+                                       else alignments.get(attrs.get('text-align'), base_style.alignment)
+                                   ),
                                    leftIndent=indent, bulletIndent=max(0, indent-14),
                                    fontName='Helvetica-Bold' if node.tag in {'h3', 'h4'} else base_style.fontName)
             result.append(Paragraph(content, style, bulletText=prefix if first and prefix else None))
