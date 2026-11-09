@@ -27,6 +27,11 @@ class Document(models.Model):
     tanggal_berlaku = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
     prosedur_induk = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="instruksi_kerja", limit_choices_to={"jenis": "PI"}, verbose_name="Prosedur Integrasi terkait")
+    revisi_sebelumnya = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="revisi_lanjutan", editable=False,
+        verbose_name="Revisi sebelumnya",
+    )
     tujuan = models.TextField(blank=True)
     ruang_lingkup = models.TextField(blank=True)
     referensi = models.TextField(blank=True)
@@ -38,7 +43,7 @@ class Document(models.Model):
 
     class Meta:
         ordering = ["nomor", "-dibuat_pada"]
-        constraints = [models.UniqueConstraint(fields=["jenis", "nomor", "revisi"], name="smt_unique_document_revision"), models.UniqueConstraint(fields=["jenis", "nomor"], condition=models.Q(status="active"), name="smt_one_active_revision")]
+        constraints = [models.UniqueConstraint(fields=["jenis", "nomor", "revisi"], name="smt_unique_document_revision"), models.UniqueConstraint(fields=["jenis", "nomor"], condition=models.Q(status="active"), name="smt_one_active_revision"), models.UniqueConstraint(fields=["revisi_sebelumnya"], condition=models.Q(revisi_sebelumnya__isnull=False), name="smt_one_successor_per_revision")]
 
     def __str__(self):
         return f"{self.nomor} — {self.judul} (Rev. {self.revisi})"

@@ -4,5 +4,11 @@
   {% if original and original.pk %}
     <li><a href="{% url opts|admin_urlname:'pdf' original.pk %}" target="_blank" rel="noopener">Lihat PDF</a></li>
   {% endif %}
+  {% if can_create_revision %}
+    <li><a href="{% url opts|admin_urlname:'revision' original.pk %}">Buat Revisi Baru</a></li>
+  {% endif %}
+  {% if can_activate_revision %}
+    <li><a href="{% url opts|admin_urlname:'activate' original.pk %}">Sahkan Revisi</a></li>
+  {% endif %}
   {{ block.super }}
 {% endblock %}

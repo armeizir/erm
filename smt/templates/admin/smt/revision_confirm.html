@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+{% load admin_urls %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>{{ original.nomor }} — {{ original.judul }} (Revisi {{ original.revisi }})</p>
+{% if mode == "revision" %}
+<p>Isi dokumen akan disalin menjadi Draft dengan nomor revisi berikutnya.
+Versi saat ini tetap Berlaku. Tanggal berlaku dan catatan revisi baru dikosongkan.</p>
+<p>Lampiran final dan lembar pengesahan tetap tersimpan pada versi lama.
+Unggah lampiran yang sesuai untuk revisi baru.</p>
+{% else %}
+<p>Pastikan revisi sudah disetujui sesuai kewenangan sebelum melanjutkan.
+Versi sebelumnya akan menjadi Tidak Berlaku dan tetap tersedia sebagai arsip.</p>
+{% endif %}
+<form method="post">{% csrf_token %}
+{{ form.as_p }}
+<input type="submit" value="{% if mode == 'revision' %}Buat Draft Revisi{% else %}Sahkan menjadi Berlaku{% endif %}">
+<a href="{% url opts|admin_urlname:'change' original.pk %}">Batal</a>
+</form>
+{% endblock %}
