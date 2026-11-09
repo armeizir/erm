@@ -38,6 +38,11 @@ def create_revision(source_id):
                 "dibuat_pada", "diperbarui_pada", "revisi_sebelumnya"}
     values = {f.attname: getattr(source, f.attname)
               for f in Document._meta.concrete_fields if f.name not in excluded}
+    # SMT_AUTO_DIVISION_V1: nomor urut tetap; hanya kode divisi yang diganti.
+    parts = source.nomor.split("-")
+    if len(parts) == 5 and parts[0] in {"PI", "IK"} and parts[3] == "PRM":
+        parts[3] = "MRK"
+        values["nomor"] = "-".join(parts)
     target = Document(**values, revisi=next_revision(family), status="draft",
                       tanggal_berlaku=None, revisi_sebelumnya=source,
                       catatan_revisi="")

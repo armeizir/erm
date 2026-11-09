@@ -94,7 +94,7 @@ class DocumentAdmin(admin.ModelAdmin):
                 if "status" in self.fields:
                     self.fields["status"].choices = [("draft", "Draft"), ("review", "Dalam Review")]
                 if self.instance.revisi_sebelumnya_id:
-                    for name in ("revisi", "unit_pemilik", "prosedur_induk"):
+                    for name in ("nomor", "revisi", "unit_pemilik", "prosedur_induk"):
                         if name in self.fields:
                             self.fields[name].disabled = True
         return KindForm
