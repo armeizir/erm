@@ -46,6 +46,10 @@ class _Parser(HTMLParser):
                     clean['style'] = ';'.join(declarations)
             if key == 'start' and tag == 'ol' and re.fullmatch(r'\d{1,4}', value or ''):
                 clean['start'] = str(max(1, int(value)))
+        # SMT_SUBSECTION_V1: bounded numeric section; no arbitrary CSS/HTML attributes.
+        for key, value in attrs:
+            if key == 'data-section' and tag == 'ol' and re.fullmatch(r'[1-9][0-9]?', value or ''):
+                clean['data-section'] = value
         node = Node(tag, clean)
         self.stack[-1].children.append(node)
         if tag != 'br':
@@ -130,7 +134,8 @@ def pdf_flowables(value, base_style):
             number = int(node.attrs.get('start', '1'))
             for child in node.children:
                 if isinstance(child, Node) and child.tag == 'li':
-                    bullet = f'{number}.' if node.tag == 'ol' else '\u2022'
+                    section = node.attrs.get('data-section')
+                    bullet = (f'{section}.{number}.' if section else f'{number}.') if node.tag == 'ol' else '\u2022'
                     walk(child, depth+1, bullet, attrs)
                     number += 1
             return
@@ -144,13 +149,17 @@ def pdf_flowables(value, base_style):
             if not content:
                 return
             indent = depth*16 + int(attrs.get('margin-left', '0px')[:-2])*.75
+            from reportlab.pdfbase.pdfmetrics import stringWidth
+            if prefix:
+                indent = max(indent, max(0, (depth-1)*16) + stringWidth(prefix, base_style.fontName, base_style.fontSize) + 9)
+
             style = ParagraphStyle('SMTRich', parent=base_style,
                                    alignment=(
                                        TA_JUSTIFY
                                        if attrs.get('text-align') in {None, 'left', 'justify'}
                                        else alignments.get(attrs.get('text-align'), base_style.alignment)
                                    ),
-                                   leftIndent=indent, bulletIndent=max(0, indent-14),
+                                   leftIndent=indent, bulletIndent=max(0, (depth-1)*16),
                                    fontName='Helvetica-Bold' if node.tag in {'h3', 'h4'} else base_style.fontName)
             result.append(Paragraph(content, style, bulletText=prefix if first and prefix else None))
             first = False
