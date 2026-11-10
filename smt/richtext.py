@@ -125,28 +125,42 @@ def _manual_subsections(root):
                 expanded.append(part)
         else:
             expanded.append(node)
-    result = []; index = 0; converted = False
-    while index < len(expanded):
-        node = expanded[index]
-        first = pattern.match(visible(node)) if isinstance(node, Node) and node.tag == 'p' else None
-        if not first:
-            result.append(node); index += 1; continue
-        group = []; cursor = index; expected = int(first[2])
-        while cursor < len(expanded):
-            part = expanded[cursor]
-            match = pattern.match(visible(part)) if isinstance(part, Node) and part.tag == 'p' else None
-            if not match or match[1] != first[1] or int(match[2]) != expected: break
-            group.append((part, match.end())); expected += 1; cursor += 1
-        if len(group) < 2:
-            result.append(node); index += 1; continue
-        converted = True
-        listing = Node('ol', {'start': first[2], 'data-section': first[1]})
-        for part, length in group:
-            remove_prefix(part, length)
-            item = Node('li', dict(part.attrs)); item.children = part.children
+    # SMT_WRAPPED_NUMBERING_V4: imported PDF lines are not separate list items.
+    candidates = [part for part in expanded if isinstance(part, Node)
+                  and part.tag == 'p' and pattern.match(visible(part))]
+    if len(candidates) < 2:
+        return root
+    result = []
+    listing = None
+    last_item = None
+    previous_number = None
+    previous_parent = None
+    for part in expanded:
+        match = pattern.match(visible(part)) if isinstance(part, Node) and part.tag == 'p' else None
+        if match:
+            parent, number = match[1], int(match[2])
+            if listing is None or parent != previous_parent or number != previous_number + 1:
+                listing = Node('ol', {'start': str(number), 'data-section': parent})
+                result.append(listing)
+            remove_prefix(part, match.end())
+            item = Node('li', dict(part.attrs))
+            item.children = part.children
             listing.children.append(item)
-        result.append(listing); index = cursor
-    if converted: root.children = result
+            last_item = item
+            previous_parent, previous_number = parent, number
+        elif last_item is not None and isinstance(part, Node) and part.tag == 'p':
+            # Preserve words and inline formatting, removing only the imported
+            # hard line break (including blank lines inside one source item).
+            if visible(part).strip():
+                last_item.children.append(' ')
+                last_item.children.extend(part.children)
+        else:
+            result.append(part)
+            listing = None
+            last_item = None
+            previous_number = previous_parent = None
+    root.children = result
+
     return root
 
 
