@@ -269,7 +269,7 @@ def build_document_pdf(document):
                 ('PROSEDUR DAN LANGKAH KERJA', document.langkah_kerja)]
     for index, (title, value) in enumerate(sections, 1):
         story.append(p(f'{index}. {title}', 'SMTHeading'))
-        story.extend(pdf_flowables(value, styles['SMTBody']))
+        story.extend(pdf_flowables(value, styles['SMTBody'], section=index))
     attachments = list(document.lampiran.all())
     attachment_intro = [p('6. LAMPIRAN', 'SMTHeading'),
                         p('Berkas lampiran, termasuk lembar pengesahan dan bagan alir '

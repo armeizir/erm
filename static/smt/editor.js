@@ -19,7 +19,17 @@
       content.setAttribute('aria-label', label ? label.textContent : textarea.name);
       content.innerHTML = textarea.dataset.editorHtml || '';
       content.id = textarea.id + '_editor';
+      function refreshMarkers() {
+        content.querySelectorAll('ol[data-section]').forEach(function (list) {
+          var number = parseInt(list.getAttribute('start') || '1', 10);
+          Array.from(list.children).forEach(function (li) {
+            if (li.tagName === 'LI') li.setAttribute('data-marker', list.dataset.section + '.' + number++);
+          });
+        });
+      }
+      refreshMarkers();
       function sync() {
+        refreshMarkers();
         textarea.value = content.textContent.trim() ? content.innerHTML : '';
         textarea.dispatchEvent(new Event('change', { bubbles: true }));
       }

@@ -17,7 +17,7 @@ class RichTextWidget(forms.Textarea):
 
     def get_context(self, name, value, attrs):
         context = super().get_context(name, value, attrs)
-        context['widget']['attrs']['data-editor-html'] = editor_html(value)
+        context['widget']['attrs']['data-editor-html'] = editor_html(value, section={'tujuan': 1, 'ruang_lingkup': 2, 'referensi': 3, 'tanggung_jawab': 4, 'langkah_kerja': 5}.get(name.split('-')[-1]))
         return context
 
 

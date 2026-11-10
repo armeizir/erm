@@ -48,8 +48,11 @@ class _Parser(HTMLParser):
                 clean['start'] = str(max(1, int(value)))
         # SMT_SUBSECTION_V1: bounded numeric section; no arbitrary CSS/HTML attributes.
         for key, value in attrs:
-            if key == 'data-section' and tag == 'ol' and re.fullmatch(r'[1-9][0-9]?', value or ''):
+            if key == 'data-section' and tag == 'ol' and re.fullmatch(r'[1-9][0-9]?(?:\.[1-9][0-9]{0,3})?', value or ''):
                 clean['data-section'] = value
+        for key, value in attrs:
+            if key == 'data-marker' and tag == 'li' and re.fullmatch(r'[1-9][0-9]?(?:\.[1-9][0-9]{0,3}){1,2}', value or ''):
+                clean[key] = value
         node = Node(tag, clean)
         self.stack[-1].children.append(node)
         if tag != 'br':
@@ -95,7 +98,7 @@ def _serialize(node):
 
 def _manual_subsections(root):
     """Recognize consecutive manual subsection lines for display; no DB writes."""
-    pattern = re.compile(r'^\s*([1-9][0-9]?)\.([1-9][0-9]{0,3})\.?\s+')
+    pattern = re.compile(r'^\s*([1-9][0-9]?(?:\.[1-9][0-9]{0,3})?)\.([1-9][0-9]{0,3})\.?\s+')
     def visible(node):
         return node if isinstance(node, str) else ''.join(visible(c) for c in node.children)
     def remove_prefix(node, count):
@@ -147,12 +150,26 @@ def _manual_subsections(root):
     return root
 
 
-def editor_html(value):
+def editor_html(value, section=None):
     """Legacy plain text stays literal, including angle brackets and line breaks."""
     value = str(value or '')
-    if not RICH_PATTERN.search(value):
-        return _serialize(_manual_subsections(parse_html('<p>' + escape(value).replace('\n', '<br>') + '</p>'))) if value else ''
-    return _serialize(_manual_subsections(parse_html(value)))
+    raw = value if RICH_PATTERN.search(value) else ('<p>' + escape(value).replace('\n', '<br>') + '</p>' if value else '')
+    root = _manual_subsections(parse_html(raw))
+    def labels(node):
+        if not isinstance(node, Node): return
+        if node.tag == 'ol' and node.attrs.get('data-section'):
+            prefix = node.attrs['data-section']
+            if section is not None:
+                prefix = str(section) + ('.' + prefix.split('.', 1)[1] if '.' in prefix else '')
+                node.attrs['data-section'] = prefix
+            number = int(node.attrs.get('start', '1'))
+            for child in node.children:
+                if isinstance(child, Node) and child.tag == 'li':
+                    child.attrs['data-marker'] = f'{prefix}.{number}'
+                    number += 1
+        for child in node.children: labels(child)
+    labels(root)
+    return _serialize(root)
 
 
 def clean_value(value):
@@ -160,13 +177,13 @@ def clean_value(value):
     return editor_html(value) if RICH_PATTERN.search(value) else value
 
 
-def pdf_flowables(value, base_style):
+def pdf_flowables(value, base_style, section=None):
     """Render safe paragraphs and nested lists without exposing HTML in the PDF."""
     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Paragraph
 
-    root = parse_html(editor_html(value or 'Belum diisi.'))
+    root = parse_html(editor_html(value or 'Belum diisi.', section=section))
     result = []
     alignments = {'left': TA_LEFT, 'center': TA_CENTER, 'right': TA_RIGHT, 'justify': TA_JUSTIFY}
 
@@ -189,6 +206,8 @@ def pdf_flowables(value, base_style):
             from reportlab.pdfbase.pdfmetrics import stringWidth
             items = [c for c in node.children if isinstance(c, Node) and c.tag == 'li']
             section = node.attrs.get('data-section')
+            if section and '.' in section:
+                depth += 1
             labels = [(f'{section}.{n}.' if section else f'{n}.') if node.tag == 'ol' else '\u2022'
                       for n in range(number, number + len(items))]
             width = max([stringWidth(label, base_style.fontName, base_style.fontSize)

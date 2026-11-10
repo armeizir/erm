@@ -124,3 +124,8 @@
 .smt-editor-content ol[data-section] > li, .smt-rich-readonly ol[data-section] > li {
   padding-left: .35em; text-indent: 0;
 }
+
+/* SMT_HIERARCHY_V3 */
+.smt-editor-content ol[data-section] > li[data-marker]::marker,
+.smt-rich-readonly ol[data-section] > li[data-marker]::marker { content: attr(data-marker) ". "; }
+.smt-editor-content ol[data-section*="."], .smt-rich-readonly ol[data-section*="."] { margin-left: 1.5em; padding-left: 6.5em; }
