@@ -1283,3 +1283,7 @@ class MonthlyRiskReportImportRow(TimeStampedModel):
 
     def __str__(self):
         return f"{self.batch_id} - {self.source_reference}"
+
+
+# NAS_EVIDENCE_V1
+from .nas_models import NASEvidenceLocation, NASEvidence, NASEvidenceReview

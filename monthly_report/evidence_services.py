@@ -6,7 +6,10 @@ from django.core.exceptions import ValidationError
 def assert_report_evidence_complete(report):
     records = list(report.evidences.exclude(document='').exclude(document__isnull=True))
     if not records:
-        raise ValidationError('Unggah minimal satu Dokumen Eviden ke PRISMA sebelum submit. Link eksternal hanya referensi tambahan.')
+        from .nas_services import has_verified_nas_evidence
+        if has_verified_nas_evidence(report):
+            return
+        raise ValidationError('Unggah minimal satu dokumen ke PRISMA atau catat eviden NAS yang sudah diverifikasi petugas. Link unggah/referensi saja belum memenuhi syarat.')
     issues = []
     for record in records:
         digest = hashlib.sha256()

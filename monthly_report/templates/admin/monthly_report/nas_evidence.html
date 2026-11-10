@@ -1,0 +1,71 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p><strong>{{ report }}</strong></p>
+<p><a href="{{ back_url }}">Kembali ke laporan</a></p>
+{% if can_upload %}
+<p><a class="button" href="{{ upload_url }}" target="_blank" rel="noopener noreferrer">Unggah ke Brightbox</a></p>
+<p><label for="nas-upload-name">Salin kode ini ke kolom “Your name” di Brightbox:</label></p>
+<input id="nas-upload-name" type="text" readonly value="{{ upload_name }}" style="width: min(95%, 650px)" aria-describedby="nas-code-help">
+
+<button type="button" id="nas-copy-button"
+        aria-label="Salin kode unggahan">📋 Salin</button>
+<span id="nas-copy-status" role="status" aria-live="polite"></span>
+<script>
+(function () {
+    const button = document.getElementById("nas-copy-button");
+    const input = document.getElementById("nas-upload-name");
+    const status = document.getElementById("nas-copy-status");
+    button.addEventListener("click", async function () {
+        try {
+            if (!navigator.clipboard || !window.isSecureContext) {
+                throw new Error("Clipboard unavailable");
+            }
+            await navigator.clipboard.writeText(input.value);
+            status.textContent = "Kode berhasil disalin.";
+        } catch (error) {
+            input.focus();
+            input.select();
+            input.setSelectionRange(0, input.value.length);
+            let copied = false;
+            try { copied = document.execCommand("copy"); } catch (_) {}
+            status.textContent = copied
+                ? "Kode berhasil disalin."
+                : "Tekan Command+C (Mac) atau Ctrl+C untuk menyalin.";
+        }
+    });
+})();
+</script>
+<p id="nas-code-help">Klik kolom kode, tekan Ctrl+A lalu Ctrl+C (Mac: Command+A lalu Command+C). Tempel di “Your name”. Untuk folder beserta subfolder, unggah ZIP.</p>
+{% endif %}
+{% if location %}
+<p>Folder terkonfigurasi: <strong>{{ location.folder_path }}</strong></p>
+{% else %}
+<p>Unggahan memakai File Request umum pada folder induk NAS. Kode di atas menandai bidang, periode, dan laporan; kode tidak memindahkan berkas ke folder bidang/bulan secara otomatis.</p>
+<p>Setelah unggahan selesai, administrator perlu mengatur lokasi arsip yang sebenarnya dan tautan File Request yang sesuai agar link baca dapat dicatat dan diverifikasi di PRISMA.</p>
+{% endif %}
+{% if can_add %}
+<fieldset class="module aligned"><h2>Catat hasil unggahan</h2>
+<p>Setelah unggahan selesai, isi link baca yang dapat dibuka reviewer. Link unggah tidak dihitung sebagai eviden.</p>
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="register">
+{{ form.as_p }}<input type="submit" value="Simpan Eviden NAS"></form></fieldset>
+{% endif %}
+{% for row in records %}
+<div class="module" style="padding:16px;margin-top:20px">
+<h2>{{ row.title }}</h2>
+<p><a href="{{ row.read_url }}" target="_blank" rel="noopener noreferrer">Buka / Unduh Eviden NAS</a></p>
+<p>Lokasi arsip: {{ row.folder_snapshot }}/{{ row.relative_path }}</p>
+<p>{{ row.description|linebreaksbr }}</p>
+<p>Dicatat oleh {{ row.uploaded_by }} pada {{ row.created_at }}.</p>
+<p>Status: <strong>{% if row.verified %}Terverifikasi{% else %}Belum terverifikasi{% endif %}</strong>
+{% if row.verified %} — {{ row.verified_by }}, {{ row.verified_at }}{% endif %}</p>
+{% if can_verify %}
+<form method="post">{% csrf_token %}<input type="hidden" name="evidence_id" value="{{ row.pk }}">
+{% if row.verified %}<input type="hidden" name="action" value="revoke">
+{% else %}<input type="hidden" name="action" value="verify">
+<p><label><input type="checkbox" name="confirmed" value="yes" required> Saya telah membuka link baca dan memastikan berkas tersedia serta sesuai bidang, periode, dan judul eviden ini.</label></p>{% endif %}
+<p><label>Catatan pemeriksaan <textarea name="note" required rows="3"></textarea></label></p>
+<input type="submit" value="{% if row.verified %}Cabut verifikasi{% else %}Verifikasi Eviden{% endif %}"></form>
+{% endif %}
+<details><summary>Riwayat verifikasi</summary>{% for review in row.reviews.all %}<p>{{ review.created_at }} — {{ review.actor }} — {{ review.get_action_display }}: {{ review.note }}</p>{% empty %}<p>Belum diperiksa.</p>{% endfor %}</details>
+</div>{% empty %}<p>Belum ada catatan eviden NAS.</p>{% endfor %}
+{% endblock %}

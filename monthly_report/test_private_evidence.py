@@ -2,7 +2,7 @@ import hashlib
 import io
 import tempfile
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
@@ -72,7 +72,7 @@ class PrivateEvidenceTests(SimpleTestCase):
             document=SimpleNamespace(name='report_115/file.pdf', storage=storage))
 
     def test_link_only_cannot_submit(self):
-        with self.assertRaises(ValidationError):
+        with patch("monthly_report.nas_services.has_verified_nas_evidence", return_value=False), self.assertRaises(ValidationError):
             assert_report_evidence_complete(self.report_with([]))
 
     def test_intact_archive_can_submit(self):

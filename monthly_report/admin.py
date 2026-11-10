@@ -1,3 +1,5 @@
+from .nas_admin import NASEvidenceAdminMixin, NASEvidenceLocationAdmin
+from .nas_models import NASEvidenceLocation
 from django.db import transaction
 from django.http import FileResponse
 from django.forms.models import BaseInlineFormSet
@@ -1918,13 +1920,13 @@ class MonthlyRiskReportEvidenceInline(admin.TabularInline):
     model = MonthlyRiskReportEvidence
     form = MonthlyRiskReportEvidenceForm
     formset = EvidenceInlineFormSet
-    extra = 1
+    extra = 0
     can_delete = False
-    fields = ("title", "description", "report_item", "document", "download_document",
+    fields = ("title", "description", "report_item", "download_document",
               "supersedes", "version", "external_url", "uploaded_by", "created_at")
-    readonly_fields = ("download_document", "version", "uploaded_by", "created_at")
+    readonly_fields = fields
     verbose_name = "Dokumen Eviden"
-    verbose_name_plural = "Dokumen Eviden — unggah file; versi lama tetap diarsipkan"
+    verbose_name_plural = "Arsip Eviden ERM Lama — hanya baca; unggahan baru melalui NAS"
 
     def get_fields(self, request, obj=None):
         fields = super().get_fields(request, obj)
@@ -1933,12 +1935,10 @@ class MonthlyRiskReportEvidenceInline(admin.TabularInline):
         return fields
 
     def has_add_permission(self, request, obj=None):
-        return bool(obj and obj.status in {"draft", "revision"}
-                    and super().has_add_permission(request, obj))
+        return False
 
     def has_change_permission(self, request, obj=None):
-        return bool(obj and obj.status in {"draft", "revision"}
-                    and super().has_change_permission(request, obj))
+        return False
 
     @admin.display(description="Unduh arsip")
     def download_document(self, obj):
@@ -1973,7 +1973,7 @@ class MonthlyRiskReportGroupFilter(admin.SimpleListFilter):
 
 
 @admin.register(MonthlyRiskReport, site=risk_admin_site)
-class MonthlyRiskReportAdmin(admin.ModelAdmin):
+class MonthlyRiskReportAdmin(NASEvidenceAdminMixin, admin.ModelAdmin):
     form = MonthlyRiskReportAdminForm
     inlines = [
         MonthlyRiskReportEvidenceInline,
@@ -1981,6 +1981,13 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
         MonthlyRiskReportChangeInline,
         MonthlyRiskReportLossEventInline,
     ]
+    def get_inline_instances(self, request, obj=None):
+        instances = super().get_inline_instances(request, obj)
+        if obj is None or not obj.evidences.exists():
+            instances = [inline for inline in instances
+                         if not isinstance(inline, MonthlyRiskReportEvidenceInline)]
+        return instances
+
     class Media:
         css = {
             "screen": (
@@ -2378,7 +2385,10 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                         level=messages.SUCCESS,
                     )
                 return redirect(request.path)
+            review_changed = False
             for row in rows:
+                before_review = (row.matched_report_item_id, row.user_decision, row.user_note)
+                remap_review_row(row, report, request.POST.get(f"target_{row.pk}"))
                 decision = request.POST.get(f"decision_{row.pk}", row.user_decision)
                 if decision not in {row.DECISION_IMPORT, row.DECISION_SKIP}:
                     decision = row.DECISION_PENDING
@@ -2387,6 +2397,10 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
                 row.user_decision = decision
                 row.user_note = request.POST.get(f"note_{row.pk}", "").strip()
                 row.save(update_fields=["user_decision", "user_note", "updated_at"])
+                review_changed = review_changed or before_review != (row.matched_report_item_id, row.user_decision, row.user_note)
+            if request.POST.get("action") == "apply" and review_changed:
+                self.message_user(request, "Pemetaan/keputusan disimpan. Periksa ringkasan gabungan, lalu konfirmasi impor kembali.", level=messages.WARNING)
+                return redirect(request.path)
             if request.POST.get("action") == "apply":
                 try:
                     apply_import_batch(batch, request.user)
@@ -2435,7 +2449,8 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             and row.validation_level in {row.LEVEL_YELLOW, row.LEVEL_RED}
             for row in rows
         )
-        can_apply = bool(rows) and not batch.blocking_reason and not unresolved
+        combined_preview, combined_errors = combined_review(rows)
+        can_apply = bool(rows) and not batch.blocking_reason and not unresolved and not combined_errors and not any(row.user_decision == row.DECISION_PENDING for row in rows)
         context = {
             **self.admin_site.each_context(request),
             "title": "Review Import Laporan Profil Risiko",
@@ -2455,6 +2470,9 @@ class MonthlyRiskReportAdmin(admin.ModelAdmin):
             ),
             "target_is_empty": not report.items.exists(),
             "can_apply": can_apply,
+            "mapping_items": report.items.select_related("risk_event").order_by("risk_event__no_item", "pk"),
+            "combined_preview": combined_preview,
+            "combined_errors": combined_errors,
             "cancel_url": reverse(
                 f"{self.admin_site.name}:monthly_report_monthlyriskreport_change", args=[report.pk]
             ),
@@ -4461,3 +4479,10 @@ class MonthlyRiskReportSubmissionLogAdmin(admin.ModelAdmin):
                 "reassessment__unit_bisnis",
             )
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+# FLEXIBLE_EXCEL_IMPORT_V7
+from .import_flexible import remap_review_row, combined_review
+
+# NAS_EVIDENCE_V1
+risk_admin_site.register(NASEvidenceLocation, NASEvidenceLocationAdmin)
