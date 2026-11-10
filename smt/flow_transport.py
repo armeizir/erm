@@ -28,7 +28,7 @@ def request_flow(source, schema, instructions):
             payload['temperature'] = options['temperature']
     req = request.Request(endpoint, data=json.dumps(payload).encode(), headers=headers, method='POST')
     try:
-        with request.build_opener(NoRedirect()).open(req, timeout=30) as response:
+        with request.build_opener(NoRedirect()).open(req, timeout=90) as response:
             raw = response.read(1024*1024+1)
         if len(raw) > 1024*1024:raise AIReviewError('Respons AI terlalu besar.')
         data = json.loads(raw)
@@ -47,7 +47,13 @@ def request_flow(source, schema, instructions):
         if exc.code in {401, 403}:raise AIReviewError('Akses API ditolak. Periksa konfigurasi key dan model.') from None
         if exc.code == 429:raise AIReviewError('Batas penggunaan API tercapai. Periksa kuota atau coba lagi nanti.') from None
         raise AIReviewError('Layanan AI tidak tersedia. Tidak ada perubahan dokumen.') from None
-    except (error.URLError, socket.timeout, TimeoutError, OSError):
-        raise AIReviewError('Koneksi AI gagal atau melewati batas waktu. Tidak ada perubahan dokumen.') from None
+    except (socket.timeout, TimeoutError):
+        raise AIReviewError('AI belum merespons dalam batas waktu tunggu 90 detik. Tidak ada perubahan dokumen.') from None
+    except error.URLError as exc:
+        if isinstance(exc.reason, (socket.timeout, TimeoutError)):
+            raise AIReviewError('AI belum merespons dalam batas waktu tunggu 90 detik. Tidak ada perubahan dokumen.') from None
+        raise AIReviewError('Tidak dapat terhubung ke layanan AI. Periksa koneksi dan alamat provider. Tidak ada perubahan dokumen.') from None
+    except OSError:
+        raise AIReviewError('Koneksi ke layanan AI terputus. Tidak ada perubahan dokumen.') from None
     except (ValueError, KeyError, TypeError, AttributeError):
         raise AIReviewError('Respons AI tidak valid. Tidak ada perubahan dokumen.') from None
