@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h2>{{ original }}</h2>
+<p><a href="{{ change_url }}">Kembali ke dokumen</a></p>
+<p>Pemeriksaan memakai <strong>isi yang sudah disimpan</strong>. Simpan perubahan pada editor dahulu. Hanya teks bagian yang dipilih dikirim ke provider AI yang diatur pada Pengaturan Aplikasi PRISMA saat tombol pemeriksaan ditekan.</p>
+<p>AI dapat keliru. Tinjau makna dan istilah teknis sebelum menerapkan saran. Nomor dokumen, identitas pengesahan, lampiran, dan bagian yang tidak dipilih tidak dikirim.</p>
+{% if error_message %}<p class="errornote" role="alert">{{ error_message }}</p>{% endif %}
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="review">
+{{ form.as_p }}<button type="submit" class="button">Kirim bagian terpilih dan periksa ejaan AI</button></form>
+{% if suggestions != None %}
+<h3>Hasil pemeriksaan</h3>
+{% if suggestions %}
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="apply"><input type="hidden" name="token" value="{{ token }}">
+<table><thead><tr><th>Pilih</th><th>Bagian</th><th>Teks asli</th><th>Saran</th><th>Alasan</th></tr></thead><tbody>
+{% for item in suggestions %}<tr><td>{% if can_apply %}<input type="checkbox" name="selected" value="{{ forloop.counter0 }}" aria-label="Pilih saran {{ forloop.counter }}">{% endif %}</td><td>{{ item.field }}</td><td>{{ item.before }}</td><td>{{ item.after }}</td><td>{{ item.reason }}</td></tr>{% endfor %}
+</tbody></table>
+{% if can_apply %}<p><button type="submit" class="button">Terapkan saran yang dipilih</button></p>{% else %}<p>Dokumen ini hanya dapat diperiksa. Buat revisi baru untuk mengubah isinya.</p>{% endif %}
+</form>
+{% else %}<p>Tidak ada saran yang lolos pemeriksaan otomatis. Hasil ini bukan jaminan bahwa dokumen bebas typo.</p>{% endif %}
+{% endif %}
+{% endblock %}

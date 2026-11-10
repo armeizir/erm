@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h2>{{ original }}</h2><p><a href="{{ change_url }}">Kembali ke PI</a></p>
+<p>Simpan perubahan editor terlebih dahulu. AI membaca bagian <strong>Tanggung Jawab</strong> dan <strong>Prosedur / langkah kerja</strong> yang tersimpan. Teks kedua bagian dikirim ke provider AI pada konfigurasi PRISMA hanya saat Anda menekan tombol berikut.</p>
+<p>Hasil adalah Draft AI. Periksa kelengkapan langkah, pelaksana, cabang Ya/Tidak dan sambungannya. Pembuatan diagram tidak mengesahkan PI.</p>
+{% if error_message %}<p class="errornote" role="alert">{{ error_message }}</p>{% endif %}
+<form method="post">{% csrf_token %}<button type="submit" name="action" value="generate" class="button">Buat pratinjau dengan AI</button></form>
+{% if graph %}
+<h3>Pratinjau alur</h3>
+{% if graph.warnings %}<h4>Perlu diperiksa</h4><ul>{% for note in graph.warnings %}<li>{{ note }}</li>{% endfor %}</ul>{% endif %}
+<table><thead><tr><th>ID</th><th>Jenis</th><th>Pelaksana</th><th>Kegiatan / keputusan</th></tr></thead><tbody>
+{% for node in graph.nodes %}<tr><td>{{ node.id }}</td><td>{{ node.kind }}</td><td>{{ node.actor }}</td><td>{{ node.text }}</td></tr>{% endfor %}
+</tbody></table>
+<h4>Sambungan</h4><ul>{% for edge in graph.edges %}<li>{{ edge.source }} → {{ edge.target }}{% if edge.label %}: {{ edge.label }}{% endif %}</li>{% endfor %}</ul>
+<form method="post">{% csrf_token %}<input type="hidden" name="ticket" value="{{ ticket }}">
+<p><button class="button" type="submit" name="action" value="preview" formtarget="_blank" formnovalidate>Lihat pratinjau diagram PDF</button></p>
+{% if can_save %}{{ save_form.as_p }}<button class="button" type="submit" name="action" value="save">Simpan sebagai Lampiran Diagram Alir</button>
+{% else %}<p>PI Berlaku/Tidak Berlaku hanya dapat dipratinjau. Buat Revisi Baru untuk menambahkan lampiran.</p>{% endif %}
+</form>
+{% endif %}
+{% endblock %}

@@ -74,7 +74,11 @@ class PositionSelect(forms.Select):
               'admin/js/jquery.init.js', 'smt/position_select.js')
 
 
-class DocumentAdmin(admin.ModelAdmin):
+from .ai_admin import AIReviewAdminMixin
+from .flow_admin import AIFlowAdminMixin
+
+
+class DocumentAdmin(AIFlowAdminMixin, AIReviewAdminMixin, admin.ModelAdmin):
     form = DocumentForm
     change_form_template = "admin/smt/change_form.html"
     kind = None
@@ -389,6 +393,10 @@ class DocumentAdmin(admin.ModelAdmin):
 
     def get_urls(self):
         return [
+            path("<int:object_id>/ai-flow/", self.admin_site.admin_view(self.ai_flow_view),
+                 name=f"smt_{self.model._meta.model_name}_ai_flow"),
+            path("<int:object_id>/ai-review/", self.admin_site.admin_view(self.ai_review_view),
+                 name=f"smt_{self.model._meta.model_name}_ai_review"),
             path("approval-users/", self.admin_site.admin_view(self.approval_users_view),
                  name=f"smt_{self.model._meta.model_name}_approval_users"),
             path("<int:object_id>/revision/", self.admin_site.admin_view(self.revision_view),
