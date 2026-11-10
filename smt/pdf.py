@@ -241,16 +241,18 @@ def build_document_pdf(document):
     story = [Spacer(1, 1), NextPageTemplate('front'), PageBreak(),
               p('LEMBAR PENGESAHAN', 'SMTHeading')]
     for role, key in (('PENYUSUN', 'penyusun'), ('VERIFIKASI', 'verifikator'), ('DISAHKAN OLEH', 'pengesah')):
-        name = getattr(document, key + '_nama', '') or '-'
-        position = getattr(document, key + '_jabatan', '') or '-'
+        from .approval_positions import approval_identity
+        name, position = approval_identity(document, key)
         signed_date = getattr(document, key + '_tanggal', None)
         date_label = signed_date.strftime('%d/%m/%Y') if signed_date else '-'
         identity = [p(position), p(name), p('Tanggal: ' + date_label, 'SMTSmall')]
+        if key != 'penyusun' and not signed_date and document.status in {'draft', 'review'}:
+            identity.append(p('Belum diverifikasi' if key == 'verifikator' else 'Belum disahkan', 'SMTSmall'))
         story += [p(role, 'SMTPageTitle'),
-                  table([[p('JABATAN / NAMA', 'SMTCenter'), p('TANDA TANGAN', 'SMTCenter')],
+                  table([[p('NAMA DAN JABATAN', 'SMTCenter'), p('TANDA TANGAN', 'SMTCenter')],
                          [identity, [Spacer(1, 2.3*cm)]]], [usable*.6, usable*.4]),
                   Spacer(1, .4*cm)]
-    story += [p('Nama dan tanggal mengikuti dokumen resmi; bukan tanda tangan elektronik. Tanda tangan merujuk lampiran lembar pengesahan. Status dokumen: '
+    story += [p('Tanggal dicatat saat proses aplikasi; bukan tanda tangan elektronik. Tanda tangan merujuk lampiran lembar pengesahan. Status dokumen: '
                 + document.get_status_display() + '.', 'SMTSmall'), PageBreak(),
               p('DAFTAR ISI', 'SMTPageTitle')]
     toc = TableOfContents()

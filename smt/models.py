@@ -3,6 +3,8 @@ from pathlib import Path
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
 from django.db import models
+from django.utils import timezone
+from django.conf import settings
 from .storage import PrivateDocumentStorage
 
 
@@ -38,6 +40,10 @@ class Document(models.Model):
     tanggung_jawab = models.TextField(blank=True)
     langkah_kerja = models.TextField("Prosedur / langkah kerja", blank=True)
     catatan_revisi = models.TextField(blank=True)
+    # SMT_APPROVAL_USERS_V1
+    penyusun_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="smt_penyusun_documents", verbose_name="Nama Penyusun")
+    verifikator_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="smt_verifikator_documents", verbose_name="Nama Verifikator")
+    pengesah_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="smt_pengesah_documents", verbose_name="Nama Pengesah")
     # SMT_APPROVAL_METADATA_V1: identities from official document, not electronic signatures.
     penyusun_nama = models.CharField("Nama Penyusun", max_length=200, blank=True, default="")
     penyusun_jabatan = models.CharField("Jabatan Penyusun", max_length=255, blank=True, default="")
@@ -57,6 +63,65 @@ class Document(models.Model):
 
     def __str__(self):
         return f"{self.nomor} — {self.judul} (Rev. {self.revisi})"
+
+    def save(self, *args, **kwargs):
+        # Keep the name printed on historical documents stable after user edits.
+        previous = type(self).objects.filter(pk=self.pk).first() if self.pk else None
+        update_fields = kwargs.get('update_fields')
+        additions = set()
+        if self._state.adding and self.status == 'draft':
+            self.penyusun_tanggal = timezone.localdate()
+            additions.add('penyusun_tanggal')
+        watched = ('judul', 'nomor', 'unit_pemilik_id', 'tujuan', 'ruang_lingkup',
+                   'referensi', 'tanggung_jawab', 'langkah_kerja', 'catatan_revisi',
+                   'penyusun_user_id',
+                   'verifikator_jabatan', 'pengesah_jabatan')
+        if previous and previous.status in {'draft', 'review'} and any(
+            getattr(previous, f) != getattr(self, f) for f in watched
+            if update_fields is None or f in update_fields or f.removesuffix('_id') in update_fields
+        ):
+            self.verifikator_tanggal = self.pengesah_tanggal = None
+            additions.update({'verifikator_tanggal', 'pengesah_tanggal'})
+            if self.status == 'review':
+                self.status = 'draft'
+                additions.add('status')
+        for role in ('verifikator', 'pengesah'):
+            key = role + '_jabatan'
+            if previous and getattr(previous, key) != getattr(self, key) and (
+                update_fields is None or key in update_fields
+            ):
+                setattr(self, role + '_user_id', None)
+                setattr(self, role + '_nama', '')
+                additions.update({role + '_user', role + '_nama'})
+        for role in ('penyusun', 'verifikator', 'pengesah'):
+            key = role + '_user'
+            if update_fields is not None and key not in update_fields and key + '_id' not in update_fields:
+                continue
+            identity = getattr(self, key + '_id')
+            before = getattr(previous, key + '_id') if previous else None
+            if identity and (before != identity or not getattr(self, role + '_nama')):
+                user = getattr(self, key)
+                setattr(self, role + '_nama', user.get_full_name().strip() or user.get_username())
+                additions.add(role + '_nama')
+            elif previous and before and identity is None:
+                setattr(self, role + '_nama', '')
+                additions.add(role + '_nama')
+        if self.status in {'draft', 'review'} and (
+            update_fields is None or 'penyusun_user' in update_fields or 'penyusun_user_id' in update_fields
+        ):
+            changed = previous and previous.penyusun_user_id != self.penyusun_user_id
+            if changed or not self.penyusun_jabatan:
+                from .approval_positions import current_positions
+                titles = list(current_positions().filter(user_id=self.penyusun_user_id)
+                    .order_by('jabatan').values_list('jabatan', flat=True).distinct()) if self.penyusun_user_id else []
+                value = '; '.join(titles)
+                if len(value) > 255:
+                    raise ValidationError('Gabungan jabatan penyusun melebihi 255 karakter; periksa riwayat jabatan.')
+                self.penyusun_jabatan = value
+                additions.add('penyusun_jabatan')
+        if update_fields is not None:
+            kwargs['update_fields'] = set(update_fields) | additions
+        return super().save(*args, **kwargs)
 
     def clean(self):
         super().clean()

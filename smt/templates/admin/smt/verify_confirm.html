@@ -1,0 +1,2 @@
+{% extends "admin/base_site.html" %}
+{% block content %}<h2>{{ original }}</h2><p>Konfirmasi verifikasi isi dokumen. Tanggal verifikasi diisi otomatis hari ini. Perubahan isi setelah verifikasi mengembalikan dokumen menjadi Draft.</p><form method="post">{% csrf_token %}{{ form.as_p }}<input type="submit" value="Verifikasi Dokumen"></form>{% endblock %}

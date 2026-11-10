@@ -36,6 +36,7 @@ def create_revision(source_id):
         raise ValidationError("Masih ada Draft/Dalam Review untuk nomor ini. Selesaikan revisi tersebut dahulu.")
     excluded = {"id", "revisi", "status", "tanggal_berlaku", "catatan_revisi",
                 "dibuat_pada", "diperbarui_pada", "revisi_sebelumnya"}
+    excluded.update(['penyusun_user', 'verifikator_user', 'pengesah_user'])
     excluded.update(['penyusun_nama', 'penyusun_jabatan', 'penyusun_tanggal', 'verifikator_nama', 'verifikator_jabatan', 'verifikator_tanggal', 'pengesah_nama', 'pengesah_jabatan', 'pengesah_tanggal'])
     values = {f.attname: getattr(source, f.attname)
               for f in Document._meta.concrete_fields if f.name not in excluded}
@@ -54,10 +55,16 @@ def create_revision(source_id):
 
 
 @transaction.atomic
-def activate_revision(target_id, effective_date):
+def activate_revision(target_id, effective_date, actor=None):
     target = Document.objects.select_for_update().get(pk=target_id)
     if target.status not in {Document.Status.DRAFT, Document.Status.REVIEW}:
         raise ValidationError("Hanya Draft/Dalam Review yang dapat disahkan.")
+    # Browser actions always supply the actor. Configured workflows cannot bypass this.
+    if actor is not None or target.pengesah_jabatan or target.verifikator_jabatan:
+        if target.status != 'review' or not target.verifikator_tanggal:
+            raise ValidationError("Dokumen harus diverifikasi dahulu.")
+        from .approval_positions import record_action
+        record_action(target, 'pengesah', actor)
     if not effective_date or effective_date > timezone.localdate():
         raise ValidationError("Isi tanggal berlaku yang tidak melebihi tanggal hari ini.")
     family = list(Document.objects.select_for_update().filter(
@@ -81,5 +88,20 @@ def activate_revision(target_id, effective_date):
     target.status = Document.Status.ACTIVE
     target.tanggal_berlaku = effective_date
     target.full_clean()
-    target.save(update_fields=["status", "tanggal_berlaku", "diperbarui_pada"])
+    target.save(update_fields=["status", "tanggal_berlaku", "pengesah_tanggal", "pengesah_user", "pengesah_nama", "diperbarui_pada"])
     return target, source
+
+
+@transaction.atomic
+def verify_revision(target_id, actor):
+    target = Document.objects.select_for_update().get(pk=target_id)
+    if target.status != 'draft':
+        raise ValidationError("Hanya Draft yang dapat diverifikasi.")
+    if not target.penyusun_user_id or not target.verifikator_jabatan or not target.pengesah_jabatan:
+        raise ValidationError("Pilih penyusun serta jabatan verifikator dan pengesah dahulu.")
+    from .approval_positions import record_action
+    record_action(target, 'verifikator', actor)
+    target.status = 'review'
+    target.save(update_fields=['status', 'verifikator_user', 'verifikator_nama',
+                               'verifikator_tanggal', 'diperbarui_pada'])
+    return target

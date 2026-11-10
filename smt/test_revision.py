@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from masterdata.models import OrganizationUnit
 from .models import Document, Attachment
-from .revision import create_revision, activate_revision
+from .revision import create_revision, activate_revision, verify_revision
 
 class RevisionTests(TestCase):
     def setUp(self):
@@ -114,7 +114,8 @@ class RevisionTests(TestCase):
         self.assertEqual(self.client.post(wrong).status_code,404)
 
     def test_activation_post_logs_both_versions(self):
-        target, _ = create_revision(self.source.pk)
+        target = self.prepared_draft()
+        verify_revision(target.pk, self.user)
         response=self.client.post(self.url("activate",target),{"tanggal_berlaku":timezone.localdate().isoformat()})
         self.assertEqual(response.status_code,302)
         from django.contrib.admin.models import LogEntry
@@ -153,3 +154,111 @@ class RevisionTests(TestCase):
         with self.assertRaises(ValidationError): activate_revision(target.pk,timezone.localdate())
         self.source.refresh_from_db()
         self.assertEqual(self.source.status,"active")
+
+    def prepared_draft(self):
+        from risk.models import RiwayatJabatanUser
+        for title in ('VP MRK TEST', 'DIREKTUR TEST'):
+            RiwayatJabatanUser.objects.create(user=self.user, jabatan=title,
+                tanggal_mulai=timezone.localdate())
+        target, _ = create_revision(self.source.pk)
+        target.penyusun_user = self.user
+        target.verifikator_jabatan = 'VP MRK TEST'
+        target.pengesah_jabatan = 'DIREKTUR TEST'
+        target.save()
+        return target
+
+    def test_unverified_activation_does_not_retire_source(self):
+        target = self.prepared_draft()
+        response = self.client.post(self.url('activate', target),
+            {'tanggal_berlaku': timezone.localdate().isoformat()})
+        self.assertEqual(response.status_code, 200)
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.status, 'active')
+
+    def test_position_holder_verifies_and_records_actual_actor(self):
+        target = self.prepared_draft()
+        response = self.client.post(self.url('verify', target))
+        self.assertEqual(response.status_code, 302)
+        target.refresh_from_db()
+        self.assertEqual(target.verifikator_user_id, self.user.pk)
+        self.assertEqual(target.verifikator_tanggal, timezone.localdate())
+        self.assertIsNone(target.pengesah_tanggal)
+
+    def test_expired_or_future_position_is_not_authorized(self):
+        from risk.models import RiwayatJabatanUser
+        from .approval_positions import holds_position
+        today = timezone.localdate()
+        RiwayatJabatanUser.objects.create(user=self.user, jabatan='Expired',
+            tanggal_mulai=today-timedelta(days=10), tanggal_selesai=today-timedelta(days=1))
+        RiwayatJabatanUser.objects.create(user=self.user, jabatan='Future',
+            tanggal_mulai=today+timedelta(days=1))
+        self.assertFalse(holds_position(self.user, 'Expired'))
+        self.assertFalse(holds_position(self.user, 'Future'))
+
+    def test_another_user_cannot_verify_position(self):
+        target = self.prepared_draft()
+        other = get_user_model().objects.create_superuser('other_admin', 'other@example.test', 'test')
+        self.client.force_login(other)
+        self.assertEqual(self.client.post(self.url('verify', target)).status_code, 403)
+
+    def test_position_change_invalidates_verification(self):
+        target = self.prepared_draft()
+        target = verify_revision(target.pk, self.user)
+        target.verifikator_jabatan = 'OTHER POSITION'
+        target.save()
+        self.assertEqual(target.status, 'draft')
+        self.assertIsNone(target.verifikator_tanggal)
+        self.assertIsNone(target.verifikator_user_id)
+
+    def test_draft_form_uses_position_choices_and_search_widget(self):
+        target = self.prepared_draft()
+        response = self.client.get(self.url('change', target))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="verifikator_jabatan"')
+        self.assertContains(response, 'name="pengesah_jabatan"')
+        self.assertContains(response, 'smt/position_select.js')
+        self.assertNotContains(response, 'name="verifikator_user"')
+        self.assertNotContains(response, 'name="pengesah_user"')
+
+    def test_preparer_position_is_automatic_and_snapshot_stays_stable(self):
+        from risk.models import RiwayatJabatanUser
+        from .approval_positions import approval_identity
+        RiwayatJabatanUser.objects.create(user=self.user, jabatan='SO MANAJEMEN RISIKO',
+            tanggal_mulai=timezone.localdate())
+        target, _ = create_revision(self.source.pk)
+        target.penyusun_user = self.user
+        target.save()
+        self.assertEqual(target.penyusun_jabatan, 'SO MANAJEMEN RISIKO')
+        RiwayatJabatanUser.objects.filter(user=self.user).update(jabatan='OTHER')
+        target.save()
+        self.assertEqual(target.penyusun_jabatan, 'SO MANAJEMEN RISIKO')
+        self.assertEqual(approval_identity(target, 'penyusun')[1], 'SO MANAJEMEN RISIKO')
+
+    def test_position_identity_preview_does_not_create_approval(self):
+        from .approval_positions import approval_identity
+        target = self.prepared_draft()
+        name, position = approval_identity(target, 'verifikator')
+        self.assertEqual(name, self.user.get_username())
+        self.assertEqual(position, 'VP MRK TEST')
+        target.refresh_from_db()
+        self.assertIsNone(target.verifikator_tanggal)
+        self.assertIsNone(target.verifikator_user_id)
+        self.assertEqual(target.verifikator_nama, '')
+
+    def test_historical_identity_never_uses_current_position_holder(self):
+        from .approval_positions import approval_identity
+        target = self.prepared_draft()
+        target = verify_revision(target.pk, self.user)
+        target, _ = activate_revision(target.pk, timezone.localdate(), actor=self.user)
+        self.user.first_name = 'Different name'
+        self.user.save()
+        name, position = approval_identity(target, 'pengesah')
+        self.assertEqual(name, self.user.get_username())
+        self.assertEqual(position, 'DIREKTUR TEST')
+
+    def test_form_shows_all_three_name_and_position_pairs(self):
+        target = self.prepared_draft()
+        response = self.client.get(self.url('change', target))
+        for role in ('Penyusun', 'Verifikator', 'Pengesah'):
+            self.assertContains(response, 'Nama dan Jabatan ' + role)
+        self.assertContains(response, 'belum diproses')
