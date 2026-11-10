@@ -240,12 +240,17 @@ def build_document_pdf(document):
 
     story = [Spacer(1, 1), NextPageTemplate('front'), PageBreak(),
               p('LEMBAR PENGESAHAN', 'SMTHeading')]
-    for role in ('PENYUSUN', 'VERIFIKASI', 'DISAHKAN OLEH'):
+    for role, key in (('PENYUSUN', 'penyusun'), ('VERIFIKASI', 'verifikator'), ('DISAHKAN OLEH', 'pengesah')):
+        name = getattr(document, key + '_nama', '') or '-'
+        position = getattr(document, key + '_jabatan', '') or '-'
+        signed_date = getattr(document, key + '_tanggal', None)
+        date_label = signed_date.strftime('%d/%m/%Y') if signed_date else '-'
+        identity = [p(position), p(name), p('Tanggal: ' + date_label, 'SMTSmall')]
         story += [p(role, 'SMTPageTitle'),
-                  table([[p('JABATAN', 'SMTCenter'), p('TANDA TANGAN', 'SMTCenter')],
-                         ['', '']], [usable*.6, usable*.4], [None, 2.3*cm]),
+                  table([[p('JABATAN / NAMA', 'SMTCenter'), p('TANDA TANGAN', 'SMTCenter')],
+                         [identity, [Spacer(1, 2.3*cm)]]], [usable*.6, usable*.4]),
                   Spacer(1, .4*cm)]
-    story += [p('Kolom pengesahan diisi oleh pejabat berwenang. Status dokumen: '
+    story += [p('Nama dan tanggal mengikuti dokumen resmi; bukan tanda tangan elektronik. Tanda tangan merujuk lampiran lembar pengesahan. Status dokumen: '
                 + document.get_status_display() + '.', 'SMTSmall'), PageBreak(),
               p('DAFTAR ISI', 'SMTPageTitle')]
     toc = TableOfContents()

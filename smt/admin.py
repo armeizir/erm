@@ -78,10 +78,25 @@ class DocumentAdmin(admin.ModelAdmin):
             content = [f"formatted_{name}" for name in content]
         return fields + content + ["revisi_sebelumnya", "riwayat_revisi", "dibuat_pada", "diperbarui_pada"]
 
+    def get_fieldsets(self, request, obj=None):
+        fields = self.get_fields(request, obj)
+        approval = ['penyusun_nama', 'penyusun_jabatan', 'penyusun_tanggal', 'verifikator_nama', 'verifikator_jabatan', 'verifikator_tanggal', 'pengesah_nama', 'pengesah_jabatan', 'pengesah_tanggal']
+        return (
+            (None, {"fields": fields}),
+            ("Lembar Pengesahan", {
+                "fields": approval,
+                "description": "Isi nama, jabatan dan tanggal sesuai dokumen resmi. "
+                    "Data ini tidak merupakan tanda tangan elektronik. Unggah lembar "
+                    "bertanda tangan pada Lampiran dokumen, jenis Lembar Pengesahan. "
+                    "Dokumen Berlaku/Tidak Berlaku hanya dapat dilihat; gunakan Buat Revisi Baru.",
+            }),
+        )
+
     def get_readonly_fields(self, request, obj=None):
         fields = list(super().get_readonly_fields(request, obj))
         if obj and not self.has_change_permission(request, obj):
             fields.extend(f"formatted_{name}" for name in RICH_FIELDS)
+            fields.extend(['penyusun_nama', 'penyusun_jabatan', 'penyusun_tanggal', 'verifikator_nama', 'verifikator_jabatan', 'verifikator_tanggal', 'pengesah_nama', 'pengesah_jabatan', 'pengesah_tanggal'])
         return fields
 
     def get_form(self, request, obj=None, **kwargs):

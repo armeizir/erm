@@ -36,6 +36,7 @@ def create_revision(source_id):
         raise ValidationError("Masih ada Draft/Dalam Review untuk nomor ini. Selesaikan revisi tersebut dahulu.")
     excluded = {"id", "revisi", "status", "tanggal_berlaku", "catatan_revisi",
                 "dibuat_pada", "diperbarui_pada", "revisi_sebelumnya"}
+    excluded.update(['penyusun_nama', 'penyusun_jabatan', 'penyusun_tanggal', 'verifikator_nama', 'verifikator_jabatan', 'verifikator_tanggal', 'pengesah_nama', 'pengesah_jabatan', 'pengesah_tanggal'])
     values = {f.attname: getattr(source, f.attname)
               for f in Document._meta.concrete_fields if f.name not in excluded}
     # SMT_AUTO_DIVISION_V1: nomor urut tetap; hanya kode divisi yang diganti.

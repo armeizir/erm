@@ -38,6 +38,16 @@ class Document(models.Model):
     tanggung_jawab = models.TextField(blank=True)
     langkah_kerja = models.TextField("Prosedur / langkah kerja", blank=True)
     catatan_revisi = models.TextField(blank=True)
+    # SMT_APPROVAL_METADATA_V1: identities from official document, not electronic signatures.
+    penyusun_nama = models.CharField("Nama Penyusun", max_length=200, blank=True, default="")
+    penyusun_jabatan = models.CharField("Jabatan Penyusun", max_length=255, blank=True, default="")
+    penyusun_tanggal = models.DateField("Tanggal Penyusun", null=True, blank=True)
+    verifikator_nama = models.CharField("Nama Verifikator", max_length=200, blank=True, default="")
+    verifikator_jabatan = models.CharField("Jabatan Verifikator", max_length=255, blank=True, default="")
+    verifikator_tanggal = models.DateField("Tanggal Verifikator", null=True, blank=True)
+    pengesah_nama = models.CharField("Nama Pengesah", max_length=200, blank=True, default="")
+    pengesah_jabatan = models.CharField("Jabatan Pengesah", max_length=255, blank=True, default="")
+    pengesah_tanggal = models.DateField("Tanggal Pengesah", null=True, blank=True)
     dibuat_pada = models.DateTimeField(auto_now_add=True)
     diperbarui_pada = models.DateTimeField(auto_now=True)
 
