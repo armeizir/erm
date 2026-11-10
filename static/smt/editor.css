@@ -116,3 +116,11 @@
 .smt-editor-content ol[data-section="99"] > li::marker, .smt-rich-readonly ol[data-section="99"] > li::marker { content: "99." counter(list-item) ". "; }
 .smt-editor-content ol[data-section], .smt-rich-readonly ol[data-section] { padding-left: 4.5em; }
 .smt-editor-content ol[data-section] > li, .smt-rich-readonly ol[data-section] > li { padding-left: .3em; }
+
+/* SMT_HANGING_NUMBERING_V2: reserve the same column for 3.1 and 3.14. */
+.smt-editor-content ol[data-section], .smt-rich-readonly ol[data-section] {
+  list-style-position: outside; padding-left: 5.5em;
+}
+.smt-editor-content ol[data-section] > li, .smt-rich-readonly ol[data-section] > li {
+  padding-left: .35em; text-indent: 0;
+}

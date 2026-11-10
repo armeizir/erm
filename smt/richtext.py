@@ -93,12 +93,66 @@ def _serialize(node):
     return f'<{node.tag}{attrs}>' + ('' if node.tag == 'br' else body + f'</{node.tag}>')
 
 
+def _manual_subsections(root):
+    """Recognize consecutive manual subsection lines for display; no DB writes."""
+    pattern = re.compile(r'^\s*([1-9][0-9]?)\.([1-9][0-9]{0,3})\.?\s+')
+    def visible(node):
+        return node if isinstance(node, str) else ''.join(visible(c) for c in node.children)
+    def remove_prefix(node, count):
+        for index, child in enumerate(node.children):
+            if not count: break
+            if isinstance(child, str):
+                take = min(count, len(child))
+                node.children[index] = child[take:]
+                count -= take
+            else:
+                count = remove_prefix(child, count)
+        return count
+    # Only paragraphs containing inline formatting are candidates. Existing lists
+    # and headings retain their original structure and numbering.
+    expanded = []
+    for node in root.children:
+        if isinstance(node, Node) and node.tag in {'p', 'div'} and not any(
+            isinstance(c, Node) and c.tag in BLOCKS for c in node.children
+        ):
+            pieces = re.split(r'<br\s*/?>|\r?\n', ''.join(_serialize(c) for c in node.children))
+            for piece in pieces:
+                part = Node('p', dict(node.attrs))
+                part.children = parse_html(piece).children
+                expanded.append(part)
+        else:
+            expanded.append(node)
+    result = []; index = 0; converted = False
+    while index < len(expanded):
+        node = expanded[index]
+        first = pattern.match(visible(node)) if isinstance(node, Node) and node.tag == 'p' else None
+        if not first:
+            result.append(node); index += 1; continue
+        group = []; cursor = index; expected = int(first[2])
+        while cursor < len(expanded):
+            part = expanded[cursor]
+            match = pattern.match(visible(part)) if isinstance(part, Node) and part.tag == 'p' else None
+            if not match or match[1] != first[1] or int(match[2]) != expected: break
+            group.append((part, match.end())); expected += 1; cursor += 1
+        if len(group) < 2:
+            result.append(node); index += 1; continue
+        converted = True
+        listing = Node('ol', {'start': first[2], 'data-section': first[1]})
+        for part, length in group:
+            remove_prefix(part, length)
+            item = Node('li', dict(part.attrs)); item.children = part.children
+            listing.children.append(item)
+        result.append(listing); index = cursor
+    if converted: root.children = result
+    return root
+
+
 def editor_html(value):
     """Legacy plain text stays literal, including angle brackets and line breaks."""
     value = str(value or '')
     if not RICH_PATTERN.search(value):
-        return '<p>' + escape(value).replace('\n', '<br>') + '</p>' if value else ''
-    return _serialize(parse_html(value))
+        return _serialize(_manual_subsections(parse_html('<p>' + escape(value).replace('\n', '<br>') + '</p>'))) if value else ''
+    return _serialize(_manual_subsections(parse_html(value)))
 
 
 def clean_value(value):
@@ -132,6 +186,14 @@ def pdf_flowables(value, base_style):
             depth += 2
         if node.tag in {'ul', 'ol'}:
             number = int(node.attrs.get('start', '1'))
+            from reportlab.pdfbase.pdfmetrics import stringWidth
+            items = [c for c in node.children if isinstance(c, Node) and c.tag == 'li']
+            section = node.attrs.get('data-section')
+            labels = [(f'{section}.{n}.' if section else f'{n}.') if node.tag == 'ol' else '\u2022'
+                      for n in range(number, number + len(items))]
+            width = max([stringWidth(label, base_style.fontName, base_style.fontSize)
+                         for label in labels] or [0])
+            attrs['_list_indent'] = str(depth * 16 + width + 9)
             for child in node.children:
                 if isinstance(child, Node) and child.tag == 'li':
                     section = node.attrs.get('data-section')
@@ -150,6 +212,8 @@ def pdf_flowables(value, base_style):
                 return
             indent = depth*16 + int(attrs.get('margin-left', '0px')[:-2])*.75
             from reportlab.pdfbase.pdfmetrics import stringWidth
+            if '_list_indent' in attrs:
+                indent = max(indent, float(attrs['_list_indent']))
             if prefix:
                 indent = max(indent, max(0, (depth-1)*16) + stringWidth(prefix, base_style.fontName, base_style.fontSize) + 9)
 
