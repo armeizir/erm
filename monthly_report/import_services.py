@@ -46,7 +46,7 @@ IMPORTABLE_FIELDS = (
     "realisasi_threshold_kri_skor",
     "realisasi_nilai_kri",
 )
-IMPORT_PARSER_VERSION = 6
+IMPORT_PARSER_VERSION = 7
 
 IIIA_QUARTER_COLUMNS = {
     "realisasi_nilai_dampak": {1: 14, 2: 15, 3: 16, 4: 17},       # O:R
@@ -1275,6 +1275,7 @@ def analyze_import_batch(batch):
             key: _json_value(value)
             for key, value in entry["proposed_data"].items()
             if value not in (None, "")
+            or key in entry.get("raw_data", {}).get("clear_fields", [])
             or (
                 entry["source_sheet"] == "III.A"
                 and key in entry["raw_data"].get("empty_quarter_fields", [])
@@ -1431,3 +1432,8 @@ def apply_import_batch(batch, user):
         note=f"Import Excel {batch.original_filename}; batch ID {batch.pk}.",
     )
     return batch
+
+
+# FLEXIBLE_EXCEL_IMPORT_V7
+from .import_flexible import install as _install_flexible_excel
+_install_flexible_excel(globals())

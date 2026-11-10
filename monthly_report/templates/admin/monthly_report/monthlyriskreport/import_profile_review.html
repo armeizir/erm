@@ -49,6 +49,10 @@
     <details style="margin:12px 0">
       <summary>Diagnostik parser</summary>
       {% for sheet, diagnostic in summary.parser_diagnostics.items %}
+        {# FLEXIBLE_EXCEL_IMPORT_V7 #}
+        <p><strong>Periode: {{ diagnostic.selected_period }} / {{ diagnostic.selected_quarter }}</strong></p>
+        {% for warning in diagnostic.warnings %}<p class="errornote">{{ warning }}</p>{% endfor %}
+        <ul>{% for field, col in diagnostic.columns.items %}<li>{{ field }}: kolom {{ col.letter }}</li>{% endfor %}</ul>
         <p><strong>{{ sheet }}</strong> — anchor {{ diagnostic.anchor }};
           kandidat {{ diagnostic.candidate_rows }};
           diterima {{ diagnostic.accepted_rows }};
@@ -66,6 +70,18 @@
   </div>
   <div style="padding:12px;background:#eef5fb;margin-bottom:15px"><strong>Analisis:</strong> {{ batch.ai_summary|default:"-" }}</div>
 
+  <p><strong>Periksa setiap baris sebelum impor.</strong> Data kosong mempertahankan nilai lama.
+  Kolom ambigu tidak ditebak. Risiko baru tidak dibuat otomatis. Aktual KRI teks perlu diperiksa
+  dan statusnya ditetapkan melalui form laporan setelah impor. Baris merah hanya dapat dilewati.</p>
+  <h3>Ringkasan gabungan baris yang dipilih</h3>
+  <p>Simpan keputusan terlebih dahulu, periksa hasil gabungan per risiko, lalu konfirmasi impor.
+  Rincian perlakuan digabung; biaya dijumlahkan dan progres dirata-rata hanya jika seluruh rincian terisi.</p>
+  {% for error in combined_errors %}<p class="errornote">{{ error }}</p>{% endfor %}
+  {% for item in combined_preview %}<details><summary>#{{ item.item_id }} — {{ item.target }}</summary>
+    <ul>{% for key, value in item.values.items %}<li>{{ key }}: {{ value|default_if_none:"Dikosongkan" }}</li>{% endfor %}</ul>
+    {% for note in item.notes %}<p>{{ note }}</p>{% endfor %}
+  </details>{% empty %}<p>Belum ada baris terpilih untuk diimpor.</p>{% endfor %}
+
   <form method="post">
     {% csrf_token %}
     <div style="overflow-x:auto">
@@ -76,7 +92,11 @@
           <tr class="{{ row.validation_level }}">
             <td><strong>{{ row.get_validation_level_display }}</strong><br>{{ row.confidence }}%</td>
             <td>{{ row.source_reference }}<br><strong>{{ row.risk_code }}</strong><br>{{ row.risk_event_text }}</td>
-            <td>{% if row.matched_report_item_id %}{{ row.matched_report_item.risk_event }}{% else %}-{% endif %}</td>
+            <td><label>Risiko tujuan:
+              <select name="target_{{ row.pk }}" {% if batch.status != 'review' %}disabled{% endif %}>
+                <option value="">Belum dipetakan</option>
+                {% for item in mapping_items %}<option value="{{ item.pk }}" {% if row.matched_report_item_id == item.pk %}selected{% endif %}>#{{ item.pk }} — {{ item.risk_event }}</option>{% endfor %}
+              </select></label></td>
             <td>{% for issue in row.issues %}<div>{{ issue }}</div>{% empty %}-{% endfor %}{% if row.ai_analysis %}<hr>{{ row.ai_analysis }}{% endif %}</td>
             <td>
               <ul class="change-list">
