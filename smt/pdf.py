@@ -262,13 +262,18 @@ def build_document_pdf(document):
     story += [toc, PageBreak(), p('DAFTAR PERUBAHAN DOKUMEN', 'SMTHeading')]
     # The model stores a current revision note, not a structured revision history.
     # Do not turn the sample document's history into this document's history.
-    story.append(table([
+    # SMT_REVISION_NOTE_IN_TABLE_V1
+    revision_table = table([
         [p('REVISI', 'SMTSmall'), p('TANGGAL BERLAKU', 'SMTSmall'),
          p('URAIAN PERUBAHAN', 'SMTSmall')],
         [p(document.revisi), p(date_text),
-         p('Catatan revisi disajikan di bawah tabel.', 'SMTSmall')],
-    ], [2*cm, 4*cm, usable-6*cm]))
-    story.extend(pdf_flowables(document.catatan_revisi or 'Belum ada catatan revisi.', styles['SMTBody']))
+         pdf_flowables(
+             document.catatan_revisi or 'Belum ada catatan revisi.',
+             styles['SMTBody'],
+         )],
+    ], [2*cm, 4*cm, usable-6*cm])
+    revision_table.splitInRow = 1
+    story.append(revision_table)
     story += [NextPageTemplate('body'), PageBreak()]
     sections = [('TUJUAN', document.tujuan), ('LINGKUP', document.ruang_lingkup),
                 ('REFERENSI', document.referensi),
