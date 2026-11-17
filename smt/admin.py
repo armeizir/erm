@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import FileResponse, Http404, JsonResponse
 from django.contrib.auth import get_user_model
 from django.contrib.admin.widgets import AutocompleteSelect
-from django.db.models import Q
+from django.db.models import Q, TextField
 from django.shortcuts import get_object_or_404
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -57,6 +57,25 @@ class AttachmentInline(admin.TabularInline):
         return self.has_change_permission(request, obj)
 
 
+class RevisionEntryInline(AttachmentInline):
+    from .models import DocumentRevisionEntry
+    from .revision_history import RevisionEntryFormSet
+    model = DocumentRevisionEntry
+    form = forms.ModelForm
+    formset = RevisionEntryFormSet
+    extra = 0
+    fields = ("urutan", "revisi", "tanggal_berlaku", "uraian")
+    readonly_fields = ()
+    verbose_name_plural = "Daftar Perubahan Dokumen (satu baris per revisi)"
+    formfield_overrides = {
+        TextField:
+            {"widget": forms.Textarea(attrs={"rows": 6, "cols": 75})}
+    }
+
+    def get_fields(self, request, obj=None):
+        return self.fields
+
+
 class ApprovalUserSelect(AutocompleteSelect):
     def __init__(self, field, admin_site, view_name, **kwargs):
         self.approval_view_name = view_name
@@ -86,7 +105,7 @@ class DocumentAdmin(AIFlowAdminMixin, AIReviewAdminMixin, admin.ModelAdmin):
     list_filter = ("status", "unit_pemilik")
     search_fields = ("nomor", "judul")
     readonly_fields = ("dibuat_pada", "diperbarui_pada", "riwayat_revisi", "revisi_sebelumnya")
-    inlines = (AttachmentInline,)
+    inlines = (RevisionEntryInline, AttachmentInline,)
     save_as = False
     actions = None
 
@@ -185,6 +204,10 @@ class DocumentAdmin(AIFlowAdminMixin, AIReviewAdminMixin, admin.ModelAdmin):
             def __init__(self, *args, **kw):
                 super().__init__(*args, **kw)
                 self.instance.jenis = kind
+                if 'catatan_revisi' in self.fields:
+                    self.fields['catatan_revisi'].help_text = (
+                        'Catatan lama tetap disimpan. Jika Daftar Perubahan Dokumen diisi, '
+                        'PDF memakai baris pada daftar tersebut. Isi satu baris untuk setiap revisi.')
                 for role in ('penyusun', 'verifikator', 'pengesah'):
                     name = role + '_user'
                     if name in self.fields:
@@ -231,6 +254,14 @@ class DocumentAdmin(AIFlowAdminMixin, AIReviewAdminMixin, admin.ModelAdmin):
         if obj.status not in {"draft", "review"}:
             raise PermissionDenied("Gunakan Sahkan Revisi untuk memberlakukan dokumen.")
         super().save_model(request, obj, form, change)
+
+    def save_formset(self, request, form, formset, change):
+        from .models import DocumentRevisionEntry
+        if formset.model is DocumentRevisionEntry:
+            from .revision_history import save_revision_formset
+            save_revision_formset(formset)
+        else:
+            super().save_formset(request, form, formset, change)
 
     def save_related(self, request, form, formsets, change):
         from django.utils import timezone
@@ -349,14 +380,14 @@ class DocumentAdmin(AIFlowAdminMixin, AIReviewAdminMixin, admin.ModelAdmin):
         ids = {obj.pk}
         frontier = {obj.pk}
         while frontier:
-            from django.db.models import Q
+            from django.db.models import Q, TextField
             rows = list(Document.objects.filter(
                 Q(pk__in=frontier) | Q(revisi_sebelumnya_id__in=frontier)
             ).values_list("pk", "revisi_sebelumnya_id"))
             found = {value for row in rows for value in row if value is not None}
             frontier = found - ids
             ids |= found
-        from django.db.models import Q
+        from django.db.models import Q, TextField
         return "; ".join(
             f"{d.nomor} — Rev. {d.revisi}: {d.get_status_display()}"
             for d in Document.objects.filter(

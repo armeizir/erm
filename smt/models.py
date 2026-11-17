@@ -160,3 +160,29 @@ class Attachment(models.Model):
 
     def __str__(self):
         return self.nama
+
+
+class DocumentRevisionEntry(models.Model):
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="daftar_perubahan")
+    revisi = models.CharField("Revisi", max_length=30)
+    tanggal_berlaku = models.DateField("Tanggal berlaku", null=True, blank=True,
+        help_text="Tanggal revisi berjalan mengikuti tanggal berlaku dokumen.")
+    uraian = models.TextField("Uraian perubahan")
+    urutan = models.PositiveIntegerField("Urutan", default=0)
+
+    class Meta:
+        ordering = ["urutan", "pk"]
+        verbose_name = "Perubahan dokumen"
+        verbose_name_plural = "Daftar Perubahan Dokumen"
+        constraints = [models.UniqueConstraint(fields=["document", "revisi"], name="smt_unique_history_revision")]
+
+    def __str__(self):
+        return "Revisi " + self.revisi
+
+    def clean(self):
+        super().clean()
+        self.revisi = self.revisi.strip()
+        if not self.revisi or not self.uraian.strip():
+            raise ValidationError("Revisi dan uraian perubahan harus diisi.")
+        if self.document_id and self.document.status in {"active", "retired"}:
+            raise ValidationError("Riwayat dokumen yang disahkan/diarsipkan tidak dapat diubah.")

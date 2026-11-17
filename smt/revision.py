@@ -50,6 +50,8 @@ def create_revision(source_id):
                       catatan_revisi="")
     target.full_clean()
     target.save()
+    from .revision_history import copy_revision_history
+    copy_revision_history(source, target)
     # Lampiran final/pengesahan tetap di arsip sumber, tidak dianggap sah untuk draft baru.
     return target, True
 

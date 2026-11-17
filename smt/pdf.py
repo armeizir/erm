@@ -260,18 +260,15 @@ def build_document_pdf(document):
     toc.levelStyles = [ParagraphStyle('SMTContents', fontName='Helvetica',
                                       fontSize=10, leading=16, spaceBefore=8)]
     story += [toc, PageBreak(), p('DAFTAR PERUBAHAN DOKUMEN', 'SMTHeading')]
-    # The model stores a current revision note, not a structured revision history.
-    # Do not turn the sample document's history into this document's history.
-    # SMT_REVISION_NOTE_IN_TABLE_V1
-    revision_table = table([
-        [p('REVISI', 'SMTSmall'), p('TANGGAL BERLAKU', 'SMTSmall'),
-         p('URAIAN PERUBAHAN', 'SMTSmall')],
-        [p(document.revisi), p(date_text),
-         pdf_flowables(
-             document.catatan_revisi or 'Belum ada catatan revisi.',
-             styles['SMTBody'],
-         )],
-    ], [2*cm, 4*cm, usable-6*cm])
+    # SMT_REVISION_HISTORY_TABLE_V1
+    from .revision_history import revision_rows
+    rows = [[p('REVISI', 'SMTSmall'), p('TANGGAL BERLAKU', 'SMTSmall'),
+             p('URAIAN PERUBAHAN', 'SMTSmall')]]
+    for revision, effective_date, note in revision_rows(document):
+        rows.append([p(revision),
+                     p(effective_date.strftime('%d.%m.%Y') if effective_date else 'Belum ditetapkan'),
+                     pdf_flowables(note, styles['SMTBody'])])
+    revision_table = table(rows, [2*cm, 4*cm, usable-6*cm])
     revision_table.splitInRow = 1
     story.append(revision_table)
     story += [NextPageTemplate('body'), PageBreak()]
