@@ -143,7 +143,7 @@ class DocumentAdmin(AIFlowAdminMixin, AIReviewAdminMixin, admin.ModelAdmin):
         fields = ["nomor", "judul", "unit_pemilik", "revisi", "tanggal_berlaku", "status"]
         if self.kind == "IK":
             fields.append("prosedur_induk")
-        content = list(RICH_FIELDS)
+        content = [name for name in RICH_FIELDS if name != "catatan_revisi"]
         if obj and not self.has_change_permission(request, obj):
             content = [f"formatted_{name}" for name in content]
         return fields + content + ["revisi_sebelumnya", "riwayat_revisi", "dibuat_pada", "diperbarui_pada"]
